@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 type PageHeaderProps = HTMLAttributes<HTMLDivElement> & {
   title: string;
   eyebrow?: string;
-  description?: string;
+  description?: ReactNode;
   actions?: ReactNode;
 };
 

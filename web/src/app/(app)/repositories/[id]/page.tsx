@@ -978,7 +978,11 @@ export default function RepositoryDetailPage() {
         <PageHeader
           eyebrow="Repository Workspace"
           title={repo?.name || "Repository"}
-          description={repo?.path || "Explore the codebase through files, symbols, field guides, reviews, and change impact."}
+          description={repo?.remoteUrl ? (
+            <a href={repo.remoteUrl} target="_blank" rel="noopener noreferrer" className="underline decoration-[var(--border-default)] underline-offset-4 transition-colors hover:text-[var(--text-primary)] hover:decoration-[var(--text-primary)]">
+              {repo.path || repo.remoteUrl}
+            </a>
+          ) : (repo?.path || "Explore the codebase through files, symbols, field guides, reviews, and change impact.")}
         />
         {repo && (
           <Panel className="w-full lg:w-72">
@@ -1775,7 +1779,7 @@ export default function RepositoryDetailPage() {
                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-[var(--text-primary)]">Field Guide</p>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Cliff Notes</p>
                       <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
                         {currentCliffNotes
                           ? `${currentCliffNotes.sections.length} section${currentCliffNotes.sections.length !== 1 ? "s" : ""}${currentCliffNotes.generatedAt ? ` · Generated ${formatGeneratedAt(currentCliffNotes.generatedAt)}` : ""}`

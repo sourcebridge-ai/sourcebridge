@@ -102,6 +102,7 @@ export const REPOSITORY_QUERY = gql`
       id
       name
       path
+      remoteUrl
       status
       fileCount
       functionCount
