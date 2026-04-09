@@ -157,6 +157,24 @@ function knowledgeErrorHint(errorCode: string | null | undefined): string {
   }
 }
 
+function renderKnowledgeFailure(artifact: KnowledgeArtifact) {
+  return (
+    <div className="mb-5 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+      <p className="text-sm font-medium text-[var(--text-primary)]">
+        {artifact.errorCode || "GENERATION_FAILED"}
+      </p>
+      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+        {knowledgeErrorHint(artifact.errorCode)}
+      </p>
+      {artifact.errorMessage ? (
+        <p className="mt-2 whitespace-pre-wrap text-xs text-[var(--text-tertiary)]">
+          {artifact.errorMessage}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 interface ScopeChild {
   scopeType: string;
   label: string;
@@ -1863,21 +1881,7 @@ export default function RepositoryDetailPage() {
                               />
                             </div>
                           ) : null}
-                          {currentCliffNotes.status === "FAILED" ? (
-                            <div className="mb-5 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
-                              <p className="text-sm font-medium text-[var(--text-primary)]">
-                                {currentCliffNotes.errorCode || "GENERATION_FAILED"}
-                              </p>
-                              <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                                {knowledgeErrorHint(currentCliffNotes.errorCode)}
-                              </p>
-                              {currentCliffNotes.errorMessage ? (
-                                <p className="mt-2 whitespace-pre-wrap text-xs text-[var(--text-tertiary)]">
-                                  {currentCliffNotes.errorMessage}
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
+                          {currentCliffNotes.status === "FAILED" ? renderKnowledgeFailure(currentCliffNotes) : null}
                           {currentCliffNotes.sections
                             .slice()
                             .sort((a, b) => a.orderIndex - b.orderIndex)
@@ -2173,6 +2177,8 @@ export default function RepositoryDetailPage() {
                         </div>
                       ) : null}
 
+                      {currentWorkflowStory?.status === "FAILED" ? renderKnowledgeFailure(currentWorkflowStory) : null}
+
                       {currentWorkflowStory && (currentWorkflowStory.status === "READY" || currentWorkflowStory.status === "STALE") ? (
                         <div className="space-y-3">
                           {currentWorkflowStory.sections
@@ -2272,6 +2278,9 @@ export default function RepositoryDetailPage() {
                         {currentLearningPath && (
                           <div className="mb-5">
                             <h4 className="text-sm font-semibold text-[var(--text-primary)]">Learning Path</h4>
+                            {currentLearningPath.status === "FAILED" ? (
+                              <div className="mt-3">{renderKnowledgeFailure(currentLearningPath)}</div>
+                            ) : null}
                             <div className="mt-3 space-y-3">
                               {currentLearningPath.sections.slice().sort((a, b) => a.orderIndex - b.orderIndex).map((step, idx) => (
                                 <div key={step.id} className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
@@ -2298,6 +2307,9 @@ export default function RepositoryDetailPage() {
                         {currentCodeTour && (
                           <div>
                             <h4 className="text-sm font-semibold text-[var(--text-primary)]">Code Tour</h4>
+                            {currentCodeTour.status === "FAILED" ? (
+                              <div className="mt-3">{renderKnowledgeFailure(currentCodeTour)}</div>
+                            ) : null}
                             <div className="mt-3 flex flex-wrap gap-2">
                               {currentCodeTour.sections.slice().sort((a, b) => a.orderIndex - b.orderIndex).map((stop, idx) => (
                                 <button

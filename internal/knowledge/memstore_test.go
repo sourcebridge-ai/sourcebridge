@@ -173,3 +173,72 @@ func TestDeleteArtifactCleansUpSectionsAndEvidence(t *testing.T) {
 		t.Fatal("expected evidence to be cleaned up")
 	}
 }
+
+func TestSetArtifactFailedPersistsErrorMetadata(t *testing.T) {
+	s := NewMemStore()
+
+	stored, err := s.StoreKnowledgeArtifact(&Artifact{
+		RepositoryID: "repo-1",
+		Type:         ArtifactWorkflowStory,
+		Audience:     AudienceDeveloper,
+		Depth:        DepthMedium,
+		Status:       StatusGenerating,
+	})
+	if err != nil {
+		t.Fatalf("StoreKnowledgeArtifact: %v", err)
+	}
+
+	if err := s.SetArtifactFailed(stored.ID, "LLM_EMPTY", "provider returned no content"); err != nil {
+		t.Fatalf("SetArtifactFailed: %v", err)
+	}
+
+	fetched := s.GetKnowledgeArtifact(stored.ID)
+	if fetched.Status != StatusFailed {
+		t.Fatalf("expected status failed, got %s", fetched.Status)
+	}
+	if fetched.ErrorCode != "LLM_EMPTY" {
+		t.Fatalf("expected error code LLM_EMPTY, got %q", fetched.ErrorCode)
+	}
+	if fetched.ErrorMessage != "provider returned no content" {
+		t.Fatalf("expected persisted error message, got %q", fetched.ErrorMessage)
+	}
+}
+
+func TestUpdateKnowledgeArtifactStatusClearsErrorMetadataOnRecovery(t *testing.T) {
+	s := NewMemStore()
+
+	stored, err := s.StoreKnowledgeArtifact(&Artifact{
+		RepositoryID: "repo-1",
+		Type:         ArtifactCodeTour,
+		Audience:     AudienceDeveloper,
+		Depth:        DepthDeep,
+		Status:       StatusGenerating,
+	})
+	if err != nil {
+		t.Fatalf("StoreKnowledgeArtifact: %v", err)
+	}
+
+	if err := s.SetArtifactFailed(stored.ID, "WORKER_UNAVAILABLE", "dial tcp timeout"); err != nil {
+		t.Fatalf("SetArtifactFailed: %v", err)
+	}
+	if err := s.UpdateKnowledgeArtifactStatus(stored.ID, StatusReady); err != nil {
+		t.Fatalf("UpdateKnowledgeArtifactStatus: %v", err)
+	}
+
+	fetched := s.GetKnowledgeArtifact(stored.ID)
+	if fetched.Status != StatusReady {
+		t.Fatalf("expected status ready, got %s", fetched.Status)
+	}
+	if fetched.ErrorCode != "" {
+		t.Fatalf("expected cleared error code, got %q", fetched.ErrorCode)
+	}
+	if fetched.ErrorMessage != "" {
+		t.Fatalf("expected cleared error message, got %q", fetched.ErrorMessage)
+	}
+	if fetched.Progress != 1.0 {
+		t.Fatalf("expected ready artifact progress to be 1.0, got %f", fetched.Progress)
+	}
+	if fetched.GeneratedAt.IsZero() {
+		t.Fatal("expected generated_at to be set on recovery")
+	}
+}

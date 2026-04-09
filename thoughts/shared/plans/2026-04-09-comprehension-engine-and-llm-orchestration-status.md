@@ -60,8 +60,19 @@ Purpose: execution log and handoff state for autonomous implementation
 ## In progress in this pass
 
 - Real-provider benchmark runner for thor/Ollama is not implemented yet.
-- UI failure details are currently surfaced for the main cliff notes panel; broader surfacing across other artifact panels can still be expanded.
 - Full orchestrator/monitor work is still pending.
+- Broader mutation dedupe beyond `refreshKnowledgeArtifact` is still pending.
+
+## Added in latest slice
+
+- Extended persisted failure detail surfacing to the remaining repository artifact panels:
+  - workflow story
+  - learning path
+  - code tour
+- Refactored the repository page to reuse a shared `renderKnowledgeFailure()` helper for consistent error presentation.
+- Added direct memstore coverage for failure metadata behavior:
+  - `SetArtifactFailed()` persists `status`, `errorCode`, and `errorMessage`
+  - `UpdateKnowledgeArtifactStatus(..., READY)` clears prior failure metadata and restores ready-state fields
 
 ## Next recommended steps if handed off
 
@@ -70,8 +81,7 @@ Purpose: execution log and handoff state for autonomous implementation
    - decide whether committed fixture benchmark results should stay in-tree or only regenerated in CI/local workflows
 2. Finish A1/A2 API-side work:
    - broaden dedupe beyond refresh where still needed
-   - propagate failure metadata to additional artifact panels and any admin views
-   - decide whether to add explicit store tests for failure metadata
+   - decide whether any admin/ops views should surface persisted artifact failure metadata
 3. Add a phase report artifact under an OSS-safe path.
 4. Only then consider broader orchestrator/monitor work.
 
@@ -92,11 +102,14 @@ Successful:
 - `cd workers && uv run python -m pytest tests/test_requirements_servicer.py -v`
 - `go test ./internal/api/graphql ./internal/knowledge ./internal/db`
 - `go test ./internal/api/graphql`
+- `go test ./internal/knowledge ./internal/api/graphql`
 
 Frontend validation resolved in this environment:
 
 - `cd web && npm ci`
 - `cd web && npm run lint -- --file 'src/app/(app)/repositories/[id]/page.tsx' --file src/lib/graphql/queries.ts`
+  - passed with no ESLint warnings or errors
+- `cd web && npm run lint -- --file 'src/app/(app)/repositories/[id]/page.tsx'`
   - passed with no ESLint warnings or errors
 
 Observed issue fixed during this pass:
