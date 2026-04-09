@@ -490,24 +490,38 @@ func (r *mutationResolver) AnalyzeSymbol(ctx context.Context, repositoryID strin
 	symbolContext := extractSymbolContext(fileContent, sym.StartLine, sym.EndLine)
 
 	ctx = r.withModelMetadata(ctx, "analysis")
-	resp, err := r.Worker.AnalyzeSymbol(ctx, &reasoningv1.AnalyzeSymbolRequest{
-		RepositoryId: repositoryID,
-		Symbol: &commonv1.CodeSymbol{
-			Id:            sym.ID,
-			Name:          sym.Name,
-			QualifiedName: sym.QualifiedName,
-			Kind:          commonv1.SymbolKind(commonv1.SymbolKind_value["SYMBOL_KIND_"+strings.ToUpper(sym.Kind)]),
-			Language:      languageToProto(sym.Language),
-			Location: &commonv1.FileLocation{
-				Path:      sym.FilePath,
-				StartLine: int32(sym.StartLine),
-				EndLine:   int32(sym.EndLine),
-			},
-			Signature:  sym.Signature,
-			DocComment: sym.DocComment,
-		},
-		SurroundingContext: symbolContext,
-	})
+	var resp *reasoningv1.AnalyzeSymbolResponse
+	err = r.runSyncLLMJob(ctx, llm.SubsystemReasoning, "analyze_symbol",
+		fmt.Sprintf("reasoning:analyze_symbol:%s:%s", repositoryID, sym.ID),
+		repositoryID,
+		func(rt llm.Runtime) error {
+			var callErr error
+			resp, callErr = r.Worker.AnalyzeSymbol(ctx, &reasoningv1.AnalyzeSymbolRequest{
+				RepositoryId: repositoryID,
+				Symbol: &commonv1.CodeSymbol{
+					Id:            sym.ID,
+					Name:          sym.Name,
+					QualifiedName: sym.QualifiedName,
+					Kind:          commonv1.SymbolKind(commonv1.SymbolKind_value["SYMBOL_KIND_"+strings.ToUpper(sym.Kind)]),
+					Language:      languageToProto(sym.Language),
+					Location: &commonv1.FileLocation{
+						Path:      sym.FilePath,
+						StartLine: int32(sym.StartLine),
+						EndLine:   int32(sym.EndLine),
+					},
+					Signature:  sym.Signature,
+					DocComment: sym.DocComment,
+				},
+				SurroundingContext: symbolContext,
+			})
+			if callErr != nil {
+				return callErr
+			}
+			if resp.Usage != nil {
+				rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
+			}
+			return nil
+		})
 	if err != nil {
 		return nil, fmt.Errorf("worker analyze failed: %w", err)
 	}
@@ -631,20 +645,33 @@ func (r *mutationResolver) DiscussCode(ctx context.Context, input DiscussCodeInp
 	}
 
 	ctx = r.withModelMetadata(ctx, "discussion")
-	resp, err := r.Worker.AnswerQuestion(ctx, &reasoningv1.AnswerQuestionRequest{
-		Question:       input.Question,
-		RepositoryId:   input.RepositoryID,
-		ContextSymbols: contextSymbols,
-		MaxTokens:      4096,
-		ContextCode:    contextCode,
-		Language:       lang,
-		FilePath: func() string {
-			if input.FilePath == nil {
-				return ""
+	var resp *reasoningv1.AnswerQuestionResponse
+	filePathArg := ""
+	if input.FilePath != nil {
+		filePathArg = *input.FilePath
+	}
+	targetKey := fmt.Sprintf("reasoning:discuss:%s:%s:%s",
+		input.RepositoryID, filePathArg, hashString(input.Question))
+	err := r.runSyncLLMJob(ctx, llm.SubsystemReasoning, "discuss_code", targetKey, input.RepositoryID,
+		func(rt llm.Runtime) error {
+			var callErr error
+			resp, callErr = r.Worker.AnswerQuestion(ctx, &reasoningv1.AnswerQuestionRequest{
+				Question:       input.Question,
+				RepositoryId:   input.RepositoryID,
+				ContextSymbols: contextSymbols,
+				MaxTokens:      4096,
+				ContextCode:    contextCode,
+				Language:       lang,
+				FilePath:       filePathArg,
+			})
+			if callErr != nil {
+				return callErr
 			}
-			return *input.FilePath
-		}(),
-	})
+			if resp.Usage != nil {
+				rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
+			}
+			return nil
+		})
 	if err != nil {
 		return nil, fmt.Errorf("worker discuss failed: %w", err)
 	}
@@ -728,13 +755,27 @@ func (r *mutationResolver) ReviewCode(ctx context.Context, input ReviewCodeInput
 	}
 
 	ctx = r.withModelMetadata(ctx, "review")
-	resp, err := r.Worker.ReviewFile(ctx, &reasoningv1.ReviewFileRequest{
-		RepositoryId: input.RepositoryID,
-		FilePath:     input.FilePath,
-		Language:     lang,
-		Content:      content,
-		Template:     input.Template,
-	})
+	var resp *reasoningv1.ReviewFileResponse
+	err := r.runSyncLLMJob(ctx, llm.SubsystemReasoning, "review_code",
+		fmt.Sprintf("reasoning:review:%s:%s:%s", input.RepositoryID, input.FilePath, input.Template),
+		input.RepositoryID,
+		func(rt llm.Runtime) error {
+			var callErr error
+			resp, callErr = r.Worker.ReviewFile(ctx, &reasoningv1.ReviewFileRequest{
+				RepositoryId: input.RepositoryID,
+				FilePath:     input.FilePath,
+				Language:     lang,
+				Content:      content,
+				Template:     input.Template,
+			})
+			if callErr != nil {
+				return callErr
+			}
+			if resp.Usage != nil {
+				rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
+			}
+			return nil
+		})
 	if err != nil {
 		return nil, fmt.Errorf("worker review failed: %w", err)
 	}
@@ -867,14 +908,22 @@ func (r *mutationResolver) AutoLinkRequirements(ctx context.Context, repositoryI
 	slog.Info("auto-link: starting batch link", "requirements", len(protoReqs), "candidates", len(candidates))
 
 	// Use BatchLink for a single gRPC call — entity embeddings are computed once
-	// and reused across all requirements by the worker.
-	resp, err := r.Worker.BatchLink(context.Background(), &linkingv1.BatchLinkRequest{
-		Requirements:     protoReqs,
-		RepositoryId:     repositoryID,
-		MinConfidence:    minConf,
-		CandidateSymbols: candidates,
-	})
-	if err != nil {
+	// and reused across all requirements by the worker. Routed through the
+	// orchestrator so this shows up on the Monitor page alongside knowledge /
+	// reasoning work and can be deduped across rapid repeated invocations.
+	var resp *linkingv1.BatchLinkResponse
+	if err := r.runSyncLLMJob(context.Background(), llm.SubsystemLinking, "batch_link",
+		fmt.Sprintf("linking:batch:%s", repositoryID), repositoryID,
+		func(rt llm.Runtime) error {
+			var callErr error
+			resp, callErr = r.Worker.BatchLink(context.Background(), &linkingv1.BatchLinkRequest{
+				Requirements:     protoReqs,
+				RepositoryId:     repositoryID,
+				MinConfidence:    minConf,
+				CandidateSymbols: candidates,
+			})
+			return callErr
+		}); err != nil {
 		return nil, fmt.Errorf("batch link failed: %w", err)
 	}
 
@@ -920,16 +969,29 @@ func (r *mutationResolver) EnrichRequirement(ctx context.Context, requirementID 
 	}
 
 	ctx = r.withModelMetadata(ctx, "analysis")
-	resp, err := r.Worker.EnrichRequirement(ctx, &requirementsv1.EnrichRequirementRequest{
-		Requirement: &commonv1.Requirement{
-			Id:          req.ID,
-			ExternalId:  req.ExternalID,
-			Title:       req.Title,
-			Description: req.Description,
-			Priority:    req.Priority,
-			Tags:        req.Tags,
-		},
-	})
+	var resp *requirementsv1.EnrichRequirementResponse
+	err := r.runSyncLLMJob(ctx, llm.SubsystemRequirements, "enrich_requirement",
+		fmt.Sprintf("requirements:enrich:%s", req.ID), "",
+		func(rt llm.Runtime) error {
+			var callErr error
+			resp, callErr = r.Worker.EnrichRequirement(ctx, &requirementsv1.EnrichRequirementRequest{
+				Requirement: &commonv1.Requirement{
+					Id:          req.ID,
+					ExternalId:  req.ExternalID,
+					Title:       req.Title,
+					Description: req.Description,
+					Priority:    req.Priority,
+					Tags:        req.Tags,
+				},
+			})
+			if callErr != nil {
+				return callErr
+			}
+			if resp.Usage != nil {
+				rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
+			}
+			return nil
+		})
 	if err != nil {
 		return nil, fmt.Errorf("worker enrich failed: %w", err)
 	}
@@ -1113,12 +1175,19 @@ func (r *mutationResolver) TriggerSpecExtraction(ctx context.Context, input Trig
 
 	slog.Info("spec-extraction: starting", "repo", repo.Name, "files", len(protoFiles), "skipLLM", skipLLM)
 
-	resp, err := r.Worker.ExtractSpecs(ctx, &requirementsv1.ExtractSpecsRequest{
-		RepositoryId:      input.RepositoryID,
-		RepositoryName:    repo.Name,
-		Files:             protoFiles,
-		SkipLlmRefinement: skipLLM,
-	})
+	var resp *requirementsv1.ExtractSpecsResponse
+	err = r.runSyncLLMJob(ctx, llm.SubsystemRequirements, "extract_specs",
+		fmt.Sprintf("requirements:extract:%s", input.RepositoryID), input.RepositoryID,
+		func(rt llm.Runtime) error {
+			var callErr error
+			resp, callErr = r.Worker.ExtractSpecs(ctx, &requirementsv1.ExtractSpecsRequest{
+				RepositoryId:      input.RepositoryID,
+				RepositoryName:    repo.Name,
+				Files:             protoFiles,
+				SkipLlmRefinement: skipLLM,
+			})
+			return callErr
+		})
 	if err != nil {
 		return nil, fmt.Errorf("spec extraction failed: %w", err)
 	}
@@ -2088,16 +2157,33 @@ func (r *mutationResolver) ExplainSystem(ctx context.Context, input ExplainSyste
 	bgCtx, bgCancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer bgCancel()
 	bgCtx = r.withModelMetadata(bgCtx, "knowledge")
-	resp, err := r.Worker.ExplainSystem(bgCtx, &knowledgev1.ExplainSystemRequest{
-		RepositoryId:   repo.ID,
-		RepositoryName: repo.Name,
-		Audience:       audience,
-		Question:       question,
-		ScopeType:      string(scope.ScopeType),
-		ScopePath:      scope.ScopePath,
-		SnapshotJson:   string(snapJSON),
-		Depth:          depth,
-	})
+
+	var resp *knowledgev1.ExplainSystemResponse
+	err = r.runSyncLLMJob(bgCtx, llm.SubsystemKnowledge, "explain_system",
+		fmt.Sprintf("knowledge:explain:%s:%s:%s:%s",
+			repo.ID, scope.ScopeType, scope.ScopePath, hashString(question)),
+		repo.ID,
+		func(rt llm.Runtime) error {
+			rt.ReportSnapshotBytes(len(snapJSON))
+			var callErr error
+			resp, callErr = r.Worker.ExplainSystem(bgCtx, &knowledgev1.ExplainSystemRequest{
+				RepositoryId:   repo.ID,
+				RepositoryName: repo.Name,
+				Audience:       audience,
+				Question:       question,
+				ScopeType:      string(scope.ScopeType),
+				ScopePath:      scope.ScopePath,
+				SnapshotJson:   string(snapJSON),
+				Depth:          depth,
+			})
+			if callErr != nil {
+				return callErr
+			}
+			if resp.Usage != nil {
+				rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
+			}
+			return nil
+		})
 	if err != nil {
 		return nil, fmt.Errorf("system explanation failed: %w", err)
 	}

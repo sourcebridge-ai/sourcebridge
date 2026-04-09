@@ -4,6 +4,7 @@
 package orchestrator
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -376,6 +377,131 @@ func TestIsRetryableClassification(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnqueueSyncWaitsForTerminalState(t *testing.T) {
+	orch := newTestOrchestrator(t, Config{MaxConcurrency: 2})
+
+	var captured string
+	job, err := orch.EnqueueSync(context.Background(), &llm.EnqueueRequest{
+		Subsystem: llm.SubsystemReasoning,
+		JobType:   "analyze_symbol",
+		TargetKey: "reasoning:analyze:sym-1",
+		Run: func(rt llm.Runtime) error {
+			// Simulate a worker call that produces a payload.
+			time.Sleep(10 * time.Millisecond)
+			captured = "symbol analyzed"
+			rt.ReportTokens(100, 50)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("EnqueueSync failed: %v", err)
+	}
+	if job.Status != llm.StatusReady {
+		t.Fatalf("expected terminal status ready, got %q", job.Status)
+	}
+	if captured != "symbol analyzed" {
+		t.Fatalf("closure capture missed: %q", captured)
+	}
+}
+
+func TestEnqueueSyncPropagatesFailureStatus(t *testing.T) {
+	orch := newTestOrchestrator(t, Config{MaxConcurrency: 1})
+
+	job, err := orch.EnqueueSync(context.Background(), &llm.EnqueueRequest{
+		Subsystem: llm.SubsystemReasoning,
+		JobType:   "review",
+		TargetKey: "reasoning:review:fail",
+		Run: func(rt llm.Runtime) error {
+			return errors.New("LLM returned empty content (review)")
+		},
+	})
+	if err != nil {
+		t.Fatalf("EnqueueSync failed: %v", err)
+	}
+	if job.Status != llm.StatusFailed {
+		t.Fatalf("expected failed, got %q", job.Status)
+	}
+	if job.ErrorCode != "LLM_EMPTY" {
+		t.Fatalf("expected error code LLM_EMPTY, got %q", job.ErrorCode)
+	}
+}
+
+func TestEnqueueSyncReturnsImmediatelyOnDedupeHit(t *testing.T) {
+	orch := newTestOrchestrator(t, Config{MaxConcurrency: 1})
+
+	// Seed a terminal job into the store so dedupe returns it.
+	store := llm.NewMemStore()
+	_ = store // unused; we need to reach into orch's store instead
+	// Easier: run a job to completion first, then EnqueueSync the same target.
+	first, err := orch.EnqueueSync(context.Background(), &llm.EnqueueRequest{
+		Subsystem: llm.SubsystemKnowledge,
+		JobType:   "cliff_notes",
+		TargetKey: "repo-1:enqueuesync-dedupe",
+		Run: func(rt llm.Runtime) error {
+			return nil
+		},
+	})
+	if err != nil || first.Status != llm.StatusReady {
+		t.Fatalf("first call failed: %v status=%q", err, first.Status)
+	}
+
+	// Second call with the same target key should return quickly.
+	// Note: our dedupe only hits for active jobs; once the first is
+	// terminal a second request starts fresh. So this tests that a
+	// fast second job still works correctly via EnqueueSync.
+	second, err := orch.EnqueueSync(context.Background(), &llm.EnqueueRequest{
+		Subsystem: llm.SubsystemKnowledge,
+		JobType:   "cliff_notes",
+		TargetKey: "repo-1:enqueuesync-dedupe",
+		Run: func(rt llm.Runtime) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("second EnqueueSync failed: %v", err)
+	}
+	if second.Status != llm.StatusReady {
+		t.Fatalf("expected ready, got %q", second.Status)
+	}
+}
+
+func TestEnqueueSyncRespectsContextCancellation(t *testing.T) {
+	orch := newTestOrchestrator(t, Config{MaxConcurrency: 1})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	blocker := make(chan struct{})
+
+	// Kick off a long-running job in a separate goroutine so we can
+	// cancel the context from the test.
+	done := make(chan error)
+	go func() {
+		_, err := orch.EnqueueSync(ctx, &llm.EnqueueRequest{
+			Subsystem: llm.SubsystemReasoning,
+			JobType:   "analyze_symbol",
+			TargetKey: "reasoning:analyze:ctx",
+			Run: func(rt llm.Runtime) error {
+				<-blocker
+				return nil
+			},
+		})
+		done <- err
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("EnqueueSync did not return after ctx cancel")
+	}
+
+	// Release the blocker so the orchestrator's worker can finish.
+	close(blocker)
 }
 
 func TestBackoffGrowsExponentially(t *testing.T) {

@@ -223,6 +223,76 @@ func (o *Orchestrator) GetJob(id string) *llm.Job {
 	return o.store.GetByID(id)
 }
 
+// EnqueueSync is a blocking variant of Enqueue used by resolvers that
+// need the LLM result inline (AnalyzeSymbol, DiscussCode, ReviewCode,
+// etc. — mutations that return structured data rather than a job id).
+//
+// The caller's Run closure captures the response into closure variables;
+// EnqueueSync waits until the job reaches a terminal state and then
+// returns the final Job record. Callers check the returned job's status
+// and error to decide what to do:
+//
+//	job, err := o.EnqueueSync(ctx, &llm.EnqueueRequest{
+//	    Subsystem: ..., JobType: ..., TargetKey: ...,
+//	    Run: func(rt llm.Runtime) error {
+//	        resp, err := worker.Call(ctx, req)
+//	        if err != nil {
+//	            return err
+//	        }
+//	        // capture resp into an outer closure var
+//	        return nil
+//	    },
+//	})
+//	if err != nil { return nil, err }      // enqueue itself failed
+//	if job.Status == llm.StatusFailed {    // run returned an error
+//	    return nil, errors.New(job.ErrorMessage)
+//	}
+//	// use the captured resp
+//
+// The wait is implemented as a subscriber filtered to this job's id.
+// When the passed context is cancelled, EnqueueSync returns ctx.Err()
+// but the underlying job continues running (the orchestrator has no
+// way to cancel an in-flight Run closure today).
+func (o *Orchestrator) EnqueueSync(ctx context.Context, req *llm.EnqueueRequest) (*llm.Job, error) {
+	// Subscribe BEFORE enqueue so we cannot miss the terminal event on
+	// a very fast job completion.
+	events, unsubscribe := o.Subscribe()
+	defer unsubscribe()
+
+	job, err := o.Enqueue(req)
+	if err != nil {
+		return nil, err
+	}
+	// Dedupe hit on an already-terminal job — no wait needed.
+	if job.Status.IsTerminal() {
+		return job, nil
+	}
+
+	// If the dedupe hit returned an already-active job, we need to
+	// wait on that job's id, not necessarily a job we just created.
+	waitID := job.ID
+
+	// Guard against the orchestrator shutting down mid-wait.
+	for {
+		select {
+		case <-ctx.Done():
+			return o.store.GetByID(waitID), ctx.Err()
+		case <-o.ctx.Done():
+			return o.store.GetByID(waitID), fmt.Errorf("orchestrator shutting down")
+		case ev, ok := <-events:
+			if !ok {
+				return o.store.GetByID(waitID), nil
+			}
+			if ev.Job == nil || ev.Job.ID != waitID {
+				continue
+			}
+			if ev.Job.Status.IsTerminal() {
+				return ev.Job, nil
+			}
+		}
+	}
+}
+
 // ListActive returns every currently-active job matching the filter.
 func (o *Orchestrator) ListActive(filter llm.ListFilter) []*llm.Job {
 	return o.store.ListActive(filter)
