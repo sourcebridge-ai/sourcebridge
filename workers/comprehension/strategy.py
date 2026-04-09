@@ -38,17 +38,19 @@ async def _noop_progress(phase: str, progress: float, message: str) -> None:
 class CapabilityRequirements:
     """Minimum model capability to run a strategy.
 
-    Phase 4 will wire this against a model capability registry so the
-    settings UI can warn when a selected model is too weak. In Phase 3
-    we only need the shape so the hierarchical strategy can declare
-    ``min_context_tokens=2048`` — the floor that lets it run on any
-    supported model including small Ollama variants.
+    Phase 4 wires this against a model capability registry so the
+    selector can warn when a selected model is too weak. The grade
+    fields are optional — strategies only set them when they have
+    opinions on entity extraction quality (GraphRAG) or long-form
+    narrative quality (some renderers).
     """
 
     min_context_tokens: int = 2048
     min_instruction_following: str = "low"  # "low" | "medium" | "high"
     requires_json_mode: bool = False
     requires_tool_use: bool = False
+    min_extraction_grade: str | None = None
+    min_creative_grade: str | None = None
 
 
 @runtime_checkable
