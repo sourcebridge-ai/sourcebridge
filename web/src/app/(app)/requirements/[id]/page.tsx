@@ -64,6 +64,8 @@ interface KnowledgeArtifact {
   progress: number;
   stale: boolean;
   generatedAt: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
   sections: KnowledgeSection[];
 }
 
@@ -79,6 +81,21 @@ function confidenceLevel(conf: string): ConfidenceLevel {
       return "medium";
     default:
       return "low";
+  }
+}
+
+function knowledgeErrorHint(errorCode: string | null | undefined): string {
+  switch (errorCode) {
+    case "LLM_EMPTY":
+      return "The model returned an empty response. Try again or switch to a more capable model.";
+    case "SNAPSHOT_TOO_LARGE":
+      return "The generated snapshot was too large for the current model path. Narrow the scope or use a stronger model.";
+    case "WORKER_UNAVAILABLE":
+      return "The worker could not reach the configured model provider. Check the worker and provider health.";
+    case "DEADLINE_EXCEEDED":
+      return "The generation timed out before completion. Try again or use a faster model.";
+    default:
+      return "The last generation attempt failed. Review the error details and retry once the underlying issue is resolved.";
   }
 }
 
@@ -520,8 +537,16 @@ export default function RequirementDetailPage() {
               ) : isFailed ? (
                 <div className="space-y-3">
                   <p className="text-sm text-[var(--text-secondary)]">
-                    Generation failed. This can happen with very large or complex requirements.
+                    {artifact?.errorCode || "GENERATION_FAILED"}
                   </p>
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    {knowledgeErrorHint(artifact?.errorCode)}
+                  </p>
+                  {artifact?.errorMessage ? (
+                    <p className="whitespace-pre-wrap rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3 text-xs text-[var(--text-tertiary)]">
+                      {artifact.errorMessage}
+                    </p>
+                  ) : null}
                   <Button onClick={handleGenerateFieldGuide}>Try Again</Button>
                 </div>
               ) : timedOut ? (

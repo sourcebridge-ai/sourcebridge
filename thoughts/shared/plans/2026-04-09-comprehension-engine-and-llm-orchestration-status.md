@@ -64,6 +64,14 @@ Purpose: execution log and handoff state for autonomous implementation
 
 ## Added in latest slice
 
+- Extended structured failure surfacing to the requirement-scoped field guide UI:
+  - `web/src/app/(app)/requirements/[id]/page.tsx`
+  - `web/src/lib/graphql/queries.ts`
+- Requirement field-guide failures now show:
+  - `errorCode`
+  - a user-facing hint derived from the code
+  - raw `errorMessage` when available
+
 - Added minimal monitor-oriented admin knowledge payload improvements:
   - `internal/api/rest/admin_knowledge.go` now reports `by_error_code`
   - per-artifact admin entries now include `progress`, scope details, `error_code`, `error_message`, and timestamps
@@ -129,6 +137,8 @@ Frontend validation resolved in this environment:
 - `cd web && npm run lint -- --file 'src/app/(app)/repositories/[id]/page.tsx' --file src/lib/graphql/queries.ts`
   - passed with no ESLint warnings or errors
 - `cd web && npm run lint -- --file 'src/app/(app)/repositories/[id]/page.tsx'`
+  - passed with no ESLint warnings or errors
+- `cd web && npm run lint -- --file 'src/app/(app)/requirements/[id]/page.tsx' --file src/lib/graphql/queries.ts`
   - passed with no ESLint warnings or errors
 
 Observed issue fixed during this pass:

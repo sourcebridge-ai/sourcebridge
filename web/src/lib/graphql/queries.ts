@@ -882,6 +882,8 @@ export const REQUIREMENT_KNOWLEDGE_QUERY = gql`
       progress
       stale
       generatedAt
+      errorCode
+      errorMessage
       scope {
         scopeType
         scopePath
