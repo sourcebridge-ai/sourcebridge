@@ -1,0 +1,20 @@
+{
+  "case_id": "fixture_workflow_story_fake",
+  "corpus_id": "multi-lang-repo-fixture",
+  "artifact_type": "workflow_story",
+  "provider_mode": "fake",
+  "provider_name": "fake",
+  "model_id": "fake-test-model",
+  "success": true,
+  "duration_ms": 0,
+  "input_tokens": 390,
+  "output_tokens": 32,
+  "error": null,
+  "checks": {
+    "workflow_story_non_empty": true
+  },
+  "metrics": {
+    "section_count": 7,
+    "evidence_count": 14
+  }
+}

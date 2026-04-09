@@ -15,6 +15,7 @@ type KnowledgeStore interface {
 	GetArtifactByKey(key ArtifactKey) *Artifact
 	GetKnowledgeArtifacts(repoID string) []*Artifact
 	UpdateKnowledgeArtifactStatus(id string, status ArtifactStatus) error
+	SetArtifactFailed(id string, code string, message string) error
 	UpdateKnowledgeArtifactProgress(id string, progress float64) error
 	MarkKnowledgeArtifactStale(id string, stale bool) error
 	DeleteKnowledgeArtifact(id string) error

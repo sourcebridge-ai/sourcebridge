@@ -1,0 +1,19 @@
+{
+  "case_id": "fixture_learning_path_fake",
+  "corpus_id": "multi-lang-repo-fixture",
+  "artifact_type": "learning_path",
+  "provider_mode": "fake",
+  "provider_name": "fake",
+  "model_id": "fake-test-model",
+  "success": true,
+  "duration_ms": 0,
+  "input_tokens": 290,
+  "output_tokens": 84,
+  "error": null,
+  "checks": {
+    "learning_path_non_empty": true
+  },
+  "metrics": {
+    "step_count": 3
+  }
+}

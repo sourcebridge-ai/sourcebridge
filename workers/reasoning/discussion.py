@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from workers.common.llm.provider import LLMProvider
+from workers.common.llm.provider import LLMProvider, complete_with_optional_model, require_nonempty
 from workers.reasoning.prompts.discussion import DISCUSSION_SYSTEM, build_discussion_prompt
 from workers.reasoning.types import DiscussionAnswer, LLMUsageRecord
 
@@ -40,7 +40,16 @@ async def discuss_code(
     """Answer a question about code."""
     prompt = build_discussion_prompt(question, context_code, context_metadata)
 
-    response = await provider.complete(prompt, system=DISCUSSION_SYSTEM, temperature=0.2, model=model_override)
+    response = require_nonempty(
+        await complete_with_optional_model(
+            provider,
+            prompt,
+            system=DISCUSSION_SYSTEM,
+            temperature=0.2,
+            model=model_override,
+        ),
+        context="discussion",
+    )
 
     answer = _parse_discussion(response.content)
 

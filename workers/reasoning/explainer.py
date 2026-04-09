@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from workers.common.llm.provider import LLMProvider
+from workers.common.llm.provider import LLMProvider, complete_with_optional_model, require_nonempty
 from workers.reasoning.prompts.explainer import EXPLAIN_SYSTEM, build_explain_prompt
 from workers.reasoning.types import LLMUsageRecord
 
@@ -16,7 +16,15 @@ async def explain_code(
     """Generate a markdown explanation of code."""
     prompt = build_explain_prompt(name, language, content)
 
-    response = await provider.complete(prompt, system=EXPLAIN_SYSTEM, temperature=0.2)
+    response = require_nonempty(
+        await complete_with_optional_model(
+            provider,
+            prompt,
+            system=EXPLAIN_SYSTEM,
+            temperature=0.2,
+        ),
+        context="explain_code",
+    )
 
     usage = LLMUsageRecord(
         provider="llm",

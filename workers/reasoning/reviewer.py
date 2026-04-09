@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from workers.common.llm.provider import LLMProvider
+from workers.common.llm.provider import LLMProvider, complete_with_optional_model, require_nonempty
 from workers.reasoning.prompts.reviewer import TEMPLATE_SYSTEMS, build_review_prompt
 from workers.reasoning.types import Finding, LLMUsageRecord, ReviewResult
 
@@ -51,7 +51,16 @@ async def review_code(
     system = TEMPLATE_SYSTEMS[template]
     prompt = build_review_prompt(file_path, language, content)
 
-    response = await provider.complete(prompt, system=system, temperature=0.0, model=model_override)
+    response = require_nonempty(
+        await complete_with_optional_model(
+            provider,
+            prompt,
+            system=system,
+            temperature=0.0,
+            model=model_override,
+        ),
+        context=f"review:{template}",
+    )
 
     result = _parse_review(response.content, template)
 

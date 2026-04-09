@@ -9,7 +9,12 @@ import json
 
 import structlog
 
-from workers.common.llm.provider import LLMProvider, LLMResponse
+from workers.common.llm.provider import (
+    LLMProvider,
+    LLMResponse,
+    complete_with_optional_model,
+    require_nonempty,
+)
 from workers.knowledge.prompts.cliff_notes import (
     CLIFF_NOTES_SYSTEM,
     REQUIRED_SECTIONS,
@@ -225,9 +230,14 @@ async def generate_cliff_notes(
         repository_name, audience, depth, snapshot_json, effective_scope, scope_path
     )
 
-    response: LLMResponse = await provider.complete(
-        prompt, system=CLIFF_NOTES_SYSTEM, temperature=0.0, max_tokens=8192, model=model_override,
-    )
+    response: LLMResponse = require_nonempty(await complete_with_optional_model(
+        provider,
+        prompt,
+        system=CLIFF_NOTES_SYSTEM,
+        temperature=0.0,
+        max_tokens=8192,
+        model=model_override,
+    ), context=f"cliff_notes:{effective_scope or 'repository'}")
 
     try:
         raw_sections = _parse_sections(response.content)

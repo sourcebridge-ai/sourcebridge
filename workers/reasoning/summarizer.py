@@ -5,7 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 
-from workers.common.llm.provider import LLMProvider, LLMResponse
+from workers.common.llm.provider import (
+    LLMProvider,
+    LLMResponse,
+    complete_with_optional_model,
+    require_nonempty,
+)
 from workers.reasoning.prompts.summarizer import (
     FILE_SUMMARY_SYSTEM,
     FUNCTION_SUMMARY_SYSTEM,
@@ -60,8 +65,15 @@ async def summarize_function(
     prompt = build_function_prompt(name, language, content, doc_comment)
     ch = _content_hash(content)
 
-    response: LLMResponse = await provider.complete(
-        prompt, system=FUNCTION_SUMMARY_SYSTEM, temperature=0.0, model=model_override,
+    response: LLMResponse = require_nonempty(
+        await complete_with_optional_model(
+            provider,
+            prompt,
+            system=FUNCTION_SUMMARY_SYSTEM,
+            temperature=0.0,
+            model=model_override,
+        ),
+        context="summary:function",
     )
 
     summary = _parse_summary(response.content, SummaryLevel.FUNCTION, name, ch)
@@ -88,8 +100,14 @@ async def summarize_file(
     prompt = build_file_prompt(file_path, language, symbols)
     ch = _content_hash(file_path + "|" + "|".join(symbols))
 
-    response = await provider.complete(
-        prompt, system=FILE_SUMMARY_SYSTEM, temperature=0.0
+    response = require_nonempty(
+        await complete_with_optional_model(
+            provider,
+            prompt,
+            system=FILE_SUMMARY_SYSTEM,
+            temperature=0.0,
+        ),
+        context="summary:file",
     )
 
     summary = _parse_summary(response.content, SummaryLevel.FILE, file_path, ch)
@@ -116,8 +134,14 @@ async def summarize_module(
     prompt = build_module_prompt(module_name, files, key_symbols)
     ch = _content_hash(module_name + "|" + "|".join(files))
 
-    response = await provider.complete(
-        prompt, system=MODULE_SUMMARY_SYSTEM, temperature=0.0
+    response = require_nonempty(
+        await complete_with_optional_model(
+            provider,
+            prompt,
+            system=MODULE_SUMMARY_SYSTEM,
+            temperature=0.0,
+        ),
+        context="summary:module",
     )
 
     summary = _parse_summary(response.content, SummaryLevel.MODULE, module_name, ch)

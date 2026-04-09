@@ -35,6 +35,8 @@ type surrealKnowledgeArtifact struct {
 	ScopeSymbolName         string           `json:"scope_symbol_name"`
 	Status                  string           `json:"status"`
 	Progress                float64          `json:"progress"`
+	ErrorCode               string           `json:"error_code"`
+	ErrorMessage            string           `json:"error_message"`
 	SourceRevisionCommit    string           `json:"source_revision_commit"`
 	SourceRevisionBranch    string           `json:"source_revision_branch"`
 	SourceRevisionContentFP string           `json:"source_revision_content_fp"`
@@ -59,6 +61,8 @@ func (r *surrealKnowledgeArtifact) toArtifact() *knowledge.Artifact {
 		}.NormalizePtr(),
 		Status:   knowledge.ArtifactStatus(r.Status),
 		Progress: r.Progress,
+		ErrorCode: r.ErrorCode,
+		ErrorMessage: r.ErrorMessage,
 		Stale:    r.Stale,
 		SourceRevision: knowledge.SourceRevision{
 			CommitSHA:          r.SourceRevisionCommit,
@@ -226,6 +230,8 @@ func (s *SurrealStore) ClaimArtifact(key knowledge.ArtifactKey, sourceRevision k
 			scope_symbol_name = $scope_symbol_name,
 			status = "generating",
 			progress = 0,
+			error_code = '',
+			error_message = '',
 			source_revision_commit = $src_commit,
 			source_revision_branch = $src_branch,
 			source_revision_content_fp = $src_content_fp,
@@ -334,14 +340,32 @@ func (s *SurrealStore) UpdateKnowledgeArtifactStatus(id string, status knowledge
 		return fmt.Errorf("database not connected")
 	}
 
-	sql := `UPDATE type::thing('ca_knowledge_artifact', $id) SET status = $status, updated_at = time::now()`
+	sql := `UPDATE type::thing('ca_knowledge_artifact', $id) SET status = $status, error_code = '', error_message = '', updated_at = time::now()`
 	vars := map[string]any{"id": id, "status": string(status)}
 
 	if status == knowledge.StatusReady {
-		sql = `UPDATE type::thing('ca_knowledge_artifact', $id) SET status = $status, progress = 1.0, generated_at = time::now(), updated_at = time::now()`
+		sql = `UPDATE type::thing('ca_knowledge_artifact', $id) SET status = $status, progress = 1.0, error_code = '', error_message = '', generated_at = time::now(), updated_at = time::now()`
 	}
 
 	_, err := queryOne[interface{}](ctx(), db, sql, vars)
+	return err
+}
+
+func (s *SurrealStore) SetArtifactFailed(id string, code string, message string) error {
+	db := s.client.DB()
+	if db == nil {
+		return fmt.Errorf("database not connected")
+	}
+
+	_, err := queryOne[interface{}](ctx(), db,
+		`UPDATE type::thing('ca_knowledge_artifact', $id)
+		 SET status = $status, error_code = $error_code, error_message = $error_message, updated_at = time::now()`,
+		map[string]any{
+			"id":            id,
+			"status":        string(knowledge.StatusFailed),
+			"error_code":    code,
+			"error_message": message,
+		})
 	return err
 }
 

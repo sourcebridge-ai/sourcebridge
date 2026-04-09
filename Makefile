@@ -1,6 +1,7 @@
 .PHONY: all build build-go build-web build-worker test test-go test-web test-worker \
 	lint lint-go lint-web lint-worker proto proto-clean docker-build docker-up docker-down \
-	dev dev-web dev-go clean migrate help integration-test smoke-test phase-gate ci
+	dev dev-web dev-go clean migrate help integration-test smoke-test phase-gate ci \
+	benchmark-comprehension-fake benchmark-comprehension-local benchmark-comprehension-report
 
 GO_BIN = bin/sourcebridge
 GO_MIGRATE_BIN = bin/migrate
@@ -149,6 +150,19 @@ endif
 # Pre-push check: mirrors CI pipeline locally (lint + test)
 ci: lint test
 	@echo "=== All CI checks passed ==="
+
+# Benchmarks
+BENCHMARK_RESULTS_DIR ?= benchmarks/results/local
+
+benchmark-comprehension-fake:
+	uv run --project workers python -m workers.benchmarks.run_comprehension_bench --output-dir $(BENCHMARK_RESULTS_DIR)
+
+benchmark-comprehension-local:
+	@echo "Not yet implemented: local-provider benchmark runner requires repo-specific configuration."
+	@echo "Use benchmark-comprehension-fake for the OSS-safe baseline harness."
+
+benchmark-comprehension-report:
+	@test -f $(BENCHMARK_RESULTS_DIR)/report.md && cat $(BENCHMARK_RESULTS_DIR)/report.md || (echo "No benchmark report found at $(BENCHMARK_RESULTS_DIR)/report.md" && exit 1)
 
 # Help
 help:

@@ -10,7 +10,12 @@ from dataclasses import dataclass, field
 
 import structlog
 
-from workers.common.llm.provider import LLMProvider, LLMResponse
+from workers.common.llm.provider import (
+    LLMProvider,
+    LLMResponse,
+    complete_with_optional_model,
+    require_nonempty,
+)
 from workers.knowledge.cliff_notes import _parse_sections
 from workers.knowledge.prompts.learning_path import (
     LEARNING_PATH_SYSTEM,
@@ -58,9 +63,13 @@ async def generate_learning_path(
     """Generate a learning path from a repository snapshot."""
     prompt = build_learning_path_prompt(repository_name, audience, depth, snapshot_json, focus_area)
 
-    response: LLMResponse = await provider.complete(
-        prompt, system=LEARNING_PATH_SYSTEM, temperature=0.0, model=model_override,
-    )
+    response: LLMResponse = require_nonempty(await complete_with_optional_model(
+        provider,
+        prompt,
+        system=LEARNING_PATH_SYSTEM,
+        temperature=0.0,
+        model=model_override,
+    ), context="learning_path:repository")
 
     try:
         raw_steps = _parse_steps(response.content)

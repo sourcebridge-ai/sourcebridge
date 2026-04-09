@@ -1,0 +1,21 @@
+{
+  "case_id": "fixture_cliff_notes_fake",
+  "corpus_id": "multi-lang-repo-fixture",
+  "artifact_type": "cliff_notes",
+  "provider_mode": "fake",
+  "provider_name": "fake",
+  "model_id": "fake-test-model",
+  "success": true,
+  "duration_ms": 0,
+  "input_tokens": 547,
+  "output_tokens": 224,
+  "error": null,
+  "checks": {
+    "cliff_notes_required_sections": true,
+    "cliff_notes_has_evidence": true
+  },
+  "metrics": {
+    "section_count": 7,
+    "evidence_count": 5
+  }
+}

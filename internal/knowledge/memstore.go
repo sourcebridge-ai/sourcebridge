@@ -143,10 +143,30 @@ func (s *MemStore) UpdateKnowledgeArtifactStatus(id string, status ArtifactStatu
 		return fmt.Errorf("artifact %s not found", id)
 	}
 	a.Status = status
+	if status != StatusFailed {
+		a.ErrorCode = ""
+		a.ErrorMessage = ""
+	}
 	a.UpdatedAt = time.Now()
 	if status == StatusReady {
+		a.Progress = 1.0
 		a.GeneratedAt = time.Now()
 	}
+	return nil
+}
+
+func (s *MemStore) SetArtifactFailed(id string, code string, message string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	a := s.artifacts[id]
+	if a == nil {
+		return fmt.Errorf("artifact %s not found", id)
+	}
+	a.Status = StatusFailed
+	a.ErrorCode = code
+	a.ErrorMessage = message
+	a.UpdatedAt = time.Now()
 	return nil
 }
 

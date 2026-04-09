@@ -235,6 +235,8 @@ type Artifact struct {
 	Scope          *ArtifactScope `json:"scope,omitempty"`
 	Status         ArtifactStatus `json:"status"`
 	Progress       float64        `json:"progress"`
+	ErrorCode      string         `json:"error_code,omitempty"`
+	ErrorMessage   string         `json:"error_message,omitempty"`
 	SourceRevision SourceRevision `json:"source_revision"`
 	Stale          bool           `json:"stale"`
 	GeneratedAt    time.Time      `json:"generated_at,omitempty"`

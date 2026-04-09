@@ -237,11 +237,16 @@ async def refine_with_llm(
         )
 
         try:
-            response = await llm_provider.complete(
-                prompt,
-                system=SPEC_REFINEMENT_SYSTEM,
-                temperature=0.1,
-                max_tokens=512,
+            from workers.common.llm.provider import require_nonempty
+
+            response = require_nonempty(
+                await llm_provider.complete(
+                    prompt,
+                    system=SPEC_REFINEMENT_SYSTEM,
+                    temperature=0.1,
+                    max_tokens=512,
+                ),
+                context="requirements:spec_refinement",
             )
             total_input += response.input_tokens
             total_output += response.output_tokens

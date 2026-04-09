@@ -1,0 +1,19 @@
+{
+  "case_id": "fixture_code_tour_fake",
+  "corpus_id": "multi-lang-repo-fixture",
+  "artifact_type": "code_tour",
+  "provider_mode": "fake",
+  "provider_name": "fake",
+  "model_id": "fake-test-model",
+  "success": true,
+  "duration_ms": 0,
+  "input_tokens": 224,
+  "output_tokens": 51,
+  "error": null,
+  "checks": {
+    "code_tour_non_empty": true
+  },
+  "metrics": {
+    "stop_count": 3
+  }
+}

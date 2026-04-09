@@ -28,7 +28,45 @@ import (
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/requirements"
 	"github.com/sourcebridge/sourcebridge/internal/version"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
+
+func classifyError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if st, ok := grpcstatus.FromError(err); ok {
+		switch st.Code() {
+		case codes.DeadlineExceeded:
+			return "DEADLINE_EXCEEDED"
+		case codes.Unavailable:
+			return "WORKER_UNAVAILABLE"
+		}
+	}
+
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "llm returned empty content"):
+		return "LLM_EMPTY"
+	case strings.Contains(msg, "snapshot too large"), strings.Contains(msg, "exceeds budget"):
+		return "SNAPSHOT_TOO_LARGE"
+	case strings.Contains(msg, "deadline exceeded"):
+		return "DEADLINE_EXCEEDED"
+	case strings.Contains(msg, "connection refused"), strings.Contains(msg, "transport is closing"), strings.Contains(msg, "unavailable"):
+		return "WORKER_UNAVAILABLE"
+	default:
+		return "INTERNAL"
+	}
+}
+
+func persistArtifactFailure(store knowledgepkg.KnowledgeStore, artifactID string, err error) {
+	if store == nil || artifactID == "" || err == nil {
+		return
+	}
+	code := classifyError(err)
+	_ = store.SetArtifactFailed(artifactID, code, err.Error())
+}
 
 // AddRepository is the resolver for the addRepository field.
 func (r *mutationResolver) AddRepository(ctx context.Context, input AddRepositoryInput) (*Repository, error) {
@@ -1419,7 +1457,7 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 				"duration_ms", time.Since(genStart).Milliseconds(),
 				"error", err,
 			)
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 			return
 		}
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.8) // LLM complete
@@ -1449,7 +1487,7 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			slog.Error("failed to store cliff notes sections", "artifact_id", artifact.ID, "error", err)
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 			return
 		}
 
@@ -1577,7 +1615,7 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 		})
 		if err != nil {
 			slog.Error("learning path generation failed", "artifact_id", artifact.ID, "error", err)
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 			return
 		}
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.8)
@@ -1604,7 +1642,7 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			slog.Error("failed to store learning path sections", "artifact_id", artifact.ID, "error", err)
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 			return
 		}
 
@@ -1724,7 +1762,7 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 		})
 		if err != nil {
 			slog.Error("code tour generation failed", "artifact_id", artifact.ID, "error", err)
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 			return
 		}
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.8)
@@ -1755,7 +1793,7 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			slog.Error("failed to store code tour sections", "artifact_id", artifact.ID, "error", err)
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 			return
 		}
 
@@ -1875,7 +1913,7 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 		})
 		if err != nil {
 			slog.Error("workflow story generation failed", "artifact_id", artifact.ID, "error", err)
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 			return
 		}
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.8)
@@ -1903,7 +1941,7 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			slog.Error("failed to store workflow story sections", "artifact_id", artifact.ID, "error", err)
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 			return
 		}
 
@@ -2030,6 +2068,9 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 	if existing == nil {
 		return nil, fmt.Errorf("knowledge artifact %s not found", id)
 	}
+	if existing.Status == knowledgepkg.StatusGenerating || existing.Status == knowledgepkg.StatusPending {
+		return mapKnowledgeArtifact(existing), nil
+	}
 	repo := r.getStore(ctx).GetRepository(existing.RepositoryID)
 	if repo == nil {
 		return nil, fmt.Errorf("repository %s not found", existing.RepositoryID)
@@ -2055,7 +2096,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 		defer func() {
 			if rec := recover(); rec != nil {
 				slog.Error("refresh panic", "artifact_id", existing.ID, "panic", rec)
-				_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+				persistArtifactFailure(r.KnowledgeStore, existing.ID, fmt.Errorf("panic: %v", rec))
 			}
 		}()
 		var (
@@ -2069,13 +2110,13 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 		}
 		if err != nil {
 			slog.Error("refresh assemble failed", "artifact_id", existing.ID, "error", err)
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
 			return
 		}
 		snapJSON, err := json.Marshal(snap)
 		if err != nil {
 			slog.Error("refresh serialize failed", "artifact_id", existing.ID, "error", err)
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
 			return
 		}
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(existing.ID, 0.1)
@@ -2093,7 +2134,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			})
 			if err != nil {
 				slog.Error("refresh cliff notes failed", "artifact_id", existing.ID, "error", err)
-				_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
 				return
 			}
 			sections := make([]knowledgepkg.Section, len(resp.Sections))
@@ -2108,7 +2149,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				}
 			}
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
-				_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
 				return
 			}
 		case knowledgepkg.ArtifactLearningPath:
@@ -2121,7 +2162,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			})
 			if err != nil {
 				slog.Error("refresh learning path failed", "artifact_id", existing.ID, "error", err)
-				_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
 				return
 			}
 			sections := make([]knowledgepkg.Section, len(resp.Steps))
@@ -2134,7 +2175,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				}
 			}
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
-				_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
 				return
 			}
 		case knowledgepkg.ArtifactCodeTour:
@@ -2147,7 +2188,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			})
 			if err != nil {
 				slog.Error("refresh code tour failed", "artifact_id", existing.ID, "error", err)
-				_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
 				return
 			}
 			sections := make([]knowledgepkg.Section, len(resp.Stops))
@@ -2171,7 +2212,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				}
 			}
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
-				_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
 				return
 			}
 		case knowledgepkg.ArtifactWorkflowStory:
@@ -2186,7 +2227,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			})
 			if err != nil {
 				slog.Error("refresh workflow story failed", "artifact_id", existing.ID, "error", err)
-				_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
 				return
 			}
 			sections := make([]knowledgepkg.Section, len(resp.Sections))
@@ -2201,11 +2242,11 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				}
 			}
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
-				_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
 				return
 			}
 		default:
-			_ = r.KnowledgeStore.UpdateKnowledgeArtifactStatus(existing.ID, knowledgepkg.StatusFailed)
+			persistArtifactFailure(r.KnowledgeStore, existing.ID, fmt.Errorf("unsupported artifact type: %s", existing.Type))
 			return
 		}
 	}(existing)

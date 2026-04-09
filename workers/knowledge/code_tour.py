@@ -10,7 +10,12 @@ from dataclasses import dataclass, field
 
 import structlog
 
-from workers.common.llm.provider import LLMProvider, LLMResponse
+from workers.common.llm.provider import (
+    LLMProvider,
+    LLMResponse,
+    complete_with_optional_model,
+    require_nonempty,
+)
 from workers.knowledge.cliff_notes import _parse_sections
 from workers.knowledge.prompts.code_tour import (
     CODE_TOUR_SYSTEM,
@@ -57,9 +62,13 @@ async def generate_code_tour(
     """Generate a code tour from a repository snapshot."""
     prompt = build_code_tour_prompt(repository_name, audience, depth, snapshot_json, theme)
 
-    response: LLMResponse = await provider.complete(
-        prompt, system=CODE_TOUR_SYSTEM, temperature=0.0, model=model_override,
-    )
+    response: LLMResponse = require_nonempty(await complete_with_optional_model(
+        provider,
+        prompt,
+        system=CODE_TOUR_SYSTEM,
+        temperature=0.0,
+        model=model_override,
+    ), context="code_tour:repository")
 
     try:
         raw_stops = _parse_stops(response.content)

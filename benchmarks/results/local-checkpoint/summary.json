@@ -1,0 +1,86 @@
+{
+  "total_cases": 4,
+  "successful_cases": 4,
+  "failed_cases": 0,
+  "results": [
+    {
+      "case_id": "fixture_cliff_notes_fake",
+      "corpus_id": "multi-lang-repo-fixture",
+      "artifact_type": "cliff_notes",
+      "provider_mode": "fake",
+      "provider_name": "fake",
+      "model_id": "fake-test-model",
+      "success": true,
+      "duration_ms": 0,
+      "input_tokens": 547,
+      "output_tokens": 224,
+      "error": null,
+      "checks": {
+        "cliff_notes_required_sections": true,
+        "cliff_notes_has_evidence": true
+      },
+      "metrics": {
+        "section_count": 7,
+        "evidence_count": 5
+      }
+    },
+    {
+      "case_id": "fixture_learning_path_fake",
+      "corpus_id": "multi-lang-repo-fixture",
+      "artifact_type": "learning_path",
+      "provider_mode": "fake",
+      "provider_name": "fake",
+      "model_id": "fake-test-model",
+      "success": true,
+      "duration_ms": 0,
+      "input_tokens": 290,
+      "output_tokens": 84,
+      "error": null,
+      "checks": {
+        "learning_path_non_empty": true
+      },
+      "metrics": {
+        "step_count": 3
+      }
+    },
+    {
+      "case_id": "fixture_code_tour_fake",
+      "corpus_id": "multi-lang-repo-fixture",
+      "artifact_type": "code_tour",
+      "provider_mode": "fake",
+      "provider_name": "fake",
+      "model_id": "fake-test-model",
+      "success": true,
+      "duration_ms": 0,
+      "input_tokens": 224,
+      "output_tokens": 51,
+      "error": null,
+      "checks": {
+        "code_tour_non_empty": true
+      },
+      "metrics": {
+        "stop_count": 3
+      }
+    },
+    {
+      "case_id": "fixture_workflow_story_fake",
+      "corpus_id": "multi-lang-repo-fixture",
+      "artifact_type": "workflow_story",
+      "provider_mode": "fake",
+      "provider_name": "fake",
+      "model_id": "fake-test-model",
+      "success": true,
+      "duration_ms": 0,
+      "input_tokens": 390,
+      "output_tokens": 32,
+      "error": null,
+      "checks": {
+        "workflow_story_non_empty": true
+      },
+      "metrics": {
+        "section_count": 7,
+        "evidence_count": 14
+      }
+    }
+  ]
+}

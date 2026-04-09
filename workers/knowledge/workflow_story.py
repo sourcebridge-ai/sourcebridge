@@ -10,7 +10,12 @@ from typing import Any
 
 import structlog
 
-from workers.common.llm.provider import LLMProvider, LLMResponse
+from workers.common.llm.provider import (
+    LLMProvider,
+    LLMResponse,
+    complete_with_optional_model,
+    require_nonempty,
+)
 from workers.knowledge.cliff_notes import (
     _coerce_section,
     _normalize_text,
@@ -396,13 +401,14 @@ async def generate_workflow_story(
     sections: list[CliffNotesSection] = []
     llm_failed = False
     try:
-        response: LLMResponse = await provider.complete(
+        response: LLMResponse = require_nonempty(await complete_with_optional_model(
+            provider,
             prompt,
             system=WORKFLOW_STORY_SYSTEM,
             temperature=0.0,
             max_tokens=8192,
             model=model_override,
-        )
+        ), context=f"workflow_story:{scope_type or 'repository'}")
     except Exception as exc:
         log.warning("workflow_story_llm_failed_using_fallbacks", error=str(exc))
         llm_failed = True

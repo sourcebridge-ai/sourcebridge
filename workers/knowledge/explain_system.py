@@ -9,7 +9,12 @@ from dataclasses import dataclass
 
 import structlog
 
-from workers.common.llm.provider import LLMProvider, LLMResponse
+from workers.common.llm.provider import (
+    LLMProvider,
+    LLMResponse,
+    complete_with_optional_model,
+    require_nonempty,
+)
 from workers.knowledge.prompts.explain_system import (
     EXPLAIN_SYSTEM_SYSTEM,
     build_explain_system_prompt,
@@ -38,8 +43,15 @@ async def explain_system(
     """Generate a whole-system explanation from a repository snapshot."""
     prompt = build_explain_system_prompt(repository_name, audience, question, snapshot_json, depth)
 
-    response: LLMResponse = await provider.complete(
-        prompt, system=EXPLAIN_SYSTEM_SYSTEM, temperature=0.0, model=model_override,
+    response: LLMResponse = require_nonempty(
+        await complete_with_optional_model(
+            provider,
+            prompt,
+            system=EXPLAIN_SYSTEM_SYSTEM,
+            temperature=0.0,
+            model=model_override,
+        ),
+        context="explain_system:repository",
     )
 
     usage = LLMUsageRecord(

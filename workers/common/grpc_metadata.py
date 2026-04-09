@@ -10,6 +10,8 @@ def resolve_model_override(context: grpc.aio.ServicerContext) -> str | None:
 
     The Go API attaches 'x-sb-model' metadata when advanced mode is on.
     """
+    if not hasattr(context, "invocation_metadata"):
+        return None
     for key, value in context.invocation_metadata():
         if key == "x-sb-model":
             return value or None
