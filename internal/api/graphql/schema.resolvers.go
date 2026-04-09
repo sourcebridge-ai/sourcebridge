@@ -26,6 +26,7 @@ import (
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/indexer"
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/requirements"
 	"github.com/sourcebridge/sourcebridge/internal/version"
 	"google.golang.org/grpc/codes"
@@ -1447,8 +1448,10 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		return mapKnowledgeArtifact(artifact), nil
 	}
 
-	// Run LLM generation async — return immediately so the proxy doesn't timeout.
-	// The UI polls knowledgeArtifacts to check status and progress.
+	// Hand the work off to the LLM orchestrator. The artifact is
+	// already claimed, so the UI will see its GENERATING status
+	// immediately via the return below; the orchestrator drives the
+	// actual worker call in a bounded-pool goroutine.
 	store := r.getStore(ctx)
 	snapshotSizeBytes := len(snapJSON)
 	truncated := scope.ScopeType == knowledgepkg.ScopeRequirement && snap.SymbolCount >= 200
@@ -1462,9 +1465,12 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		"snapshot_size_bytes", snapshotSizeBytes,
 		"truncated", truncated,
 	)
-	go func() {
+
+	err = r.enqueueKnowledgeJob(artifact, "cliff_notes", snapshotSizeBytes, func(rt llm.Runtime) error {
 		genStart := time.Now()
-		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.1) // snapshot ready
+		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
+		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.1)
+
 		bgCtx := r.withModelMetadata(context.Background(), "knowledge")
 		resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
 			RepositoryId:   repo.ID,
@@ -1484,12 +1490,12 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 				"duration_ms", time.Since(genStart).Milliseconds(),
 				"error", err,
 			)
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
+			return err
 		}
-		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.8) // LLM complete
 
-		// Store LLM usage
+		rt.ReportProgress(0.8, "llm", "LLM completed, persisting sections")
+		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.8)
+
 		if resp.Usage != nil {
 			store.StoreLLMUsage(&graphstore.LLMUsageRecord{
 				RepoID:       repo.ID,
@@ -1499,9 +1505,9 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 				InputTokens:  int(resp.Usage.InputTokens),
 				OutputTokens: int(resp.Usage.OutputTokens),
 			})
+			rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
 		}
 
-		// Persist sections
 		sections := make([]knowledgepkg.Section, len(resp.Sections))
 		for i, sec := range resp.Sections {
 			sections[i] = knowledgepkg.Section{
@@ -1514,11 +1520,9 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			slog.Error("failed to store cliff notes sections", "artifact_id", artifact.ID, "error", err)
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
+			return err
 		}
 
-		// Persist evidence for each section
 		storedSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
 		for i, sec := range resp.Sections {
 			if i >= len(storedSections) {
@@ -1540,10 +1544,10 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 			}
 		}
 
-		// Mark ready
 		if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusReady); err != nil {
 			slog.Error("failed to mark cliff notes ready", "artifact_id", artifact.ID, "error", err)
 		}
+		rt.ReportProgress(1.0, "ready", "Cliff notes ready")
 		slog.Info("cliff_notes_generation_completed",
 			"artifact_id", artifact.ID,
 			"scope_type", string(scope.ScopeType),
@@ -1553,9 +1557,14 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 			"snapshot_size_bytes", snapshotSizeBytes,
 			"section_count", len(resp.Sections),
 		)
-	}()
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("enqueue cliff notes job: %w", err)
+	}
 
-	// Return immediately with GENERATING status
+	// Return immediately with GENERATING status — the UI polls to
+	// observe the orchestrator's progress updates.
 	return mapKnowledgeArtifact(artifact), nil
 }
 
@@ -1631,10 +1640,12 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 		return mapKnowledgeArtifact(artifact), nil
 	}
 
-	// Run LLM generation async
+	// Run LLM generation async via the orchestrator.
 	store := r.getStore(ctx)
-	go func() {
+	err = r.enqueueKnowledgeJob(artifact, "learning_path", len(snapJSON), func(rt llm.Runtime) error {
+		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.1)
+
 		bgCtx := r.withModelMetadata(context.Background(), "knowledge")
 		resp, err := r.Worker.GenerateLearningPath(bgCtx, &knowledgev1.GenerateLearningPathRequest{
 			RepositoryId:   repo.ID,
@@ -1646,9 +1657,10 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 		})
 		if err != nil {
 			slog.Error("learning path generation failed", "artifact_id", artifact.ID, "error", err)
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
+			return err
 		}
+
+		rt.ReportProgress(0.8, "llm", "LLM completed, persisting steps")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.8)
 
 		if resp.Usage != nil {
@@ -1660,6 +1672,7 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 				InputTokens:  int(resp.Usage.InputTokens),
 				OutputTokens: int(resp.Usage.OutputTokens),
 			})
+			rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
 		}
 
 		sections := make([]knowledgepkg.Section, len(resp.Steps))
@@ -1673,8 +1686,7 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			slog.Error("failed to store learning path sections", "artifact_id", artifact.ID, "error", err)
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
+			return err
 		}
 
 		storedSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
@@ -1705,8 +1717,13 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 		if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusReady); err != nil {
 			slog.Error("failed to mark learning path ready", "artifact_id", artifact.ID, "error", err)
 		}
+		rt.ReportProgress(1.0, "ready", "Learning path ready")
 		slog.Info("learning path generation complete", "artifact_id", artifact.ID)
-	}()
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("enqueue learning path job: %w", err)
+	}
 
 	return mapKnowledgeArtifact(artifact), nil
 }
@@ -1782,10 +1799,12 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 		return mapKnowledgeArtifact(artifact), nil
 	}
 
-	// Run LLM generation async
+	// Run LLM generation async via the orchestrator.
 	store := r.getStore(ctx)
-	go func() {
+	err = r.enqueueKnowledgeJob(artifact, "code_tour", len(snapJSON), func(rt llm.Runtime) error {
+		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.1)
+
 		bgCtx := r.withModelMetadata(context.Background(), "knowledge")
 		resp, err := r.Worker.GenerateCodeTour(bgCtx, &knowledgev1.GenerateCodeTourRequest{
 			RepositoryId:   repo.ID,
@@ -1797,9 +1816,10 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 		})
 		if err != nil {
 			slog.Error("code tour generation failed", "artifact_id", artifact.ID, "error", err)
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
+			return err
 		}
+
+		rt.ReportProgress(0.8, "llm", "LLM completed, persisting stops")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.8)
 
 		if resp.Usage != nil {
@@ -1811,6 +1831,7 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 				InputTokens:  int(resp.Usage.InputTokens),
 				OutputTokens: int(resp.Usage.OutputTokens),
 			})
+			rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
 		}
 
 		sections := make([]knowledgepkg.Section, len(resp.Stops))
@@ -1828,8 +1849,7 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			slog.Error("failed to store code tour sections", "artifact_id", artifact.ID, "error", err)
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
+			return err
 		}
 
 		storedSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
@@ -1853,8 +1873,13 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 		if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusReady); err != nil {
 			slog.Error("failed to mark code tour ready", "artifact_id", artifact.ID, "error", err)
 		}
+		rt.ReportProgress(1.0, "ready", "Code tour ready")
 		slog.Info("code tour generation complete", "artifact_id", artifact.ID)
-	}()
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("enqueue code tour job: %w", err)
+	}
 
 	return mapKnowledgeArtifact(artifact), nil
 }
@@ -1936,8 +1961,10 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 	}
 
 	store := r.getStore(ctx)
-	go func() {
+	err = r.enqueueKnowledgeJob(artifact, "workflow_story", len(snapJSON), func(rt llm.Runtime) error {
+		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.1)
+
 		bgCtx := r.withModelMetadata(context.Background(), "knowledge")
 		resp, err := r.Worker.GenerateWorkflowStory(bgCtx, &knowledgev1.GenerateWorkflowStoryRequest{
 			RepositoryId:      repo.ID,
@@ -1952,9 +1979,10 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 		})
 		if err != nil {
 			slog.Error("workflow story generation failed", "artifact_id", artifact.ID, "error", err)
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
+			return err
 		}
+
+		rt.ReportProgress(0.8, "llm", "LLM completed, persisting sections")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(artifact.ID, 0.8)
 
 		if resp.Usage != nil {
@@ -1966,6 +1994,7 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 				InputTokens:  int(resp.Usage.InputTokens),
 				OutputTokens: int(resp.Usage.OutputTokens),
 			})
+			rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
 		}
 
 		sections := make([]knowledgepkg.Section, len(resp.Sections))
@@ -1980,8 +2009,7 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			slog.Error("failed to store workflow story sections", "artifact_id", artifact.ID, "error", err)
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
+			return err
 		}
 
 		storedSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
@@ -1997,8 +2025,13 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 		if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusReady); err != nil {
 			slog.Error("failed to mark workflow story ready", "artifact_id", artifact.ID, "error", err)
 		}
+		rt.ReportProgress(1.0, "ready", "Workflow story ready")
 		slog.Info("workflow story generation complete", "artifact_id", artifact.ID)
-	}()
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("enqueue workflow story job: %w", err)
+	}
 
 	return mapKnowledgeArtifact(artifact), nil
 }
@@ -2136,13 +2169,11 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 		slog.Warn("refresh: repo source unavailable, docs will be omitted", "repo_id", repo.ID, "error", repoRootErr)
 	}
 
-	go func(existing *knowledgepkg.Artifact) {
-		defer func() {
-			if rec := recover(); rec != nil {
-				slog.Error("refresh panic", "artifact_id", existing.ID, "panic", rec)
-				persistArtifactFailure(r.KnowledgeStore, existing.ID, fmt.Errorf("panic: %v", rec))
-			}
-		}()
+	// The refresh runs through the orchestrator like the dedicated
+	// Generate* mutations. We don't know the snapshot size until we
+	// assemble it inside the closure, so snapshotBytes is reported via
+	// Runtime after assembly rather than up-front.
+	err := r.enqueueKnowledgeJob(existing, "refresh:"+string(existing.Type), 0, func(rt llm.Runtime) error {
 		var (
 			snap *knowledgepkg.KnowledgeSnapshot
 			err  error
@@ -2154,16 +2185,31 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 		}
 		if err != nil {
 			slog.Error("refresh assemble failed", "artifact_id", existing.ID, "error", err)
-			persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
-			return
+			return err
 		}
 		snapJSON, err := json.Marshal(snap)
 		if err != nil {
 			slog.Error("refresh serialize failed", "artifact_id", existing.ID, "error", err)
-			persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
-			return
+			return err
 		}
+		rt.ReportSnapshotBytes(len(snapJSON))
+		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgress(existing.ID, 0.1)
+
+		persistUsage := func(usage *commonv1.LLMUsage) {
+			if usage == nil {
+				return
+			}
+			r.getStore(ctx).StoreLLMUsage(&graphstore.LLMUsageRecord{
+				RepoID:       repo.ID,
+				Provider:     "llm",
+				Model:        usage.Model,
+				Operation:    usage.Operation,
+				InputTokens:  int(usage.InputTokens),
+				OutputTokens: int(usage.OutputTokens),
+			})
+			rt.ReportTokens(int(usage.InputTokens), int(usage.OutputTokens))
+		}
 
 		switch existing.Type {
 		case knowledgepkg.ArtifactCliffNotes:
@@ -2178,9 +2224,9 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			})
 			if err != nil {
 				slog.Error("refresh cliff notes failed", "artifact_id", existing.ID, "error", err)
-				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
-				return
+				return err
 			}
+			persistUsage(resp.Usage)
 			sections := make([]knowledgepkg.Section, len(resp.Sections))
 			for i, sec := range resp.Sections {
 				sections[i] = knowledgepkg.Section{
@@ -2193,8 +2239,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				}
 			}
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
-				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
-				return
+				return err
 			}
 		case knowledgepkg.ArtifactLearningPath:
 			resp, err := r.Worker.GenerateLearningPath(r.withModelMetadata(context.Background(), "knowledge"), &knowledgev1.GenerateLearningPathRequest{
@@ -2206,9 +2251,9 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			})
 			if err != nil {
 				slog.Error("refresh learning path failed", "artifact_id", existing.ID, "error", err)
-				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
-				return
+				return err
 			}
+			persistUsage(resp.Usage)
 			sections := make([]knowledgepkg.Section, len(resp.Steps))
 			for i, step := range resp.Steps {
 				sections[i] = knowledgepkg.Section{
@@ -2219,8 +2264,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				}
 			}
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
-				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
-				return
+				return err
 			}
 		case knowledgepkg.ArtifactCodeTour:
 			resp, err := r.Worker.GenerateCodeTour(r.withModelMetadata(context.Background(), "knowledge"), &knowledgev1.GenerateCodeTourRequest{
@@ -2232,9 +2276,9 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			})
 			if err != nil {
 				slog.Error("refresh code tour failed", "artifact_id", existing.ID, "error", err)
-				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
-				return
+				return err
 			}
+			persistUsage(resp.Usage)
 			sections := make([]knowledgepkg.Section, len(resp.Stops))
 			for i, stop := range resp.Stops {
 				summary := stop.Description
@@ -2256,8 +2300,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				}
 			}
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
-				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
-				return
+				return err
 			}
 		case knowledgepkg.ArtifactWorkflowStory:
 			resp, err := r.Worker.GenerateWorkflowStory(r.withModelMetadata(context.Background(), "knowledge"), &knowledgev1.GenerateWorkflowStoryRequest{
@@ -2271,9 +2314,9 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			})
 			if err != nil {
 				slog.Error("refresh workflow story failed", "artifact_id", existing.ID, "error", err)
-				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
-				return
+				return err
 			}
+			persistUsage(resp.Usage)
 			sections := make([]knowledgepkg.Section, len(resp.Sections))
 			for i, sec := range resp.Sections {
 				sections[i] = knowledgepkg.Section{
@@ -2286,14 +2329,18 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				}
 			}
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
-				persistArtifactFailure(r.KnowledgeStore, existing.ID, err)
-				return
+				return err
 			}
 		default:
-			persistArtifactFailure(r.KnowledgeStore, existing.ID, fmt.Errorf("unsupported artifact type: %s", existing.Type))
-			return
+			return fmt.Errorf("unsupported artifact type: %s", existing.Type)
 		}
-	}(existing)
+
+		rt.ReportProgress(1.0, "ready", "Refresh complete")
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("enqueue refresh job: %w", err)
+	}
 
 	updated := r.KnowledgeStore.GetKnowledgeArtifact(id)
 	if updated == nil {

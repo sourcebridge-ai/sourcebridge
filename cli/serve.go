@@ -23,6 +23,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/db"
 	"github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
 )
 
@@ -69,6 +70,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Choose the store implementation based on surreal mode.
 	var store graph.GraphStore
 	var knowledgeStore knowledge.KnowledgeStore
+	var jobStore llm.JobStore
 	if cfg.Storage.SurrealMode == "external" {
 		// Run migrations against the external SurrealDB instance.
 		migrationsDir := migrationsPath()
@@ -80,10 +82,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 		surrealStore := db.NewSurrealStore(surrealDB)
 		store = surrealStore
 		knowledgeStore = surrealStore
+		jobStore = surrealStore
 		slog.Info("using SurrealDB-backed store (external mode)")
 	} else {
 		store = graph.NewStore()
 		knowledgeStore = knowledge.NewMemStore()
+		jobStore = llm.NewMemStore()
 		slog.Info("using in-memory store (embedded mode)")
 	}
 
@@ -186,6 +190,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	server := rest.NewServer(cfg, localAuth, jwtMgr, store, workerClient,
 		rest.WithEnterpriseDB(surrealDB.DB()),
 		rest.WithKnowledgeStore(knowledgeStore),
+		rest.WithJobStore(jobStore),
 		rest.WithGitConfigStore(gitConfigStore),
 		rest.WithLLMConfigStore(llmConfigStore),
 		rest.WithTokenStore(tokenStore),

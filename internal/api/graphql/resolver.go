@@ -11,6 +11,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/events"
 	"github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
 )
 
@@ -25,11 +26,12 @@ type GitConfigLoader interface {
 
 type Resolver struct {
 	Store          graph.GraphStore
-	KnowledgeStore knowledge.KnowledgeStore // nil when knowledge persistence is unavailable
-	Worker         *worker.Client           // nil when AI features are unavailable
-	Config         *config.Config           // application configuration
-	EventBus       *events.Bus              // in-process event bus for SSE notifications
-	GitConfig      GitConfigLoader          // reads git credentials from DB (multi-replica safe)
+	KnowledgeStore knowledge.KnowledgeStore  // nil when knowledge persistence is unavailable
+	Worker         *worker.Client            // nil when AI features are unavailable
+	Orchestrator   *orchestrator.Orchestrator // nil when llm orchestration is unavailable (degraded mode)
+	Config         *config.Config            // application configuration
+	EventBus       *events.Bus               // in-process event bus for SSE notifications
+	GitConfig      GitConfigLoader           // reads git credentials from DB (multi-replica safe)
 }
 
 // getStore returns the per-request tenant-filtered store when available,

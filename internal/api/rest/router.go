@@ -22,6 +22,8 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/events"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/llm"
+	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
 )
 
@@ -48,6 +50,15 @@ func WithDesktopAuthStore(store DesktopAuthSessionStore) ServerOption {
 // WithKnowledgeStore sets the knowledge persistence store.
 func WithKnowledgeStore(ks knowledge.KnowledgeStore) ServerOption {
 	return func(s *Server) { s.knowledgeStore = ks }
+}
+
+// WithJobStore sets the persistent llm.JobStore used by the orchestrator.
+// When unset, the server falls back to an in-memory store — which is
+// fine for tests and the OSS quickstart, but means job history is lost
+// on restart. Production deployments should pass the SurrealDB-backed
+// store created via db.NewSurrealStore.
+func WithJobStore(js llm.JobStore) ServerOption {
+	return func(s *Server) { s.jobStore = js }
 }
 
 // WithRepoChecker sets the tenant repo access checker for multi-tenant filtering.
@@ -89,6 +100,8 @@ type Server struct {
 	oidc           *auth.OIDCProvider
 	store          graphstore.GraphStore
 	knowledgeStore knowledge.KnowledgeStore
+	jobStore       llm.JobStore                 // persistent store for llm.Job records; defaults to MemStore
+	orchestrator   *orchestrator.Orchestrator   // shared LLM job orchestrator (created in NewServer)
 	worker         *worker.Client
 	eventBus       *events.Bus
 	tokenStore     auth.APITokenStore
@@ -144,8 +157,31 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	// Fall back to an in-memory job store when none was supplied via
+	// WithJobStore. This keeps the OSS quickstart and tests working
+	// without a SurrealDB dependency; production callers should supply
+	// the SurrealStore via WithJobStore.
+	if s.jobStore == nil {
+		s.jobStore = llm.NewMemStore()
+	}
+	// Build the orchestrator from config, with sensible defaults if the
+	// comprehension section is absent (zero-value Config uses the
+	// package defaults — max_concurrency=3, 5s/30s retry, etc.).
+	orchCfg := orchestrator.Config{}
+	if cfg != nil && cfg.Comprehension.MaxConcurrency > 0 {
+		orchCfg.MaxConcurrency = cfg.Comprehension.MaxConcurrency
+	}
+	s.orchestrator = orchestrator.New(s.jobStore, orchCfg)
+
 	s.setupRouter()
 	return s
+}
+
+// Orchestrator returns the server's LLM job orchestrator. Exposed so
+// tests and the graceful-shutdown path can call Shutdown on it.
+func (s *Server) Orchestrator() *orchestrator.Orchestrator {
+	return s.orchestrator
 }
 
 // SetOIDCProvider configures the OIDC provider for SSO login.
@@ -210,7 +246,7 @@ func (s *Server) setupRouter() {
 
 	// GraphQL server
 	gqlSrv := handler.NewDefaultServer(graphql.NewExecutableSchema(graphql.Config{
-		Resolvers: &graphql.Resolver{Store: s.store, KnowledgeStore: s.knowledgeStore, Worker: s.worker, Config: s.cfg, EventBus: s.eventBus, GitConfig: s.gitConfigStore},
+		Resolvers: &graphql.Resolver{Store: s.store, KnowledgeStore: s.knowledgeStore, Worker: s.worker, Orchestrator: s.orchestrator, Config: s.cfg, EventBus: s.eventBus, GitConfig: s.gitConfigStore},
 	}))
 
 	// Protected API routes (accepts both JWT and API tokens)

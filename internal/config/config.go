@@ -13,18 +13,32 @@ import (
 
 // Config holds the complete application configuration.
 type Config struct {
-	Env       string          `mapstructure:"env"`     // development, production
-	Edition   string          `mapstructure:"edition"` // oss, enterprise
-	Server    ServerConfig    `mapstructure:"server"`
-	Storage   StorageConfig   `mapstructure:"storage"`
-	Indexing  IndexingConfig  `mapstructure:"indexing"`
-	LLM       LLMConfig      `mapstructure:"llm"`
-	Linking   LinkingConfig   `mapstructure:"linking"`
-	UI        UIConfig        `mapstructure:"ui"`
-	Security  SecurityConfig  `mapstructure:"security"`
-	Worker    WorkerConfig    `mapstructure:"worker"`
-	Git       GitConfig       `mapstructure:"git"`
-	MCP       MCPConfig       `mapstructure:"mcp"`
+	Env           string              `mapstructure:"env"`     // development, production
+	Edition       string              `mapstructure:"edition"` // oss, enterprise
+	Server        ServerConfig        `mapstructure:"server"`
+	Storage       StorageConfig       `mapstructure:"storage"`
+	Indexing      IndexingConfig      `mapstructure:"indexing"`
+	LLM           LLMConfig           `mapstructure:"llm"`
+	Linking       LinkingConfig       `mapstructure:"linking"`
+	UI            UIConfig            `mapstructure:"ui"`
+	Security      SecurityConfig      `mapstructure:"security"`
+	Worker        WorkerConfig        `mapstructure:"worker"`
+	Git           GitConfig           `mapstructure:"git"`
+	MCP           MCPConfig           `mapstructure:"mcp"`
+	Comprehension ComprehensionConfig `mapstructure:"comprehension"`
+}
+
+// ComprehensionConfig holds tunables for the LLM job orchestrator and
+// comprehension strategies. All fields are optional; zero values fall
+// through to the orchestrator package defaults.
+type ComprehensionConfig struct {
+	// MaxConcurrency bounds how many LLM jobs run in parallel across
+	// the whole server. Defaults to 3 (safe for a single Ollama).
+	MaxConcurrency int `mapstructure:"max_concurrency"`
+	// MaxPromptTokens (future) — the budget passed into check_prompt_budget
+	// in workers. Not yet read by the Go side but reserved to avoid
+	// breaking config files when the setting is introduced.
+	MaxPromptTokens int `mapstructure:"max_prompt_tokens"`
 }
 
 // GitConfig holds git credentials for cloning private repositories.
