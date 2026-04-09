@@ -280,6 +280,12 @@ func (s *Server) setupRouter() {
 		r.Post("/api/v1/admin/test-llm", s.handleAdminTestLLM)
 		r.Get("/api/v1/admin/knowledge", s.handleAdminKnowledgeStatus)
 
+		// LLM job monitor (Phase 2c)
+		r.Get("/api/v1/admin/llm/activity", s.handleLLMActivity)
+		r.Get("/api/v1/admin/llm/stream", s.handleLLMStream)
+		r.Get("/api/v1/admin/llm/jobs/{id}", s.handleLLMJobDetail)
+		r.Post("/api/v1/admin/llm/jobs/{id}/retry", s.handleLLMJobRetry)
+
 		// LLM configuration
 		r.Get("/api/v1/admin/llm-config", s.handleGetLLMConfig)
 		r.Put("/api/v1/admin/llm-config", s.handleUpdateLLMConfig)

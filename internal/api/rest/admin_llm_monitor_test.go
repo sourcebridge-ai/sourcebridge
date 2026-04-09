@@ -1,0 +1,287 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 SourceBridge Contributors
+
+package rest
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/sourcebridge/sourcebridge/internal/llm"
+	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
+)
+
+// newMonitorTestServer builds a Server instance wired to an isolated
+// orchestrator + in-memory JobStore, sufficient for testing the
+// monitor HTTP handlers without pulling in the full server stack.
+func newMonitorTestServer(t *testing.T) *Server {
+	t.Helper()
+	store := llm.NewMemStore()
+	orch := orchestrator.New(store, orchestrator.Config{
+		MaxConcurrency: 2,
+	})
+	t.Cleanup(func() { _ = orch.Shutdown(time.Second) })
+	return &Server{
+		jobStore:     store,
+		orchestrator: orch,
+	}
+}
+
+func TestErrorTitleForCodeCoversKnownCodes(t *testing.T) {
+	cases := []struct {
+		code string
+		hasTitle bool
+	}{
+		{"LLM_EMPTY", true},
+		{"SNAPSHOT_TOO_LARGE", true},
+		{"DEADLINE_EXCEEDED", true},
+		{"WORKER_UNAVAILABLE", true},
+		{"INTERNAL", true},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.code, func(t *testing.T) {
+			title, hint := errorTitleForCode(tc.code)
+			if tc.hasTitle {
+				if title == "" {
+					t.Fatalf("expected non-empty title for code %q", tc.code)
+				}
+				if hint == "" {
+					t.Fatalf("expected non-empty hint for code %q", tc.code)
+				}
+			} else {
+				if title != "" || hint != "" {
+					t.Fatalf("expected empty title/hint for empty code, got %q / %q", title, hint)
+				}
+			}
+		})
+	}
+}
+
+func TestComputeMonitorHealthHappyPath(t *testing.T) {
+	// Worker up, 3 active, 5 succeeded, 0 failed -> healthy with active summary.
+	h := computeMonitorHealth(true, 3, 5, 0)
+	if h.Status != "healthy" {
+		t.Fatalf("expected healthy status, got %q", h.Status)
+	}
+	if h.Summary == "" {
+		t.Fatal("expected a non-empty summary")
+	}
+}
+
+func TestComputeMonitorHealthDegraded(t *testing.T) {
+	// 1 failed out of 4 -> degraded (25%)
+	h := computeMonitorHealth(true, 0, 3, 1)
+	if h.Status != "degraded" {
+		t.Fatalf("expected degraded status, got %q (%s)", h.Status, h.Summary)
+	}
+}
+
+func TestComputeMonitorHealthUnhealthy(t *testing.T) {
+	// 4 failed out of 5 -> unhealthy
+	h := computeMonitorHealth(true, 0, 1, 4)
+	if h.Status != "unhealthy" {
+		t.Fatalf("expected unhealthy status, got %q (%s)", h.Status, h.Summary)
+	}
+}
+
+func TestComputeMonitorHealthWorkerDown(t *testing.T) {
+	h := computeMonitorHealth(false, 0, 10, 0)
+	if h.Status != "unhealthy" {
+		t.Fatalf("expected unhealthy when worker is down, got %q", h.Status)
+	}
+}
+
+func TestHandleLLMActivityEmptySystem(t *testing.T) {
+	s := newMonitorTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/llm/activity", nil)
+	w := httptest.NewRecorder()
+	s.handleLLMActivity(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp monitorActivityResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if resp.Stats.MaxConcurrency != 2 {
+		t.Fatalf("expected max_concurrency=2, got %d", resp.Stats.MaxConcurrency)
+	}
+	if len(resp.Active) != 0 {
+		t.Fatalf("expected empty active list, got %d", len(resp.Active))
+	}
+	// Worker is nil in the test fixture, so health should be unhealthy.
+	if resp.Health.Status != "unhealthy" {
+		t.Fatalf("expected unhealthy (no worker), got %q", resp.Health.Status)
+	}
+}
+
+func TestHandleLLMActivityShowsCompletedJob(t *testing.T) {
+	s := newMonitorTestServer(t)
+
+	done := make(chan struct{})
+	_, err := s.orchestrator.Enqueue(&llm.EnqueueRequest{
+		Subsystem: llm.SubsystemKnowledge,
+		JobType:   "cliff_notes",
+		TargetKey: "repo-1:activity",
+		Run: func(rt llm.Runtime) error {
+			rt.ReportProgress(0.5, "midway", "halfway")
+			rt.ReportTokens(200, 150)
+			close(done)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("job did not start in time")
+	}
+	// Poll until it's marked ready (memstore + orchestrator write back fast).
+	for i := 0; i < 100; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/llm/activity", nil)
+		w := httptest.NewRecorder()
+		s.handleLLMActivity(w, req)
+		var resp monitorActivityResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		if len(resp.Recent) > 0 && resp.Recent[0].Status == string(llm.StatusReady) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("job did not appear in recent history as ready")
+}
+
+func TestHandleLLMJobDetailRoundTrip(t *testing.T) {
+	s := newMonitorTestServer(t)
+
+	job, err := s.orchestrator.Enqueue(&llm.EnqueueRequest{
+		Subsystem: llm.SubsystemKnowledge,
+		JobType:   "cliff_notes",
+		TargetKey: "repo-1:detail",
+		Run: func(rt llm.Runtime) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+
+	// Wait a beat for the worker to process.
+	time.Sleep(50 * time.Millisecond)
+
+	// Set up a router so chi URLParam works.
+	r := chi.NewRouter()
+	r.Get("/api/v1/admin/llm/jobs/{id}", s.handleLLMJobDetail)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/llm/jobs/"+job.ID, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var view monitorJobView
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if view.ID != job.ID {
+		t.Fatalf("expected id %q, got %q", job.ID, view.ID)
+	}
+}
+
+func TestHandleLLMJobDetail404(t *testing.T) {
+	s := newMonitorTestServer(t)
+	r := chi.NewRouter()
+	r.Get("/api/v1/admin/llm/jobs/{id}", s.handleLLMJobDetail)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/llm/jobs/nonexistent", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestHandleLLMJobRetryNonRetryableState(t *testing.T) {
+	s := newMonitorTestServer(t)
+
+	// Enqueue a job and let it complete successfully.
+	job, err := s.orchestrator.Enqueue(&llm.EnqueueRequest{
+		Subsystem: llm.SubsystemKnowledge,
+		JobType:   "cliff_notes",
+		TargetKey: "repo-1:retry-ok",
+		Run: func(rt llm.Runtime) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	r := chi.NewRouter()
+	r.Post("/api/v1/admin/llm/jobs/{id}/retry", s.handleLLMJobRetry)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/llm/jobs/"+job.ID+"/retry", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for non-retryable (ready) state, got %d", w.Code)
+	}
+}
+
+func TestParseListFilterBasicFields(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/admin/llm/activity?subsystem=knowledge&job_type=cliff_notes&repo_id=abc&limit=25", nil)
+	f := parseListFilter(req)
+	if f.Subsystem != llm.SubsystemKnowledge {
+		t.Fatalf("expected subsystem knowledge, got %q", f.Subsystem)
+	}
+	if f.JobType != "cliff_notes" {
+		t.Fatalf("expected job_type cliff_notes, got %q", f.JobType)
+	}
+	if f.RepoID != "abc" {
+		t.Fatalf("expected repo_id abc, got %q", f.RepoID)
+	}
+	if f.Limit != 25 {
+		t.Fatalf("expected limit 25, got %d", f.Limit)
+	}
+}
+
+func TestEventMatchesFilter(t *testing.T) {
+	job := &llm.Job{
+		Subsystem: llm.SubsystemKnowledge,
+		JobType:   "cliff_notes",
+		RepoID:    "repo-1",
+		TargetKey: "tk",
+	}
+	ev := llm.JobEvent{Kind: llm.EventProgress, Job: job}
+
+	// empty filter matches everything
+	if !eventMatchesFilter(ev, llm.ListFilter{}) {
+		t.Fatal("empty filter should match")
+	}
+	// subsystem match
+	if !eventMatchesFilter(ev, llm.ListFilter{Subsystem: llm.SubsystemKnowledge}) {
+		t.Fatal("matching subsystem should pass")
+	}
+	// subsystem mismatch
+	if eventMatchesFilter(ev, llm.ListFilter{Subsystem: llm.SubsystemReasoning}) {
+		t.Fatal("mismatched subsystem should not pass")
+	}
+	// repo_id match
+	if !eventMatchesFilter(ev, llm.ListFilter{RepoID: "repo-1"}) {
+		t.Fatal("matching repo should pass")
+	}
+	// repo_id mismatch
+	if eventMatchesFilter(ev, llm.ListFilter{RepoID: "repo-2"}) {
+		t.Fatal("mismatched repo should not pass")
+	}
+}
