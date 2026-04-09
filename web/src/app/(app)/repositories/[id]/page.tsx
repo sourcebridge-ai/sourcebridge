@@ -129,6 +129,8 @@ interface KnowledgeArtifact {
   status: string;
   progress: number;
   stale: boolean;
+  errorCode: string | null;
+  errorMessage: string | null;
   generatedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -138,6 +140,21 @@ interface KnowledgeArtifact {
     contentFingerprint?: string | null;
   };
   sections: KnowledgeSection[];
+}
+
+function knowledgeErrorHint(errorCode: string | null | undefined): string {
+  switch (errorCode) {
+    case "LLM_EMPTY":
+      return "The model returned no content. This usually means the prompt was too large for the current model or the provider is unstable.";
+    case "SNAPSHOT_TOO_LARGE":
+      return "This scope likely exceeded the current model budget. Try a smaller scope or a strategy that chunks the corpus.";
+    case "DEADLINE_EXCEEDED":
+      return "The worker timed out before the generation completed. The provider may be overloaded.";
+    case "WORKER_UNAVAILABLE":
+      return "The worker could not be reached. Check the worker process or deployment health.";
+    default:
+      return "The artifact generation failed. Check the latest error details before retrying.";
+  }
 }
 
 interface ScopeChild {
@@ -1844,6 +1861,21 @@ export default function RepositoryDetailPage() {
                                 max={100}
                                 value={Math.max(currentCliffNotes.progress * 100, 5)}
                               />
+                            </div>
+                          ) : null}
+                          {currentCliffNotes.status === "FAILED" ? (
+                            <div className="mb-5 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+                              <p className="text-sm font-medium text-[var(--text-primary)]">
+                                {currentCliffNotes.errorCode || "GENERATION_FAILED"}
+                              </p>
+                              <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                                {knowledgeErrorHint(currentCliffNotes.errorCode)}
+                              </p>
+                              {currentCliffNotes.errorMessage ? (
+                                <p className="mt-2 whitespace-pre-wrap text-xs text-[var(--text-tertiary)]">
+                                  {currentCliffNotes.errorMessage}
+                                </p>
+                              ) : null}
                             </div>
                           ) : null}
                           {currentCliffNotes.sections

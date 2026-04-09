@@ -47,6 +47,12 @@ Purpose: execution log and handoff state for autonomous implementation
     - `INTERNAL`
 - Added minimal refresh dedupe:
   - `refreshKnowledgeArtifact` now returns the existing artifact if already `GENERATING` / `PENDING`
+- Exposed persisted artifact failure metadata through GraphQL/UI:
+  - `internal/api/graphql/schema.graphqls`
+  - `internal/api/graphql/models_gen.go`
+  - `internal/api/graphql/helpers.go`
+  - `web/src/lib/graphql/queries.ts`
+  - `web/src/app/(app)/repositories/[id]/page.tsx`
 - Added tests:
   - `workers/tests/test_llm_provider.py`
   - `workers/tests/test_comprehension_bench.py`
@@ -54,7 +60,7 @@ Purpose: execution log and handoff state for autonomous implementation
 ## In progress in this pass
 
 - Real-provider benchmark runner for thor/Ollama is not implemented yet.
-- GraphQL/UI exposure of `errorCode` / `errorMessage` is still incomplete.
+- UI failure details are currently surfaced for the main cliff notes panel; broader surfacing across other artifact panels can still be expanded.
 - Full orchestrator/monitor work is still pending.
 
 ## Next recommended steps if handed off
@@ -63,8 +69,8 @@ Purpose: execution log and handoff state for autonomous implementation
    - add `benchmark-comprehension-local` implementation for sanitized thor runs
    - decide whether committed fixture benchmark results should stay in-tree or only regenerated in CI/local workflows
 2. Finish A1/A2 API-side work:
-   - expose persisted failure metadata through GraphQL/UI cleanly
    - broaden dedupe beyond refresh where still needed
+   - propagate failure metadata to additional artifact panels and any admin views
    - decide whether to add explicit store tests for failure metadata
 3. Add a phase report artifact under an OSS-safe path.
 4. Only then consider broader orchestrator/monitor work.
@@ -85,6 +91,13 @@ Successful:
 - `make benchmark-comprehension-report BENCHMARK_RESULTS_DIR=benchmarks/results/local-checkpoint`
 - `cd workers && uv run python -m pytest tests/test_requirements_servicer.py -v`
 - `go test ./internal/api/graphql ./internal/knowledge ./internal/db`
+- `go test ./internal/api/graphql`
+
+Frontend validation resolved in this environment:
+
+- `cd web && npm ci`
+- `cd web && npm run lint -- --file 'src/app/(app)/repositories/[id]/page.tsx' --file src/lib/graphql/queries.ts`
+  - passed with no ESLint warnings or errors
 
 Observed issue fixed during this pass:
 

@@ -372,6 +372,8 @@ type KnowledgeArtifact struct {
 	GeneratedAt    *time.Time              `json:"generatedAt,omitempty"`
 	CreatedAt      time.Time               `json:"createdAt"`
 	UpdatedAt      time.Time               `json:"updatedAt"`
+	ErrorCode      *string                 `json:"errorCode,omitempty"`
+	ErrorMessage   *string                 `json:"errorMessage,omitempty"`
 	Sections       []*KnowledgeSection     `json:"sections"`
 }
 

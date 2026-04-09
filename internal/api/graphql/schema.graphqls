@@ -668,6 +668,8 @@ type KnowledgeArtifact {
   generatedAt: Time
   createdAt: Time!
   updatedAt: Time!
+  errorCode: String
+  errorMessage: String
   sections: [KnowledgeSection!]!
 }
 

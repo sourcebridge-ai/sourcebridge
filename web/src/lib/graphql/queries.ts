@@ -584,6 +584,8 @@ export const KNOWLEDGE_ARTIFACTS_QUERY = gql`
       status
       progress
       stale
+      errorCode
+      errorMessage
       generatedAt
       createdAt
       updatedAt
@@ -843,6 +845,8 @@ export const REFRESH_KNOWLEDGE_ARTIFACT_MUTATION = gql`
         symbolName
       }
       status
+      errorCode
+      errorMessage
       stale
       generatedAt
       sections {

@@ -682,6 +682,12 @@ func mapKnowledgeArtifact(a *knowledgepkg.Artifact) *KnowledgeArtifact {
 	if !a.GeneratedAt.IsZero() {
 		out.GeneratedAt = &a.GeneratedAt
 	}
+	if a.ErrorCode != "" {
+		out.ErrorCode = ptrString(a.ErrorCode)
+	}
+	if a.ErrorMessage != "" {
+		out.ErrorMessage = ptrString(a.ErrorMessage)
+	}
 	for _, sec := range a.Sections {
 		out.Sections = append(out.Sections, mapKnowledgeSection(&sec))
 	}
