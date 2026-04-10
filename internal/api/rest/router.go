@@ -24,7 +24,6 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
-	"github.com/sourcebridge/sourcebridge/internal/reports"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
 )
@@ -104,10 +103,6 @@ func WithSummaryNodeStore(sns comprehension.SummaryNodeStore) ServerOption {
 	return func(s *Server) { s.summaryNodeStore = sns }
 }
 
-// WithReportStore injects the report persistence store.
-func WithReportStore(rs reports.Store) ServerOption {
-	return func(s *Server) { s.reportStore = rs }
-}
 
 // Server is the HTTP API server.
 type Server struct {
@@ -134,7 +129,7 @@ type Server struct {
 	mcpToolExtender    MCPToolExtender              // deferred to mcp handler at setup
 	comprehensionStore comprehension.Store           // comprehension settings + model capabilities
 	summaryNodeStore   comprehension.SummaryNodeStore // cached summary tree nodes
-	reportStore        reports.Store                  // report records, templates, branding, evidence
+
 }
 
 // getStore returns a tenant-filtered store when RepoAccessMiddleware has
@@ -341,22 +336,7 @@ func (s *Server) setupRouter() {
 		r.Put("/api/v1/admin/llm/corpus/nodes", s.handleStoreSummaryNodes)
 		r.Post("/api/v1/admin/llm/corpus/{corpusId}/invalidate", s.handleInvalidateSummaryNodes)
 
-		// Reports
-		r.Get("/api/v1/reports", s.handleListReports)
-		r.Post("/api/v1/reports", s.handleCreateReport)
-		r.Get("/api/v1/reports/types", s.handleListReportTypes)
-		r.Get("/api/v1/reports/sections", s.handleGetDefaultSections)
-		r.Get("/api/v1/reports/{id}", s.handleGetReport)
-		r.Delete("/api/v1/reports/{id}", s.handleDeleteReport)
-		r.Get("/api/v1/reports/{id}/markdown", s.handleGetReportMarkdown)
-		r.Post("/api/v1/reports/{id}/regenerate", s.handleRegenerateReport)
-		r.Get("/api/v1/reports/{id}/download/{format}", s.handleDownloadReportFile)
-		r.Get("/api/v1/reports/{id}/evidence", s.handleGetReportEvidence)
-
-		// Report templates
-		r.Get("/api/v1/reports/templates", s.handleListReportTemplates)
-		r.Post("/api/v1/reports/templates", s.handleCreateReportTemplate)
-		r.Delete("/api/v1/reports/templates/{id}", s.handleDeleteReportTemplate)
+		// Reports — enterprise only (registered via enterprise routes)
 
 		// API token management
 		r.Post("/api/v1/tokens", s.handleCreateToken)

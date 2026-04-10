@@ -24,7 +24,6 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
-	"github.com/sourcebridge/sourcebridge/internal/reports"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
 )
@@ -206,7 +205,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		rest.WithDesktopAuthStore(desktopAuthStore),
 		rest.WithComprehensionStore(comprehensionStore),
 		rest.WithSummaryNodeStore(summaryNodeStore),
-		rest.WithReportStore(reports.NewMemStore()),
 	)
 
 	// Initialize OIDC if configured

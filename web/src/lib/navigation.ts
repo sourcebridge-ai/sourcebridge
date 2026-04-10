@@ -2,7 +2,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   Building2,
   CircleHelp,
-  FileText,
   FolderKanban,
   Home,
   Search,
@@ -36,7 +35,6 @@ const BASE_NAVIGATION: NavigationItem[] = [
     commandLabel: "Go to Requirements",
   },
   { label: "Search", href: "/search", icon: Search, commandLabel: "Go to Search" },
-  { label: "Reports", href: "/reports", icon: FileText, commandLabel: "Go to Reports" },
   { label: "Admin", href: "/admin", icon: Shield, commandLabel: "Go to Admin" },
   { label: "Settings", href: "/settings", icon: Settings, commandLabel: "Go to Settings" },
   { label: "Help", href: "/help", icon: CircleHelp, commandLabel: "Go to Help" },
