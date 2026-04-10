@@ -48,10 +48,9 @@ log = structlog.get_logger()
 
 
 CLIFF_NOTES_RENDER_TEMPLATE = """\
-You are writing structured cliff notes for a codebase. The repository \
-has already been summarized hierarchically — you do NOT see the raw \
-code, only the pre-computed summaries below. Produce the required \
-sections grounded in those summaries.
+You are writing a detailed field guide for developers joining this codebase. \
+The repository has been analyzed — use the summaries below to write \
+thorough, grounded documentation for each required section.
 
 Repository: {repository_name}
 Audience: {audience}
@@ -67,27 +66,31 @@ Scope: {scope_type}{scope_path_suffix}
 === Notable files ===
 {file_summaries}
 
-=== Output format ===
-Return a JSON array of sections. Each section object must have:
-  - "title":      one of the required section titles below
-  - "content":    2-6 sentences of markdown
-  - "summary":    a one-line takeaway
-  - "confidence": "high" | "medium" | "low"
-  - "inferred":   true if the section goes beyond the direct evidence
-  - "evidence":   array of {{source_type, source_id, file_path, line_start, line_end, rationale}}
+=== Task ===
+Write a JSON array of {section_count} section objects. IMPORTANT: your \
+total output must be at least 1500 words across all sections combined. \
+Each section MUST contain detailed, specific content — not vague summaries.
 
-Required section titles (in order, include every one):
+Each section object has these keys:
+  - "title": one of the required section titles listed below (string)
+  - "content": a detailed markdown paragraph of 4-8 sentences. Name specific \
+    files, components, functions, and patterns. Explain HOW things work, not \
+    just WHAT they are. Minimum 80 words per section. (string)
+  - "summary": a single-sentence takeaway (string)
+  - "confidence": "high", "medium", or "low" (string)
+  - "inferred": true if you're extrapolating beyond the summaries (boolean)
+  - "evidence": array of objects with keys: source_type, source_id, file_path, \
+    line_start, line_end, rationale. Reference actual file paths from above.
+
+Required section titles (produce every one, in this order):
 {required_sections}
 
-Rules:
-- Do NOT include any prose outside the JSON array.
-- Do NOT wrap the JSON in markdown fences.
-- Every title must appear exactly once.
-- Each section's "content" must be 3-6 substantial sentences of markdown — \
-  not one-liners. Reference specific files, components, and patterns by name.
-- Use "low" confidence + "inferred": true when the summaries don't \
-  directly support the section.
-- The "evidence" array should reference actual file paths from the summaries above.
+Output rules:
+- Return ONLY the JSON array — no text before or after it.
+- No markdown fences around the JSON.
+- Every required title must appear exactly once.
+- Sections with insufficient evidence: set confidence to "low" and inferred to true, \
+  but still write substantive content based on what you can infer.
 """
 
 
@@ -142,6 +145,7 @@ class CliffNotesRenderer:
             root_summary=root.summary_text or "(no repository summary available)",
             group_summaries=self._format_summaries(group_nodes, label_prefix="Subsystem"),
             file_summaries=self._format_summaries(file_nodes, label_prefix="File"),
+            section_count=len(required_sections),
             required_sections="\n".join(f"- {t}" for t in required_sections),
         )
 

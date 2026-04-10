@@ -238,7 +238,7 @@ func (s *Server) handleLLMActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	health := computeMonitorHealth(workerConnected, len(active), succeeded, failed)
+	health := computeMonitorHealth(workerConnected, len(activeViews), succeeded, failed)
 
 	resp := monitorActivityResponse{
 		Health:  health,
@@ -246,7 +246,7 @@ func (s *Server) handleLLMActivity(w http.ResponseWriter, r *http.Request) {
 		Recent:  recentViews,
 		Metrics: s.orchestrator.Metrics(),
 		Stats: monitorStats{
-			InFlight:       s.orchestrator.InFlightCount(),
+			InFlight:       len(active), // DB-backed count — consistent across pods
 			QueueDepth:     s.orchestrator.QueueDepth(),
 			MaxConcurrency: s.orchestrator.MaxConcurrency(),
 		},
