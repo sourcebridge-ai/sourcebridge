@@ -95,12 +95,37 @@ export function LazyScoreBreakdown({ repositoryId }: { repositoryId: string }) {
   return <ScoreBreakdown data={result.data?.understandingScore ?? null} />;
 }
 
-const subScores: { key: keyof UnderstandingScoreData; label: string }[] = [
-  { key: "traceabilityCoverage", label: "Traceability" },
-  { key: "documentationCoverage", label: "Documentation" },
-  { key: "reviewCoverage", label: "Review" },
-  { key: "testCoverage", label: "Test" },
-  { key: "knowledgeFreshness", label: "Knowledge" },
+const subScores: { key: keyof UnderstandingScoreData; label: string; weight: string; explanation: string }[] = [
+  {
+    key: "traceabilityCoverage",
+    label: "Traceability",
+    weight: "25%",
+    explanation: "What percentage of requirements are linked to code. Higher means you can trace why code exists.",
+  },
+  {
+    key: "documentationCoverage",
+    label: "Documentation",
+    weight: "25%",
+    explanation: "What percentage of public functions and classes have doc comments in the source code.",
+  },
+  {
+    key: "reviewCoverage",
+    label: "Review",
+    weight: "20%",
+    explanation: "What percentage of files have been reviewed through SourceBridge's code review feature.",
+  },
+  {
+    key: "testCoverage",
+    label: "Test",
+    weight: "15%",
+    explanation: "Ratio of test symbols (test functions, test classes) to production symbols. 0% means no tests were detected.",
+  },
+  {
+    key: "knowledgeFreshness",
+    label: "Knowledge",
+    weight: "15%",
+    explanation: "What percentage of generated artifacts (cliff notes, learning paths, etc.) are fresh and not stale.",
+  },
 ];
 
 /** Full breakdown card with gauge and sub-score bars. */
@@ -152,12 +177,16 @@ export function ScoreBreakdown({ data }: { data: UnderstandingScoreData | null |
 
       {/* Sub-score bars */}
       <div className="space-y-3">
-        {subScores.map(({ key, label }) => {
+        {subScores.map(({ key, label, weight, explanation }) => {
           const val = Math.round(data[key]);
           return (
-            <div key={key} className="space-y-1">
+            <div key={key} className="group space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-[var(--text-secondary)]">{label}</span>
+                <span className="text-[var(--text-secondary)]" title={explanation}>
+                  {label}
+                  <span className="ml-1 text-[var(--text-muted)]">({weight})</span>
+                  <span className="ml-1 cursor-help text-[var(--text-muted)]">?</span>
+                </span>
                 <span className={`font-semibold tabular-nums ${scoreColor(val)}`}>
                   {val}%
                 </span>
@@ -168,6 +197,9 @@ export function ScoreBreakdown({ data }: { data: UnderstandingScoreData | null |
                   style={{ width: `${val}%` }}
                 />
               </div>
+              <p className="hidden text-[10px] leading-tight text-[var(--text-muted)] group-hover:block">
+                {explanation}
+              </p>
             </div>
           );
         })}

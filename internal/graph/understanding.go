@@ -90,7 +90,9 @@ func ComputeUnderstandingScore(store GraphStore, kfp KnowledgeFreshnessProvider,
 		}
 	}
 
-	// 4. Test coverage: ratio of test symbols to non-test symbols
+	// 4. Test coverage: ratio of test symbols to non-test symbols.
+	// When there are no non-test symbols (nonTest == 0), the score is 0 —
+	// "no testable code found" is not "everything is tested."
 	tests, totalSyms := store.GetTestSymbolRatio(repoID)
 	if totalSyms > 0 {
 		nonTest := totalSyms - tests
@@ -100,9 +102,9 @@ func ComputeUnderstandingScore(store GraphStore, kfp KnowledgeFreshnessProvider,
 				ratio = 100
 			}
 			score.TestCoverage = ratio
-		} else {
-			score.TestCoverage = 100
 		}
+		// else: nonTest == 0 means all symbols are tests or no testable
+		// code — leave TestCoverage at 0 rather than claiming 100%.
 	}
 
 	// 5. Knowledge freshness: % of knowledge artifacts not stale
