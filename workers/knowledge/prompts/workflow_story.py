@@ -113,6 +113,16 @@ Writing guidance:
 - Where to Inspect or Modify: the most relevant files/symbols to read or change
 - Do not leave sections blank or say "insufficient data" unless the snapshot is truly empty.
 - Prefer specific files, symbols, routes, or steps from the execution path over generic architecture recap.
+- Each section's "content" must be 4-8 substantial sentences. Name specific files, \
+  components, functions, and routes. Minimum 80 words per section.
+
+Confidence rules:
+- If a section references specific files, symbols, or routes from the snapshot, \
+  set confidence to "high" and inferred to false — the snapshot IS direct evidence.
+- Only use "medium" confidence when you are connecting dots between separate pieces \
+  of evidence (e.g. inferring a data flow from two separate function signatures).
+- Only use "low" confidence when the snapshot provides no relevant evidence at all.
+- Most sections should be "high" confidence when the snapshot contains relevant symbols.
 
 **Repository snapshot**
 ```json
