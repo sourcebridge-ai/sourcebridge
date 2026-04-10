@@ -2277,12 +2277,12 @@ export default function RepositoryDetailPage() {
                       <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] px-5 py-5">
                         <div className="mb-4 flex flex-wrap gap-2">
                           {features.learningPaths && (
-                            <Button variant="secondary" size="sm" onClick={handleGenerateLearningPath} disabled={knowledgeLoading || isLearningPathGenerating}>
+                            <Button variant="secondary" size="sm" onClick={currentLearningPath ? () => handleRefreshArtifact(currentLearningPath.id) : handleGenerateLearningPath} disabled={knowledgeLoading || isLearningPathGenerating}>
                               {isLearningPathGenerating ? "Generating..." : currentLearningPath ? "Refresh learning path" : "Generate learning path"}
                             </Button>
                           )}
                           {features.codeTours && (
-                            <Button variant="secondary" size="sm" onClick={handleGenerateCodeTour} disabled={knowledgeLoading || isCodeTourGenerating}>
+                            <Button variant="secondary" size="sm" onClick={currentCodeTour ? () => handleRefreshArtifact(currentCodeTour.id) : handleGenerateCodeTour} disabled={knowledgeLoading || isCodeTourGenerating}>
                               {isCodeTourGenerating ? "Generating..." : currentCodeTour ? "Refresh code tour" : "Generate code tour"}
                             </Button>
                           )}
