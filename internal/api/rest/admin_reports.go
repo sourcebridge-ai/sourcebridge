@@ -239,6 +239,39 @@ func (s *Server) handleGetReportEvidence(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, items)
 }
 
+// --- Report regeneration ---
+
+func (s *Server) handleRegenerateReport(w http.ResponseWriter, r *http.Request) {
+	if s.reportStore == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "reports not configured"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	report, err := s.reportStore.GetReport(id)
+	if err != nil || report == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "report not found"})
+		return
+	}
+
+	// Increment version and reset status
+	report.Version++
+	report.Status = reports.StatusPending
+	report.Progress = 0
+	report.ProgressPhase = ""
+	report.ProgressMessage = ""
+	report.ErrorCode = ""
+	report.ErrorMessage = ""
+	report.Stale = false
+
+	if err := s.reportStore.UpdateReportStatus(id, reports.StatusPending, 0, "", "Queued for regeneration"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// TODO: Enqueue regeneration job
+	writeJSON(w, http.StatusOK, report)
+}
+
 // --- Report Markdown content (for preview) ---
 
 func (s *Server) handleGetReportMarkdown(w http.ResponseWriter, r *http.Request) {

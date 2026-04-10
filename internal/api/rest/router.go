@@ -349,6 +349,7 @@ func (s *Server) setupRouter() {
 		r.Get("/api/v1/reports/{id}", s.handleGetReport)
 		r.Delete("/api/v1/reports/{id}", s.handleDeleteReport)
 		r.Get("/api/v1/reports/{id}/markdown", s.handleGetReportMarkdown)
+		r.Post("/api/v1/reports/{id}/regenerate", s.handleRegenerateReport)
 		r.Get("/api/v1/reports/{id}/download/{format}", s.handleDownloadReportFile)
 		r.Get("/api/v1/reports/{id}/evidence", s.handleGetReportEvidence)
 
