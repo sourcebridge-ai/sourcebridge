@@ -1016,23 +1016,21 @@ export default function RepositoryDetailPage() {
         { label: repo?.name || "..." },
       ]} />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
-        <PageHeader
-          eyebrow="Repository Workspace"
-          title={repo?.name || "Repository"}
-          description={repo?.remoteUrl ? (
-            <a href={repo.remoteUrl} target="_blank" rel="noopener noreferrer" className="underline decoration-[var(--border-default)] underline-offset-4 transition-colors hover:text-[var(--text-primary)] hover:decoration-[var(--text-primary)]">
-              {repo.path || repo.remoteUrl}
-            </a>
-          ) : (repo?.path || "Explore the codebase through files, symbols, field guides, reviews, and change impact.")}
-          actions={repo ? <RepoJobsPopover repoId={repo.id} /> : null}
-        />
-        {repo && (
-          <Panel className="w-full lg:w-72">
-            <LazyScoreBreakdown repositoryId={repo.id} />
-          </Panel>
-        )}
-      </div>
+      <PageHeader
+        eyebrow="Repository Workspace"
+        title={repo?.name || "Repository"}
+        description={repo?.remoteUrl ? (
+          <a href={repo.remoteUrl} target="_blank" rel="noopener noreferrer" className="underline decoration-[var(--border-default)] underline-offset-4 transition-colors hover:text-[var(--text-primary)] hover:decoration-[var(--text-primary)]">
+            {repo.path || repo.remoteUrl}
+          </a>
+        ) : (repo?.path || "Explore the codebase through files, symbols, field guides, reviews, and change impact.")}
+        actions={repo ? <RepoJobsPopover repoId={repo.id} /> : null}
+      />
+      {repo && (
+        <Panel className="w-full" padding="sm">
+          <LazyScoreBreakdown repositoryId={repo.id} />
+        </Panel>
+      )}
 
       <div className="-mx-3 flex gap-2 overflow-x-auto scrollbar-none border-b border-[var(--border-subtle)] px-3 pb-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
         {tabs.map((t) => (
