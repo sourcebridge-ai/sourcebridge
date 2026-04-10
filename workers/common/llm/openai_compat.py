@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 
 import openai
 
 from workers.common.llm.provider import LLMResponse
+
+
+def _strip_think_tags(text: str) -> str:
+    """Strip <think>...</think> blocks from model output.
+
+    Thinking models (Qwen 3.x, DeepSeek-R1) wrap internal reasoning in
+    <think> tags. The visible summary follows after the closing tag.
+    """
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 
 class OpenAICompatProvider:
@@ -94,8 +104,11 @@ class OpenAICompatProvider:
             if accepted is not None and total and total > 0:
                 acceptance_rate = accepted / total
 
+        raw_content = choice.message.content or ""
+        content = _strip_think_tags(raw_content) if raw_content else ""
+
         return LLMResponse(
-            content=choice.message.content or "",
+            content=content,
             model=use_model,
             input_tokens=response.usage.prompt_tokens if response.usage else 0,
             output_tokens=response.usage.completion_tokens if response.usage else 0,

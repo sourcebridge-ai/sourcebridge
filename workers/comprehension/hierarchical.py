@@ -66,7 +66,7 @@ log = structlog.get_logger()
 
 
 DEFAULT_LEAF_CONCURRENCY = 4
-DEFAULT_MAX_TOKENS_PER_CALL = 4096  # raised from 1024 — thinking models (Qwen 3.x) need headroom for internal reasoning tokens before producing visible summary text
+DEFAULT_MAX_TOKENS_PER_CALL = 16384  # thinking models (Qwen 3.x) consume thousands of tokens on <think> chains before producing visible summary text
 
 
 @dataclass
