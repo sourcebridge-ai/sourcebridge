@@ -52,6 +52,11 @@ type Config struct {
 	Retry RetryPolicy
 	// MetricsCapacity is the per-bucket sample buffer. Default 256.
 	MetricsCapacity int
+	// OnStaleJob is called when the reaper marks a stuck job as failed.
+	// The orchestrator passes the job so the caller can clean up related
+	// state (e.g. mark the linked knowledge artifact as failed too).
+	// Nil means no callback.
+	OnStaleJob func(job *llm.Job)
 }
 
 // withDefaults returns a copy of c with zero fields replaced by sane defaults.
@@ -184,6 +189,9 @@ func (o *Orchestrator) reapStaleJobs() {
 		o.store.SetStatus(job.ID, llm.StatusFailed)
 		o.store.SetError(job.ID, "DEADLINE_EXCEEDED", "Job reaped: stuck in "+string(job.Status)+" for "+age.Round(time.Second).String())
 		o.inflight.release(job.TargetKey)
+		if o.cfg.OnStaleJob != nil {
+			o.cfg.OnStaleJob(job)
+		}
 	}
 }
 

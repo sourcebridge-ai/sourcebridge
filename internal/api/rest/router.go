@@ -186,6 +186,14 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 	if cfg != nil && cfg.Comprehension.MaxConcurrency > 0 {
 		orchCfg.MaxConcurrency = cfg.Comprehension.MaxConcurrency
 	}
+	// When the reaper marks a stale job as failed, also mark the linked
+	// knowledge artifact as failed so the UI doesn't show "generating"
+	// forever on a job that will never complete.
+	orchCfg.OnStaleJob = func(job *llm.Job) {
+		if s.knowledgeStore != nil && job.ArtifactID != "" {
+			_ = s.knowledgeStore.SetArtifactFailed(job.ArtifactID, "DEADLINE_EXCEEDED", "Generation timed out — please retry")
+		}
+	}
 	s.orchestrator = orchestrator.New(s.jobStore, orchCfg)
 
 	s.setupRouter()
