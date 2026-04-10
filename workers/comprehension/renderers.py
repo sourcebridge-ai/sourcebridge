@@ -69,9 +69,8 @@ Scope: {scope_type}{scope_path_suffix}
 {pre_analysis_block}
 
 === Task ===
-Write a JSON array of {section_count} section objects. IMPORTANT: your \
-total output must be at least 1500 words across all sections combined. \
-Each section MUST contain detailed, specific content — not vague summaries.
+{depth_instructions}
+Write a JSON array of {section_count} section objects.
 
 Each section object has these keys:
   - "title": one of the required section titles listed below (string)
@@ -143,8 +142,17 @@ class CliffNotesRenderer:
         if root is None:
             raise ValueError("cannot render cliff notes from an empty summary tree")
 
-        group_nodes = self._select_groups(tree, root)
-        file_nodes = self._select_files(tree, group_nodes)
+        # Deep mode: widen the context window — include more summaries
+        # and leaf-level detail so the output is noticeably richer.
+        if depth == "deep":
+            effective_max_groups = min(len(tree.at_level(2)), 20)
+            effective_max_files = min(len(tree.at_level(1)), 30)
+        else:
+            effective_max_groups = self.max_group_summaries
+            effective_max_files = self.max_file_summaries
+
+        group_nodes = self._select_groups(tree, root, max_n=effective_max_groups)
+        file_nodes = self._select_files(tree, group_nodes, max_n=effective_max_files)
 
         # Build pre-analysis block from repository-level cliff notes (deep mode)
         pa_block = ""
@@ -163,6 +171,28 @@ class CliffNotesRenderer:
                     + "\n\n".join(lines)
                 )
 
+        depth_instructions = {
+            "summary": (
+                "IMPORTANT: Keep sections concise — 2-3 sentences each, ~800 words total. "
+                "Focus on the most important facts only."
+            ),
+            "medium": (
+                "IMPORTANT: Your total output must be at least 1500 words across all sections. "
+                "Each section MUST contain detailed, specific content — not vague summaries."
+            ),
+            "deep": (
+                "IMPORTANT: This is a DEEP analysis. Your total output must be at least 2500 words "
+                "across all sections. Each section must be 6-10 sentences with thorough, specific detail. "
+                "Name every relevant file, component, function, and pattern. Explain HOW things work internally, "
+                "what trade-offs were made, what the failure modes are, and what a new developer needs to know. "
+                "For Complexity & Risk: identify specific files with high cyclomatic complexity, tight coupling, "
+                "missing error handling, or implicit dependencies. "
+                "For Architecture: describe the data flow, request lifecycle, and state management in detail. "
+                "For Domain Model: list every entity, their relationships, and where they're defined. "
+                "Do NOT be generic — every sentence should reference something concrete from the summaries."
+            ),
+        }.get(depth, "Your total output must be at least 1500 words across all sections.")
+
         prompt = CLIFF_NOTES_RENDER_TEMPLATE.format(
             repository_name=repository_name or "repository",
             audience=audience,
@@ -173,6 +203,7 @@ class CliffNotesRenderer:
             group_summaries=self._format_summaries(group_nodes, label_prefix="Subsystem"),
             file_summaries=self._format_summaries(file_nodes, label_prefix="File"),
             pre_analysis_block=pa_block,
+            depth_instructions=depth_instructions,
             section_count=len(required_sections),
             required_sections="\n".join(f"- {t}" for t in required_sections),
         )
@@ -221,30 +252,31 @@ class CliffNotesRenderer:
     # ------------------------------------------------------------------
     # Selection helpers
 
-    def _select_groups(self, tree: SummaryTree, root: SummaryNode) -> list[SummaryNode]:
+    def _select_groups(self, tree: SummaryTree, root: SummaryNode, max_n: int | None = None) -> list[SummaryNode]:
         """Pick up to N level-2 children under the root, preferring the
         ones with the most source tokens (roughly "biggest subsystems
         first"). Falls back to insertion order when source_tokens are
         all zero."""
+        limit = max_n if max_n is not None else self.max_group_summaries
         children = tree.children_of(root.unit_id)
-        # Order deterministically: bigger subsystems first, then by
-        # insertion order as a tiebreaker.
         ordered = sorted(
             enumerate(children),
             key=lambda pair: (-pair[1].source_tokens, pair[0]),
         )
-        return [pair[1] for pair in ordered[: self.max_group_summaries]]
+        return [pair[1] for pair in ordered[:limit]]
 
     def _select_files(
         self,
         tree: SummaryTree,
         group_nodes: list[SummaryNode],
+        max_n: int | None = None,
     ) -> list[SummaryNode]:
         """Pick up to N level-1 summaries across the selected groups.
 
         We round-robin across the groups so a single dominant package
         doesn't eat the whole file budget.
         """
+        limit = max_n if max_n is not None else self.max_file_summaries
         per_group: list[list[SummaryNode]] = []
         for group in group_nodes:
             files = sorted(
@@ -255,11 +287,10 @@ class CliffNotesRenderer:
 
         picked: list[SummaryNode] = []
         idx = 0
-        while len(picked) < self.max_file_summaries and any(per_group):
-            # Round-robin: take one from each non-empty bucket.
+        while len(picked) < limit and any(per_group):
             any_progress = False
             for bucket in per_group:
-                if idx < len(bucket) and len(picked) < self.max_file_summaries:
+                if idx < len(bucket) and len(picked) < limit:
                     picked.append(bucket[idx])
                     any_progress = True
             if not any_progress:
