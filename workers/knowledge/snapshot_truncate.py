@@ -76,7 +76,7 @@ def condense_snapshot(
 
     # Step 1: strip doc_comment from all symbol lists
     for key in symbol_keys:
-        for sym in snap.get(key, []):
+        for sym in (snap.get(key) or []):
             sym.pop("doc_comment", None)
 
     result = _compact()
@@ -86,7 +86,7 @@ def condense_snapshot(
         return result
 
     # Step 2: strip doc content (keep paths for reference)
-    for doc in snap.get("docs", []):
+    for doc in (snap.get("docs") or []):
         doc.pop("content", None)
 
     result = _compact()
@@ -119,7 +119,7 @@ def condense_snapshot(
             return result
 
     # Step 3: cap links at 200, highest confidence first
-    links = snap.get("links", [])
+    links = (snap.get("links") or [])
     if len(links) > 200:
         links.sort(key=lambda x: x.get("confidence", 0), reverse=True)
         snap["links"] = links[:200]
@@ -132,7 +132,7 @@ def condense_snapshot(
 
     # Step 4: cap symbol lists at 100
     for key in symbol_keys:
-        lst = snap.get(key, [])
+        lst = (snap.get(key) or [])
         if len(lst) > 100:
             snap[key] = lst[:100]
 
@@ -144,7 +144,7 @@ def condense_snapshot(
 
     # Step 5: cap symbol lists at 50
     for key in symbol_keys:
-        lst = snap.get(key, [])
+        lst = (snap.get(key) or [])
         if len(lst) > 50:
             snap[key] = lst[:50]
 

@@ -66,7 +66,7 @@ def _is_placeholder_content(content: str) -> bool:
 
 def _gather_execution_evidence(execution_path: dict[str, Any], limit: int = 4) -> list[EvidenceRef]:
     evidence: list[EvidenceRef] = []
-    for step in execution_path.get("steps", [])[:limit]:
+    for step in (execution_path.get("steps") or [])[:limit]:
         if not isinstance(step, dict):
             continue
         file_path = _normalize_text(step.get("filePath"))
@@ -106,7 +106,7 @@ def _gather_scope_evidence(snapshot: dict[str, Any], limit: int = 4) -> list[Evi
             rationale="Focused file for this workflow story.",
         ))
     for group_name in ("entry_points", "public_api"):
-        for item in snapshot.get(group_name, [])[:limit]:
+        for item in (snapshot.get(group_name) or [])[:limit]:
             if not isinstance(item, dict):
                 continue
             evidence.append(EvidenceRef(
@@ -156,7 +156,7 @@ def _build_workflow_fallbacks(
     target_symbol = scope.get("target_symbol") or {}
     target_file = scope.get("target_file") or {}
     entry_label = _normalize_text(execution_path.get("entryLabel")) or anchor_label or scope_path or repository_name
-    path_steps = [step for step in execution_path.get("steps", []) if isinstance(step, dict)]
+    path_steps = [step for step in (execution_path.get("steps") or []) if isinstance(step, dict)]
     path_files = []
     for step in path_steps:
         file_path = _normalize_text(step.get("filePath"))
@@ -234,8 +234,8 @@ def _build_workflow_fallbacks(
         behind_parts.append("Key files on this path: " + ", ".join(f"`{path}`" for path in path_files[:4]) + ".")
     if not behind_parts:
         # Build from snapshot metadata when no execution path or scope targets
-        languages = snapshot.get("languages", [])
-        modules = snapshot.get("modules", [])
+        languages = snapshot.get("languages") or []
+        modules = snapshot.get("modules") or []
         if languages or modules:
             lang_names = [_normalize_text(lang.get("name")) for lang in languages[:3] if isinstance(lang, dict)]
             mod_names = [_normalize_text(mod.get("path")) for mod in modules[:4] if isinstance(mod, dict)]
@@ -256,7 +256,7 @@ def _build_workflow_fallbacks(
         )
     else:
         # Build from snapshot complexity signals
-        complex_symbols = snapshot.get("complex_symbols", [])
+        complex_symbols = snapshot.get("complex_symbols") or []
         if complex_symbols:
             complex_names = [_normalize_text(sym.get("qualified_name") or sym.get("name"))
                             for sym in complex_symbols[:3] if isinstance(sym, dict)]
@@ -278,7 +278,7 @@ def _build_workflow_fallbacks(
         inspect_targets.append(f"`{_normalize_text(target_symbol.get('name'))}`")
     if not inspect_targets:
         # Populate from snapshot entry points when no scope targets
-        entry_points = snapshot.get("entry_points", [])
+        entry_points = snapshot.get("entry_points") or []
         for ep in entry_points[:4]:
             if isinstance(ep, dict) and ep.get("file_path"):
                 fp = _normalize_text(ep["file_path"])
@@ -506,7 +506,7 @@ async def generate_workflow_story(
         total_evidence=total_evidence,
         evidence_by_type=evidence_by_type,
         has_execution_path=bool(execution_path_json),
-        execution_path_steps=len(execution_path.get("steps", [])) if isinstance(execution_path, dict) else 0,
+        execution_path_steps=len((execution_path.get("steps") or [])) if isinstance(execution_path, dict) else 0,
     )
 
     usage = LLMUsageRecord(
