@@ -272,6 +272,136 @@ When the operator enables "Include diagram placeholders":
 
 These are formatted as styled placeholder boxes in PDF/Word with enough description that someone can draw the actual diagram.
 
+### PDF Rendering
+
+**Primary approach: Playwright (headless Chromium)**
+
+Render report HTML/CSS to PDF via `page.pdf()`. This gives full CSS/JS power — the same engine that renders the SourceBridge web UI renders the report. Charts, colored badges, gradients, custom fonts, branding all render faithfully.
+
+Cover page, TOC, headers/footers are achieved via CSS print styles. TOC with accurate page numbers uses a two-pass render (render once to measure, inject TOC, render final).
+
+Docker impact: ~1.8GB for Chromium. Runs as a sidecar or within the Python worker.
+
+## Evidence System and Appendices
+
+Reports are not just narratives — they are **evidence-backed claims**. Every substantive finding in the report body links to supporting evidence in the appendices.
+
+### How It Works
+
+1. **Evidence markers in body text**: The LLM generates inline evidence markers as it writes each section. Markers reference specific evidence items:
+   > The housing application exposes student PII without authentication. **[E-SEC-01]** The API endpoint accepts arbitrary application IDs and returns full records. **[E-SEC-02]**
+
+2. **Evidence registry**: During report generation, every piece of evidence is registered with a unique ID, category, and source:
+   - `E-SEC-01`: OWASP scan finding — `/api/application/lookup` has no auth check (file: `app/api/application/lookup/route.ts`, line 5-37)
+   - `E-SEC-02`: Code analysis — service role key used without session verification (file: `app/api/application/lookup/route.ts`, line 15)
+
+3. **Auto-generated appendices**: Evidence items are grouped into appendices by category:
+   - **Appendix A**: OWASP Security Scan Results (per repo)
+   - **Appendix B**: Dependency Audit Results (per repo)
+   - **Appendix C**: Code Analysis Evidence (file paths, line numbers, code snippets)
+   - **Appendix D**: Git History Evidence (commit patterns, branching analysis)
+   - **Appendix E**: Configuration Evidence (detected configs, missing configs)
+   - Additional appendices generated dynamically based on what evidence exists
+
+4. **Evidence detail levels by audience**:
+   - **C-Suite**: Evidence markers are footnote-style numbers. Appendices exist but are summarized.
+   - **Developer**: Evidence markers link to specific files and lines. Appendices include code snippets.
+   - **Compliance**: Evidence markers map to control framework IDs. Appendices structured as evidence packages.
+
+### Evidence Data Model
+
+```
+ca_report_evidence
+  id string primary                    -- e.g. "E-SEC-01"
+  report_id uuid                       -- FK to ca_report
+  category string                      -- "security" | "architecture" | "operations" | etc.
+  title string                         -- human-readable evidence title
+  description string                   -- what the evidence shows
+  source_type string                   -- "owasp_scan" | "code_analysis" | "dependency_audit" | "git_history" | "config_detection"
+  source_repo_id string                -- which repo this came from
+  file_path string                     -- specific file (if applicable)
+  line_start int                       -- line range (if applicable)
+  line_end int
+  code_snippet string                  -- relevant code excerpt (if applicable)
+  raw_data string                      -- JSON blob of the full evidence payload
+  severity string                      -- "critical" | "high" | "medium" | "low" | "info"
+  created_at datetime
+```
+
+## Level of Effort (LOE) Estimation
+
+Reports that include recommendations should quantify the effort required. The LOE estimation system is **configurable** between two modes:
+
+### Estimation Modes
+
+| Mode | Unit | Description | Best For |
+|---|---|---|---|
+| **Human Hours** | Person-hours / person-weeks | Traditional estimate assuming human developers implementing changes | Organizations with in-house or contracted dev teams |
+| **AI-Assisted** | AI agent hours + human review hours | Estimate assuming AI coding agents (Claude Code, Cursor, Copilot) handle implementation with human review/approval | Organizations leveraging AI development tools |
+
+### How It Works
+
+The operator selects the estimation mode in the report wizard (Step 4, alongside section selection). The mode affects how every recommendation's LOE is framed:
+
+**Human Hours example:**
+> **Recommendation: Add authentication to all server actions**
+> - Effort: 16-24 person-hours (2-3 developer days)
+> - Complexity: Medium
+> - Prerequisites: None
+> - Risk: Low (additive change, no existing behavior modified)
+
+**AI-Assisted example:**
+> **Recommendation: Add authentication to all server actions**
+> - AI agent effort: 2-4 hours (pattern is repetitive, well-suited to AI implementation)
+> - Human review: 1-2 hours (security-critical, requires careful review)
+> - Total: 3-6 hours
+> - Complexity: Low for AI (clear pattern, many examples in codebase)
+> - Prerequisites: None
+> - Risk: Low (additive change, but security code requires human sign-off)
+
+### Estimation Factors
+
+The LLM considers these factors when producing LOE estimates:
+
+1. **Scope**: How many files/functions need to change
+2. **Pattern repetitiveness**: Is this the same change 15 times? (AI excels here)
+3. **Novelty**: Is this a well-known pattern or novel design work? (Humans may be faster for novel architecture)
+4. **Risk level**: Security-critical changes need more human review time regardless of mode
+5. **Dependencies**: Does this block or depend on other changes?
+6. **Testing overhead**: How much testing does the change need?
+
+### Configuration
+
+```python
+LOE_MODE_INSTRUCTIONS = {
+    "human_hours": {
+        "unit": "person-hours",
+        "description": "Estimate assuming experienced human developers implementing changes manually.",
+        "guidance": "Use person-hours for individual tasks, person-weeks for larger initiatives. "
+                    "Assume a mid-level developer familiar with the tech stack but new to this specific codebase. "
+                    "Include time for understanding, implementing, testing, and code review.",
+    },
+    "ai_assisted": {
+        "unit": "AI agent hours + human review hours",
+        "description": "Estimate assuming AI coding agents handle implementation with human review.",
+        "guidance": "Split each estimate into AI agent time and human review time. "
+                    "AI agents excel at: repetitive changes, boilerplate, test generation, dependency updates, "
+                    "and well-documented pattern implementations. "
+                    "Humans are still needed for: architectural decisions, security review, novel design, "
+                    "integration testing, and final approval. "
+                    "Be realistic — not everything is faster with AI. Novel architecture work may take "
+                    "similar time. But 15 identical auth guard additions across server actions is 10x faster.",
+    },
+}
+```
+
+### Data Model Addition
+
+```sql
+-- Add to ca_report
+  loe_mode string default 'human_hours'  -- "human_hours" | "ai_assisted"
+```
+
 ## Data Pipeline
 
 ### Phase 1: Data Collection
