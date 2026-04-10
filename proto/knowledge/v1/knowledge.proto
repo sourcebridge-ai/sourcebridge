@@ -22,6 +22,9 @@ service KnowledgeService {
 
   // GenerateCodeTour produces a guided code tour for a repository.
   rpc GenerateCodeTour(GenerateCodeTourRequest) returns (GenerateCodeTourResponse);
+
+  // GenerateReport produces a professional multi-section report.
+  rpc GenerateReport(GenerateReportRequest) returns (GenerateReportResponse);
 }
 
 // GenerateCliffNotesRequest carries the assembled repository snapshot for the
@@ -144,4 +147,40 @@ message KnowledgeEvidence {
   int32 line_start = 4;
   int32 line_end = 5;
   string rationale = 6;
+}
+
+// --- Report generation ---
+
+message GenerateReportRequest {
+  string report_id = 1;
+  string report_name = 2;
+  string report_type = 3;        // "architecture_baseline", "swot", etc.
+  string audience = 4;           // "c_suite", "developer", etc.
+  repeated string repository_ids = 5;
+  repeated string selected_sections = 6;
+  bool include_diagrams = 7;
+  string loe_mode = 8;           // "human_hours" | "ai_assisted"
+  string output_dir = 9;         // where to write output files
+  string repo_data_json = 10;    // JSON-serialized repo data (cliff notes, scores, metadata)
+  string section_definitions_json = 11; // JSON-serialized section definitions from Go
+}
+
+message GenerateReportResponse {
+  string markdown = 1;           // full assembled markdown
+  int32 section_count = 2;
+  int32 word_count = 3;
+  int32 evidence_count = 4;
+  string content_dir = 5;
+  repeated ReportSectionResult sections = 6;
+  sourcebridge.common.v1.LLMUsage usage = 7;
+}
+
+message ReportSectionResult {
+  string key = 1;
+  string title = 2;
+  string category = 3;
+  string status = 4;             // "completed" | "failed"
+  int32 word_count = 5;
+  int32 duration_ms = 6;
+  string error_message = 7;
 }

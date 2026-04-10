@@ -771,3 +771,102 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             stops=stops,
             usage=_llm_usage_proto(usage),
         )
+
+    async def GenerateReport(  # noqa: N802
+        self,
+        request: knowledge_pb2.GenerateReportRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> knowledge_pb2.GenerateReportResponse:
+        """Generate a professional multi-section report."""
+        log.info(
+            "generate_report",
+            report_id=request.report_id,
+            report_type=request.report_type,
+            audience=request.audience,
+            sections=len(request.selected_sections),
+        )
+
+        try:
+            # Import the report engine (enterprise-only package)
+            from workers.reports.engine import ReportConfig, generate_report
+
+            # Parse repo data and section definitions from JSON
+            repo_data = None
+            if request.repo_data_json:
+                try:
+                    repo_data = json.loads(request.repo_data_json)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            section_defs = None
+            if request.section_definitions_json:
+                try:
+                    section_defs = json.loads(request.section_definitions_json)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            config = ReportConfig(
+                report_id=request.report_id,
+                report_name=request.report_name,
+                report_type=request.report_type,
+                audience=request.audience,
+                repository_ids=list(request.repository_ids),
+                selected_sections=list(request.selected_sections),
+                include_diagrams=request.include_diagrams,
+                loe_mode=request.loe_mode or "human_hours",
+                output_dir=request.output_dir,
+            )
+
+            result = await generate_report(
+                self._llm,
+                config,
+                repo_data=repo_data,
+                section_definitions=section_defs,
+            )
+
+            # Build section results
+            section_results = []
+            for sec in result.sections:
+                section_results.append(
+                    knowledge_pb2.ReportSectionResult(
+                        key=sec.key,
+                        title=sec.title,
+                        category=sec.category,
+                        status="completed",
+                        word_count=sec.word_count,
+                        duration_ms=0,
+                    )
+                )
+
+            total_input = sum(s.input_tokens for s in result.sections)
+            total_output = sum(s.output_tokens for s in result.sections)
+
+            log.info(
+                "generate_report_completed",
+                report_id=request.report_id,
+                sections=result.section_count,
+                words=result.word_count,
+                evidence=result.evidence_count,
+            )
+
+            return knowledge_pb2.GenerateReportResponse(
+                markdown=result.markdown,
+                section_count=result.section_count,
+                word_count=result.word_count,
+                evidence_count=result.evidence_count,
+                content_dir=result.content_dir,
+                sections=section_results,
+                usage=types_pb2.LLMUsage(
+                    model=getattr(self._llm, 'model', 'unknown'),
+                    input_tokens=total_input,
+                    output_tokens=total_output,
+                    operation="report_generation",
+                ),
+            )
+        except Exception as exc:
+            import traceback
+            log.error("generate_report_failed", error=str(exc), traceback=traceback.format_exc())
+            await context.abort(
+                grpc.StatusCode.INTERNAL,
+                f"Report generation failed: {exc}",
+            )

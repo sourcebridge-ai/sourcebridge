@@ -6,12 +6,15 @@
 package rest
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	knowledgev1 "github.com/sourcebridge/sourcebridge/gen/go/knowledge/v1"
 	"github.com/sourcebridge/sourcebridge/internal/api/middleware"
 	"github.com/sourcebridge/sourcebridge/internal/auth"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
@@ -26,6 +29,7 @@ import (
 // Webhooks are registered publicly (they validate their own signatures).
 // Admin endpoints are behind JWT auth + tenant context extraction + RBAC.
 func (s *Server) registerEnterpriseRoutes(r chi.Router) {
+	slog.Info("registerEnterpriseRoutes called", "enterpriseDB_nil", s.enterpriseDB == nil)
 	// Extract the raw SurrealDB handle if available
 	var rawDB *surrealdb.DB
 	if s.enterpriseDB != nil {
@@ -72,10 +76,32 @@ func (s *Server) registerEnterpriseRoutes(r chi.Router) {
 	// MCPPermissionChecker / MCPAuditLogger / MCPToolExtender, wire them
 	// into s.mcp here. The interfaces are defined in mcp.go.
 
-	// Reports — registered in the main admin group (not enterprise tenant group)
-	// so they use the same auth as existing admin endpoints (JWT only, no tenant context needed).
+	// Reports — registered alongside existing admin routes.
+	slog.Info("registering report routes at /api/v1/reports")
+
+	// Wire the report generator to call the Python worker via gRPC
+	if s.worker != nil {
+		ectx.API.SetReportGenerator(func(reportID, reportType, audience, repoDataJSON, sectionDefsJSON, outputDir string, repoIDs, selectedSections []string, includeDiagrams bool, loeMode, reportName string) error {
+			ctx := context.Background()
+			_, err := s.worker.GenerateReport(ctx, &knowledgev1.GenerateReportRequest{
+				ReportId:               reportID,
+				ReportName:             reportName,
+				ReportType:             reportType,
+				Audience:               audience,
+				RepositoryIds:          repoIDs,
+				SelectedSections:       selectedSections,
+				IncludeDiagrams:        includeDiagrams,
+				LoeMode:                loeMode,
+				OutputDir:              outputDir,
+				RepoDataJson:           repoDataJSON,
+				SectionDefinitionsJson: sectionDefsJSON,
+			})
+			return err
+		})
+		slog.Info("report generator wired to Python worker via gRPC")
+	}
+
 	r.Route("/api/v1/reports", func(r chi.Router) {
-		r.Use(auth.MiddlewareWithTokens(s.jwtMgr, s.tokenStore))
 		ectx.RegisterReportRoutes(r)
 	})
 }

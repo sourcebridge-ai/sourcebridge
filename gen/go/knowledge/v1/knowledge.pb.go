@@ -1110,6 +1110,314 @@ func (x *KnowledgeEvidence) GetRationale() string {
 	return ""
 }
 
+type GenerateReportRequest struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	ReportId               string                 `protobuf:"bytes,1,opt,name=report_id,json=reportId,proto3" json:"report_id,omitempty"`
+	ReportName             string                 `protobuf:"bytes,2,opt,name=report_name,json=reportName,proto3" json:"report_name,omitempty"`
+	ReportType             string                 `protobuf:"bytes,3,opt,name=report_type,json=reportType,proto3" json:"report_type,omitempty"` // "architecture_baseline", "swot", etc.
+	Audience               string                 `protobuf:"bytes,4,opt,name=audience,proto3" json:"audience,omitempty"`                       // "c_suite", "developer", etc.
+	RepositoryIds          []string               `protobuf:"bytes,5,rep,name=repository_ids,json=repositoryIds,proto3" json:"repository_ids,omitempty"`
+	SelectedSections       []string               `protobuf:"bytes,6,rep,name=selected_sections,json=selectedSections,proto3" json:"selected_sections,omitempty"`
+	IncludeDiagrams        bool                   `protobuf:"varint,7,opt,name=include_diagrams,json=includeDiagrams,proto3" json:"include_diagrams,omitempty"`
+	LoeMode                string                 `protobuf:"bytes,8,opt,name=loe_mode,json=loeMode,proto3" json:"loe_mode,omitempty"`                                                 // "human_hours" | "ai_assisted"
+	OutputDir              string                 `protobuf:"bytes,9,opt,name=output_dir,json=outputDir,proto3" json:"output_dir,omitempty"`                                           // where to write output files
+	RepoDataJson           string                 `protobuf:"bytes,10,opt,name=repo_data_json,json=repoDataJson,proto3" json:"repo_data_json,omitempty"`                               // JSON-serialized repo data (cliff notes, scores, metadata)
+	SectionDefinitionsJson string                 `protobuf:"bytes,11,opt,name=section_definitions_json,json=sectionDefinitionsJson,proto3" json:"section_definitions_json,omitempty"` // JSON-serialized section definitions from Go
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *GenerateReportRequest) Reset() {
+	*x = GenerateReportRequest{}
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GenerateReportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GenerateReportRequest) ProtoMessage() {}
+
+func (x *GenerateReportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GenerateReportRequest.ProtoReflect.Descriptor instead.
+func (*GenerateReportRequest) Descriptor() ([]byte, []int) {
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GenerateReportRequest) GetReportId() string {
+	if x != nil {
+		return x.ReportId
+	}
+	return ""
+}
+
+func (x *GenerateReportRequest) GetReportName() string {
+	if x != nil {
+		return x.ReportName
+	}
+	return ""
+}
+
+func (x *GenerateReportRequest) GetReportType() string {
+	if x != nil {
+		return x.ReportType
+	}
+	return ""
+}
+
+func (x *GenerateReportRequest) GetAudience() string {
+	if x != nil {
+		return x.Audience
+	}
+	return ""
+}
+
+func (x *GenerateReportRequest) GetRepositoryIds() []string {
+	if x != nil {
+		return x.RepositoryIds
+	}
+	return nil
+}
+
+func (x *GenerateReportRequest) GetSelectedSections() []string {
+	if x != nil {
+		return x.SelectedSections
+	}
+	return nil
+}
+
+func (x *GenerateReportRequest) GetIncludeDiagrams() bool {
+	if x != nil {
+		return x.IncludeDiagrams
+	}
+	return false
+}
+
+func (x *GenerateReportRequest) GetLoeMode() string {
+	if x != nil {
+		return x.LoeMode
+	}
+	return ""
+}
+
+func (x *GenerateReportRequest) GetOutputDir() string {
+	if x != nil {
+		return x.OutputDir
+	}
+	return ""
+}
+
+func (x *GenerateReportRequest) GetRepoDataJson() string {
+	if x != nil {
+		return x.RepoDataJson
+	}
+	return ""
+}
+
+func (x *GenerateReportRequest) GetSectionDefinitionsJson() string {
+	if x != nil {
+		return x.SectionDefinitionsJson
+	}
+	return ""
+}
+
+type GenerateReportResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Markdown      string                 `protobuf:"bytes,1,opt,name=markdown,proto3" json:"markdown,omitempty"` // full assembled markdown
+	SectionCount  int32                  `protobuf:"varint,2,opt,name=section_count,json=sectionCount,proto3" json:"section_count,omitempty"`
+	WordCount     int32                  `protobuf:"varint,3,opt,name=word_count,json=wordCount,proto3" json:"word_count,omitempty"`
+	EvidenceCount int32                  `protobuf:"varint,4,opt,name=evidence_count,json=evidenceCount,proto3" json:"evidence_count,omitempty"`
+	ContentDir    string                 `protobuf:"bytes,5,opt,name=content_dir,json=contentDir,proto3" json:"content_dir,omitempty"`
+	Sections      []*ReportSectionResult `protobuf:"bytes,6,rep,name=sections,proto3" json:"sections,omitempty"`
+	Usage         *v1.LLMUsage           `protobuf:"bytes,7,opt,name=usage,proto3" json:"usage,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GenerateReportResponse) Reset() {
+	*x = GenerateReportResponse{}
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GenerateReportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GenerateReportResponse) ProtoMessage() {}
+
+func (x *GenerateReportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GenerateReportResponse.ProtoReflect.Descriptor instead.
+func (*GenerateReportResponse) Descriptor() ([]byte, []int) {
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *GenerateReportResponse) GetMarkdown() string {
+	if x != nil {
+		return x.Markdown
+	}
+	return ""
+}
+
+func (x *GenerateReportResponse) GetSectionCount() int32 {
+	if x != nil {
+		return x.SectionCount
+	}
+	return 0
+}
+
+func (x *GenerateReportResponse) GetWordCount() int32 {
+	if x != nil {
+		return x.WordCount
+	}
+	return 0
+}
+
+func (x *GenerateReportResponse) GetEvidenceCount() int32 {
+	if x != nil {
+		return x.EvidenceCount
+	}
+	return 0
+}
+
+func (x *GenerateReportResponse) GetContentDir() string {
+	if x != nil {
+		return x.ContentDir
+	}
+	return ""
+}
+
+func (x *GenerateReportResponse) GetSections() []*ReportSectionResult {
+	if x != nil {
+		return x.Sections
+	}
+	return nil
+}
+
+func (x *GenerateReportResponse) GetUsage() *v1.LLMUsage {
+	if x != nil {
+		return x.Usage
+	}
+	return nil
+}
+
+type ReportSectionResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Category      string                 `protobuf:"bytes,3,opt,name=category,proto3" json:"category,omitempty"`
+	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"` // "completed" | "failed"
+	WordCount     int32                  `protobuf:"varint,5,opt,name=word_count,json=wordCount,proto3" json:"word_count,omitempty"`
+	DurationMs    int32                  `protobuf:"varint,6,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	ErrorMessage  string                 `protobuf:"bytes,7,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportSectionResult) Reset() {
+	*x = ReportSectionResult{}
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportSectionResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportSectionResult) ProtoMessage() {}
+
+func (x *ReportSectionResult) ProtoReflect() protoreflect.Message {
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportSectionResult.ProtoReflect.Descriptor instead.
+func (*ReportSectionResult) Descriptor() ([]byte, []int) {
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ReportSectionResult) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *ReportSectionResult) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *ReportSectionResult) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (x *ReportSectionResult) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ReportSectionResult) GetWordCount() int32 {
+	if x != nil {
+		return x.WordCount
+	}
+	return 0
+}
+
+func (x *ReportSectionResult) GetDurationMs() int32 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *ReportSectionResult) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
 var File_knowledge_v1_knowledge_proto protoreflect.FileDescriptor
 
 const file_knowledge_v1_knowledge_proto_rawDesc = "" +
@@ -1214,13 +1522,50 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\n" +
 	"line_start\x18\x04 \x01(\x05R\tlineStart\x12\x19\n" +
 	"\bline_end\x18\x05 \x01(\x05R\alineEnd\x12\x1c\n" +
-	"\trationale\x18\x06 \x01(\tR\trationale2\x9e\x05\n" +
+	"\trationale\x18\x06 \x01(\tR\trationale\"\xab\x03\n" +
+	"\x15GenerateReportRequest\x12\x1b\n" +
+	"\treport_id\x18\x01 \x01(\tR\breportId\x12\x1f\n" +
+	"\vreport_name\x18\x02 \x01(\tR\n" +
+	"reportName\x12\x1f\n" +
+	"\vreport_type\x18\x03 \x01(\tR\n" +
+	"reportType\x12\x1a\n" +
+	"\baudience\x18\x04 \x01(\tR\baudience\x12%\n" +
+	"\x0erepository_ids\x18\x05 \x03(\tR\rrepositoryIds\x12+\n" +
+	"\x11selected_sections\x18\x06 \x03(\tR\x10selectedSections\x12)\n" +
+	"\x10include_diagrams\x18\a \x01(\bR\x0fincludeDiagrams\x12\x19\n" +
+	"\bloe_mode\x18\b \x01(\tR\aloeMode\x12\x1d\n" +
+	"\n" +
+	"output_dir\x18\t \x01(\tR\toutputDir\x12$\n" +
+	"\x0erepo_data_json\x18\n" +
+	" \x01(\tR\frepoDataJson\x128\n" +
+	"\x18section_definitions_json\x18\v \x01(\tR\x16sectionDefinitionsJson\"\xc4\x02\n" +
+	"\x16GenerateReportResponse\x12\x1a\n" +
+	"\bmarkdown\x18\x01 \x01(\tR\bmarkdown\x12#\n" +
+	"\rsection_count\x18\x02 \x01(\x05R\fsectionCount\x12\x1d\n" +
+	"\n" +
+	"word_count\x18\x03 \x01(\x05R\twordCount\x12%\n" +
+	"\x0eevidence_count\x18\x04 \x01(\x05R\revidenceCount\x12\x1f\n" +
+	"\vcontent_dir\x18\x05 \x01(\tR\n" +
+	"contentDir\x12J\n" +
+	"\bsections\x18\x06 \x03(\v2..sourcebridge.knowledge.v1.ReportSectionResultR\bsections\x126\n" +
+	"\x05usage\x18\a \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\"\xd6\x01\n" +
+	"\x13ReportSectionResult\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x1a\n" +
+	"\bcategory\x18\x03 \x01(\tR\bcategory\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"word_count\x18\x05 \x01(\x05R\twordCount\x12\x1f\n" +
+	"\vduration_ms\x18\x06 \x01(\x05R\n" +
+	"durationMs\x12#\n" +
+	"\rerror_message\x18\a \x01(\tR\ferrorMessage2\x95\x06\n" +
 	"\x10KnowledgeService\x12\x81\x01\n" +
 	"\x12GenerateCliffNotes\x124.sourcebridge.knowledge.v1.GenerateCliffNotesRequest\x1a5.sourcebridge.knowledge.v1.GenerateCliffNotesResponse\x12\x87\x01\n" +
 	"\x14GenerateLearningPath\x126.sourcebridge.knowledge.v1.GenerateLearningPathRequest\x1a7.sourcebridge.knowledge.v1.GenerateLearningPathResponse\x12\x8a\x01\n" +
 	"\x15GenerateWorkflowStory\x127.sourcebridge.knowledge.v1.GenerateWorkflowStoryRequest\x1a8.sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse\x12r\n" +
 	"\rExplainSystem\x12/.sourcebridge.knowledge.v1.ExplainSystemRequest\x1a0.sourcebridge.knowledge.v1.ExplainSystemResponse\x12{\n" +
-	"\x10GenerateCodeTour\x122.sourcebridge.knowledge.v1.GenerateCodeTourRequest\x1a3.sourcebridge.knowledge.v1.GenerateCodeTourResponseBFZDgithub.com/sourcebridge/sourcebridge/gen/go/knowledge/v1;knowledgev1b\x06proto3"
+	"\x10GenerateCodeTour\x122.sourcebridge.knowledge.v1.GenerateCodeTourRequest\x1a3.sourcebridge.knowledge.v1.GenerateCodeTourResponse\x12u\n" +
+	"\x0eGenerateReport\x120.sourcebridge.knowledge.v1.GenerateReportRequest\x1a1.sourcebridge.knowledge.v1.GenerateReportResponseBFZDgithub.com/sourcebridge/sourcebridge/gen/go/knowledge/v1;knowledgev1b\x06proto3"
 
 var (
 	file_knowledge_v1_knowledge_proto_rawDescOnce sync.Once
@@ -1234,7 +1579,7 @@ func file_knowledge_v1_knowledge_proto_rawDescGZIP() []byte {
 	return file_knowledge_v1_knowledge_proto_rawDescData
 }
 
-var file_knowledge_v1_knowledge_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_knowledge_v1_knowledge_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_knowledge_v1_knowledge_proto_goTypes = []any{
 	(*GenerateCliffNotesRequest)(nil),     // 0: sourcebridge.knowledge.v1.GenerateCliffNotesRequest
 	(*GenerateCliffNotesResponse)(nil),    // 1: sourcebridge.knowledge.v1.GenerateCliffNotesResponse
@@ -1250,35 +1595,42 @@ var file_knowledge_v1_knowledge_proto_goTypes = []any{
 	(*CodeTourStop)(nil),                  // 11: sourcebridge.knowledge.v1.CodeTourStop
 	(*KnowledgeSection)(nil),              // 12: sourcebridge.knowledge.v1.KnowledgeSection
 	(*KnowledgeEvidence)(nil),             // 13: sourcebridge.knowledge.v1.KnowledgeEvidence
-	(*v1.LLMUsage)(nil),                   // 14: sourcebridge.common.v1.LLMUsage
+	(*GenerateReportRequest)(nil),         // 14: sourcebridge.knowledge.v1.GenerateReportRequest
+	(*GenerateReportResponse)(nil),        // 15: sourcebridge.knowledge.v1.GenerateReportResponse
+	(*ReportSectionResult)(nil),           // 16: sourcebridge.knowledge.v1.ReportSectionResult
+	(*v1.LLMUsage)(nil),                   // 17: sourcebridge.common.v1.LLMUsage
 }
 var file_knowledge_v1_knowledge_proto_depIdxs = []int32{
 	12, // 0: sourcebridge.knowledge.v1.GenerateCliffNotesResponse.sections:type_name -> sourcebridge.knowledge.v1.KnowledgeSection
-	14, // 1: sourcebridge.knowledge.v1.GenerateCliffNotesResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	17, // 1: sourcebridge.knowledge.v1.GenerateCliffNotesResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
 	6,  // 2: sourcebridge.knowledge.v1.GenerateLearningPathResponse.steps:type_name -> sourcebridge.knowledge.v1.LearningStep
-	14, // 3: sourcebridge.knowledge.v1.GenerateLearningPathResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	17, // 3: sourcebridge.knowledge.v1.GenerateLearningPathResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
 	12, // 4: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.sections:type_name -> sourcebridge.knowledge.v1.KnowledgeSection
-	14, // 5: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	17, // 5: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
 	13, // 6: sourcebridge.knowledge.v1.ExplainSystemResponse.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
-	14, // 7: sourcebridge.knowledge.v1.ExplainSystemResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	17, // 7: sourcebridge.knowledge.v1.ExplainSystemResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
 	11, // 8: sourcebridge.knowledge.v1.GenerateCodeTourResponse.stops:type_name -> sourcebridge.knowledge.v1.CodeTourStop
-	14, // 9: sourcebridge.knowledge.v1.GenerateCodeTourResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	17, // 9: sourcebridge.knowledge.v1.GenerateCodeTourResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
 	13, // 10: sourcebridge.knowledge.v1.KnowledgeSection.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
-	0,  // 11: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:input_type -> sourcebridge.knowledge.v1.GenerateCliffNotesRequest
-	2,  // 12: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:input_type -> sourcebridge.knowledge.v1.GenerateLearningPathRequest
-	4,  // 13: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:input_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryRequest
-	7,  // 14: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:input_type -> sourcebridge.knowledge.v1.ExplainSystemRequest
-	9,  // 15: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:input_type -> sourcebridge.knowledge.v1.GenerateCodeTourRequest
-	1,  // 16: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:output_type -> sourcebridge.knowledge.v1.GenerateCliffNotesResponse
-	3,  // 17: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:output_type -> sourcebridge.knowledge.v1.GenerateLearningPathResponse
-	5,  // 18: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:output_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse
-	8,  // 19: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:output_type -> sourcebridge.knowledge.v1.ExplainSystemResponse
-	10, // 20: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:output_type -> sourcebridge.knowledge.v1.GenerateCodeTourResponse
-	16, // [16:21] is the sub-list for method output_type
-	11, // [11:16] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	16, // 11: sourcebridge.knowledge.v1.GenerateReportResponse.sections:type_name -> sourcebridge.knowledge.v1.ReportSectionResult
+	17, // 12: sourcebridge.knowledge.v1.GenerateReportResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	0,  // 13: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:input_type -> sourcebridge.knowledge.v1.GenerateCliffNotesRequest
+	2,  // 14: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:input_type -> sourcebridge.knowledge.v1.GenerateLearningPathRequest
+	4,  // 15: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:input_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryRequest
+	7,  // 16: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:input_type -> sourcebridge.knowledge.v1.ExplainSystemRequest
+	9,  // 17: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:input_type -> sourcebridge.knowledge.v1.GenerateCodeTourRequest
+	14, // 18: sourcebridge.knowledge.v1.KnowledgeService.GenerateReport:input_type -> sourcebridge.knowledge.v1.GenerateReportRequest
+	1,  // 19: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:output_type -> sourcebridge.knowledge.v1.GenerateCliffNotesResponse
+	3,  // 20: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:output_type -> sourcebridge.knowledge.v1.GenerateLearningPathResponse
+	5,  // 21: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:output_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse
+	8,  // 22: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:output_type -> sourcebridge.knowledge.v1.ExplainSystemResponse
+	10, // 23: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:output_type -> sourcebridge.knowledge.v1.GenerateCodeTourResponse
+	15, // 24: sourcebridge.knowledge.v1.KnowledgeService.GenerateReport:output_type -> sourcebridge.knowledge.v1.GenerateReportResponse
+	19, // [19:25] is the sub-list for method output_type
+	13, // [13:19] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_knowledge_v1_knowledge_proto_init() }
@@ -1292,7 +1644,7 @@ func file_knowledge_v1_knowledge_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_knowledge_v1_knowledge_proto_rawDesc), len(file_knowledge_v1_knowledge_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

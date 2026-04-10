@@ -269,6 +269,14 @@ func (c *Client) GenerateCodeTour(ctx context.Context, req *knowledgev1.Generate
 	return c.Knowledge.GenerateCodeTour(ctx, req)
 }
 
+// GenerateReport calls the knowledge worker to generate a professional report.
+// Reports can take a long time (30+ sections × LLM calls) so the timeout is generous.
+func (c *Client) GenerateReport(ctx context.Context, req *knowledgev1.GenerateReportRequest) (*knowledgev1.GenerateReportResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, TimeoutKnowledge) // 30 min
+	defer cancel()
+	return c.Knowledge.GenerateReport(ctx, req)
+}
+
 // DetectContracts calls the contracts worker to detect API contracts in files.
 func (c *Client) DetectContracts(ctx context.Context, req *contractsv1.DetectContractsRequest) (*contractsv1.DetectContractsResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, TimeoutContracts)

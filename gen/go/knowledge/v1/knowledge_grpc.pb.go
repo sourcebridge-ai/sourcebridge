@@ -24,6 +24,7 @@ const (
 	KnowledgeService_GenerateWorkflowStory_FullMethodName = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateWorkflowStory"
 	KnowledgeService_ExplainSystem_FullMethodName         = "/sourcebridge.knowledge.v1.KnowledgeService/ExplainSystem"
 	KnowledgeService_GenerateCodeTour_FullMethodName      = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateCodeTour"
+	KnowledgeService_GenerateReport_FullMethodName        = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateReport"
 )
 
 // KnowledgeServiceClient is the client API for KnowledgeService service.
@@ -42,6 +43,8 @@ type KnowledgeServiceClient interface {
 	ExplainSystem(ctx context.Context, in *ExplainSystemRequest, opts ...grpc.CallOption) (*ExplainSystemResponse, error)
 	// GenerateCodeTour produces a guided code tour for a repository.
 	GenerateCodeTour(ctx context.Context, in *GenerateCodeTourRequest, opts ...grpc.CallOption) (*GenerateCodeTourResponse, error)
+	// GenerateReport produces a professional multi-section report.
+	GenerateReport(ctx context.Context, in *GenerateReportRequest, opts ...grpc.CallOption) (*GenerateReportResponse, error)
 }
 
 type knowledgeServiceClient struct {
@@ -102,6 +105,16 @@ func (c *knowledgeServiceClient) GenerateCodeTour(ctx context.Context, in *Gener
 	return out, nil
 }
 
+func (c *knowledgeServiceClient) GenerateReport(ctx context.Context, in *GenerateReportRequest, opts ...grpc.CallOption) (*GenerateReportResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GenerateReportResponse)
+	err := c.cc.Invoke(ctx, KnowledgeService_GenerateReport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KnowledgeServiceServer is the server API for KnowledgeService service.
 // All implementations must embed UnimplementedKnowledgeServiceServer
 // for forward compatibility.
@@ -118,6 +131,8 @@ type KnowledgeServiceServer interface {
 	ExplainSystem(context.Context, *ExplainSystemRequest) (*ExplainSystemResponse, error)
 	// GenerateCodeTour produces a guided code tour for a repository.
 	GenerateCodeTour(context.Context, *GenerateCodeTourRequest) (*GenerateCodeTourResponse, error)
+	// GenerateReport produces a professional multi-section report.
+	GenerateReport(context.Context, *GenerateReportRequest) (*GenerateReportResponse, error)
 	mustEmbedUnimplementedKnowledgeServiceServer()
 }
 
@@ -142,6 +157,9 @@ func (UnimplementedKnowledgeServiceServer) ExplainSystem(context.Context, *Expla
 }
 func (UnimplementedKnowledgeServiceServer) GenerateCodeTour(context.Context, *GenerateCodeTourRequest) (*GenerateCodeTourResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GenerateCodeTour not implemented")
+}
+func (UnimplementedKnowledgeServiceServer) GenerateReport(context.Context, *GenerateReportRequest) (*GenerateReportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GenerateReport not implemented")
 }
 func (UnimplementedKnowledgeServiceServer) mustEmbedUnimplementedKnowledgeServiceServer() {}
 func (UnimplementedKnowledgeServiceServer) testEmbeddedByValue()                          {}
@@ -254,6 +272,24 @@ func _KnowledgeService_GenerateCodeTour_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KnowledgeService_GenerateReport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GenerateReportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KnowledgeServiceServer).GenerateReport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KnowledgeService_GenerateReport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KnowledgeServiceServer).GenerateReport(ctx, req.(*GenerateReportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KnowledgeService_ServiceDesc is the grpc.ServiceDesc for KnowledgeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -280,6 +316,10 @@ var KnowledgeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GenerateCodeTour",
 			Handler:    _KnowledgeService_GenerateCodeTour_Handler,
+		},
+		{
+			MethodName: "GenerateReport",
+			Handler:    _KnowledgeService_GenerateReport_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
