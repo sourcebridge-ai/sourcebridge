@@ -85,12 +85,19 @@ Each section object has these keys:
 Required section titles (produce every one, in this order):
 {required_sections}
 
+Confidence rules:
+- Set confidence to "high" and inferred to false when the summaries above \
+  directly describe what you're writing about. The summaries ARE the evidence.
+- Analyzing code patterns, complexity, risks, or architecture from the summaries \
+  counts as direct evidence — use "high" confidence for these.
+- Only use "medium" when you are connecting dots NOT mentioned in any summary.
+- Only use "low" when the summaries provide no relevant information at all.
+- Most sections should be "high" confidence since you have detailed summaries.
+
 Output rules:
 - Return ONLY the JSON array — no text before or after it.
 - No markdown fences around the JSON.
 - Every required title must appear exactly once.
-- Sections with insufficient evidence: set confidence to "low" and inferred to true, \
-  but still write substantive content based on what you can infer.
 """
 
 
