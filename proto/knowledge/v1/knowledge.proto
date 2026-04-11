@@ -167,6 +167,8 @@ message GenerateReportRequest {
   string analysis_depth = 13;    // "standard" or "deep"
   bool include_recommendations = 14; // Whether to include recommendations in sections
   bool include_loe = 15;             // Whether to include LOE estimates
+  string style_system_prompt = 16;   // Custom system prompt from selected style
+  string style_section_rules = 17;   // Custom section rules from selected style
 }
 
 message GenerateReportResponse {

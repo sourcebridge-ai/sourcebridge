@@ -208,7 +208,7 @@ class KnowledgeEvidence(_message.Message):
     def __init__(self, source_type: _Optional[str] = ..., source_id: _Optional[str] = ..., file_path: _Optional[str] = ..., line_start: _Optional[int] = ..., line_end: _Optional[int] = ..., rationale: _Optional[str] = ...) -> None: ...
 
 class GenerateReportRequest(_message.Message):
-    __slots__ = ("report_id", "report_name", "report_type", "audience", "repository_ids", "selected_sections", "include_diagrams", "loe_mode", "output_dir", "repo_data_json", "section_definitions_json", "model_override", "analysis_depth", "include_recommendations", "include_loe")
+    __slots__ = ("report_id", "report_name", "report_type", "audience", "repository_ids", "selected_sections", "include_diagrams", "loe_mode", "output_dir", "repo_data_json", "section_definitions_json", "model_override", "analysis_depth", "include_recommendations", "include_loe", "style_system_prompt", "style_section_rules")
     REPORT_ID_FIELD_NUMBER: _ClassVar[int]
     REPORT_NAME_FIELD_NUMBER: _ClassVar[int]
     REPORT_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -224,6 +224,8 @@ class GenerateReportRequest(_message.Message):
     ANALYSIS_DEPTH_FIELD_NUMBER: _ClassVar[int]
     INCLUDE_RECOMMENDATIONS_FIELD_NUMBER: _ClassVar[int]
     INCLUDE_LOE_FIELD_NUMBER: _ClassVar[int]
+    STYLE_SYSTEM_PROMPT_FIELD_NUMBER: _ClassVar[int]
+    STYLE_SECTION_RULES_FIELD_NUMBER: _ClassVar[int]
     report_id: str
     report_name: str
     report_type: str
@@ -239,7 +241,9 @@ class GenerateReportRequest(_message.Message):
     analysis_depth: str
     include_recommendations: bool
     include_loe: bool
-    def __init__(self, report_id: _Optional[str] = ..., report_name: _Optional[str] = ..., report_type: _Optional[str] = ..., audience: _Optional[str] = ..., repository_ids: _Optional[_Iterable[str]] = ..., selected_sections: _Optional[_Iterable[str]] = ..., include_diagrams: bool = ..., loe_mode: _Optional[str] = ..., output_dir: _Optional[str] = ..., repo_data_json: _Optional[str] = ..., section_definitions_json: _Optional[str] = ..., model_override: _Optional[str] = ..., analysis_depth: _Optional[str] = ..., include_recommendations: bool = ..., include_loe: bool = ...) -> None: ...
+    style_system_prompt: str
+    style_section_rules: str
+    def __init__(self, report_id: _Optional[str] = ..., report_name: _Optional[str] = ..., report_type: _Optional[str] = ..., audience: _Optional[str] = ..., repository_ids: _Optional[_Iterable[str]] = ..., selected_sections: _Optional[_Iterable[str]] = ..., include_diagrams: bool = ..., loe_mode: _Optional[str] = ..., output_dir: _Optional[str] = ..., repo_data_json: _Optional[str] = ..., section_definitions_json: _Optional[str] = ..., model_override: _Optional[str] = ..., analysis_depth: _Optional[str] = ..., include_recommendations: bool = ..., include_loe: bool = ..., style_system_prompt: _Optional[str] = ..., style_section_rules: _Optional[str] = ...) -> None: ...
 
 class GenerateReportResponse(_message.Message):
     __slots__ = ("markdown", "section_count", "word_count", "evidence_count", "content_dir", "sections", "usage")

@@ -835,6 +835,8 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 validation_model=(self._config.llm_validation_model or None) if self._config else None,
                 include_recommendations=request.include_recommendations,
                 include_loe=request.include_loe,
+                style_system_prompt=request.style_system_prompt or "",
+                style_section_rules=request.style_section_rules or "",
             )
 
             result = await generate_report(
