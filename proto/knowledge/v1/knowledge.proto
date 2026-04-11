@@ -165,6 +165,8 @@ message GenerateReportRequest {
   string section_definitions_json = 11; // JSON-serialized section definitions from Go
   string model_override = 12;    // Optional model override for report generation
   string analysis_depth = 13;    // "standard" or "deep"
+  bool include_recommendations = 14; // Whether to include recommendations in sections
+  bool include_loe = 15;             // Whether to include LOE estimates
 }
 
 message GenerateReportResponse {

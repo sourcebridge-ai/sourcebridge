@@ -833,6 +833,8 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 model_override=request.model_override or None,
                 enable_validation=self._config.report_validation_enabled if self._config else False,
                 validation_model=(self._config.llm_validation_model or None) if self._config else None,
+                include_recommendations=request.include_recommendations,
+                include_loe=request.include_loe,
             )
 
             result = await generate_report(

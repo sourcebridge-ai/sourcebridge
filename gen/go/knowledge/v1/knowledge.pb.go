@@ -1125,6 +1125,8 @@ type GenerateReportRequest struct {
 	SectionDefinitionsJson string                 `protobuf:"bytes,11,opt,name=section_definitions_json,json=sectionDefinitionsJson,proto3" json:"section_definitions_json,omitempty"` // JSON-serialized section definitions from Go
 	ModelOverride          string                 `protobuf:"bytes,12,opt,name=model_override,json=modelOverride,proto3" json:"model_override,omitempty"`                              // Optional model override for report generation
 	AnalysisDepth          string                 `protobuf:"bytes,13,opt,name=analysis_depth,json=analysisDepth,proto3" json:"analysis_depth,omitempty"`                              // "standard" or "deep"
+	IncludeRecommendations bool                   `protobuf:"varint,14,opt,name=include_recommendations,json=includeRecommendations,proto3" json:"include_recommendations,omitempty"`  // Whether to include recommendations in sections
+	IncludeLoe             bool                   `protobuf:"varint,15,opt,name=include_loe,json=includeLoe,proto3" json:"include_loe,omitempty"`                                      // Whether to include LOE estimates
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -1248,6 +1250,20 @@ func (x *GenerateReportRequest) GetAnalysisDepth() string {
 		return x.AnalysisDepth
 	}
 	return ""
+}
+
+func (x *GenerateReportRequest) GetIncludeRecommendations() bool {
+	if x != nil {
+		return x.IncludeRecommendations
+	}
+	return false
+}
+
+func (x *GenerateReportRequest) GetIncludeLoe() bool {
+	if x != nil {
+		return x.IncludeLoe
+	}
+	return false
 }
 
 type GenerateReportResponse struct {
@@ -1538,7 +1554,7 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\n" +
 	"line_start\x18\x04 \x01(\x05R\tlineStart\x12\x19\n" +
 	"\bline_end\x18\x05 \x01(\x05R\alineEnd\x12\x1c\n" +
-	"\trationale\x18\x06 \x01(\tR\trationale\"\xf9\x03\n" +
+	"\trationale\x18\x06 \x01(\tR\trationale\"\xd3\x04\n" +
 	"\x15GenerateReportRequest\x12\x1b\n" +
 	"\treport_id\x18\x01 \x01(\tR\breportId\x12\x1f\n" +
 	"\vreport_name\x18\x02 \x01(\tR\n" +
@@ -1556,7 +1572,10 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	" \x01(\tR\frepoDataJson\x128\n" +
 	"\x18section_definitions_json\x18\v \x01(\tR\x16sectionDefinitionsJson\x12%\n" +
 	"\x0emodel_override\x18\f \x01(\tR\rmodelOverride\x12%\n" +
-	"\x0eanalysis_depth\x18\r \x01(\tR\ranalysisDepth\"\xc4\x02\n" +
+	"\x0eanalysis_depth\x18\r \x01(\tR\ranalysisDepth\x127\n" +
+	"\x17include_recommendations\x18\x0e \x01(\bR\x16includeRecommendations\x12\x1f\n" +
+	"\vinclude_loe\x18\x0f \x01(\bR\n" +
+	"includeLoe\"\xc4\x02\n" +
 	"\x16GenerateReportResponse\x12\x1a\n" +
 	"\bmarkdown\x18\x01 \x01(\tR\bmarkdown\x12#\n" +
 	"\rsection_count\x18\x02 \x01(\x05R\fsectionCount\x12\x1d\n" +

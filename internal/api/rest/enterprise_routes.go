@@ -105,6 +105,8 @@ func (s *Server) registerEnterpriseRoutes(r chi.Router) {
 				OutputDir:              outputDir,
 				RepoDataJson:           string(repoJSON),
 				SectionDefinitionsJson: sectionDefsJSON,
+				IncludeRecommendations: true,  // TODO: pass from enterprise handler
+				IncludeLoe:             true,  // TODO: pass from enterprise handler
 			})
 			if err != nil {
 				return "", 0, 0, 0, err
