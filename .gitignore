@@ -65,6 +65,7 @@ logs/
 surrealdb-data/
 *.db
 repo-cache/
+benchmarks/results/report-quality-live/
 
 # Generated (proto stubs in proto/ dir — gen/ stubs are committed)
 proto/**/*.pb.go

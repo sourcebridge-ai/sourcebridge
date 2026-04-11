@@ -1,7 +1,8 @@
 .PHONY: all build build-go build-web build-worker test test-go test-web test-worker \
 	lint lint-go lint-web lint-worker proto proto-clean docker-build docker-up docker-down \
 	dev dev-web dev-go clean migrate help integration-test smoke-test phase-gate ci \
-	benchmark-comprehension-fake benchmark-comprehension-local benchmark-comprehension-report
+	benchmark-comprehension-fake benchmark-comprehension-local benchmark-comprehension-report \
+	benchmark-report-quality-live
 
 GO_BIN = bin/sourcebridge
 GO_MIGRATE_BIN = bin/migrate
@@ -153,6 +154,9 @@ ci: lint test
 
 # Benchmarks
 BENCHMARK_RESULTS_DIR ?= benchmarks/results/local
+REPORT_RESULTS_DIR ?= benchmarks/results/report-quality-live
+REPORT_BASE_URL ?= https://sourcebridge-enterprise.xmojo.net
+REPORT_REPO_NAME ?= MACU Residence
 
 benchmark-comprehension-fake:
 	uv run --project workers python -m workers.benchmarks.run_comprehension_bench --output-dir $(BENCHMARK_RESULTS_DIR)
@@ -162,6 +166,13 @@ benchmark-comprehension-local:
 
 benchmark-comprehension-report:
 	@test -f $(BENCHMARK_RESULTS_DIR)/report.md && cat $(BENCHMARK_RESULTS_DIR)/report.md || (echo "No benchmark report found at $(BENCHMARK_RESULTS_DIR)/report.md" && exit 1)
+
+benchmark-report-quality-live:
+	SOURCEBRIDGE_SECURITY_JWT_SECRET="$$(kubectl -n sourcebridge get secret sourcebridge-secrets -o jsonpath='{.data.SOURCEBRIDGE_SECURITY_JWT_SECRET}' | base64 -d)" \
+	python3 benchmarks/report_quality/run_live_report_eval.py \
+		--base-url $(REPORT_BASE_URL) \
+		--repo-name "$(REPORT_REPO_NAME)" \
+		--results-dir $(REPORT_RESULTS_DIR)
 
 # Help
 help:

@@ -19,6 +19,10 @@ FROM ${PYTHON_BASE_IMAGE}
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv for runtime
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
