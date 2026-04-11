@@ -11,6 +11,49 @@ from workers.common.llm.openai_compat import OpenAICompatProvider
 from workers.common.llm.provider import LLMProvider
 
 
+def _env_truthy(value: str) -> bool:
+    return value.strip().lower() in ("true", "1", "yes", "on")
+
+
+def _resolve_disable_thinking(*, report: bool = False) -> bool:
+    """Resolve whether thinking/reasoning mode should be disabled.
+
+    Historical worker deployments used ``SOURCEBRIDGE_WORKER_LLM_DISABLE_THINKING=true``,
+    while the provider factory only checked ``SOURCEBRIDGE_LLM_ENABLE_THINKING``.
+    That mismatch leaves Qwen-family report models in reasoning mode, which
+    produces long internal chains and weak visible output.
+
+    Precedence:
+    1. Explicit report-scoped env vars
+    2. Worker-scoped env vars
+    3. Global env vars
+    4. Default to disabled
+    """
+    if report:
+        explicit_disable = os.environ.get("SOURCEBRIDGE_WORKER_LLM_REPORT_DISABLE_THINKING", "").strip()
+        if explicit_disable:
+            return _env_truthy(explicit_disable)
+        explicit_enable = os.environ.get("SOURCEBRIDGE_WORKER_LLM_REPORT_ENABLE_THINKING", "").strip()
+        if explicit_enable:
+            return not _env_truthy(explicit_enable)
+
+    worker_disable = os.environ.get("SOURCEBRIDGE_WORKER_LLM_DISABLE_THINKING", "").strip()
+    if worker_disable:
+        return _env_truthy(worker_disable)
+    worker_enable = os.environ.get("SOURCEBRIDGE_WORKER_LLM_ENABLE_THINKING", "").strip()
+    if worker_enable:
+        return not _env_truthy(worker_enable)
+
+    global_disable = os.environ.get("SOURCEBRIDGE_LLM_DISABLE_THINKING", "").strip()
+    if global_disable:
+        return _env_truthy(global_disable)
+    global_enable = os.environ.get("SOURCEBRIDGE_LLM_ENABLE_THINKING", "").strip()
+    if global_enable:
+        return not _env_truthy(global_enable)
+
+    return True
+
+
 def create_llm_provider(config: WorkerConfig) -> LLMProvider:
     """Create an LLM provider from configuration."""
     if config.test_mode:
@@ -56,7 +99,7 @@ def create_llm_provider(config: WorkerConfig) -> LLMProvider:
         # models (Qwen 3.5) generate long <think> chains that waste
         # tokens on summarization tasks. Operators can re-enable via
         # SOURCEBRIDGE_LLM_ENABLE_THINKING=true.
-        disable_thinking = os.environ.get("SOURCEBRIDGE_LLM_ENABLE_THINKING", "").lower() not in ("true", "1", "yes")
+        disable_thinking = _resolve_disable_thinking()
 
         return OpenAICompatProvider(
             api_key=config.llm_api_key,
@@ -96,7 +139,7 @@ def create_report_provider(config: WorkerConfig) -> LLMProvider | None:
     if not base_url:
         base_url = default_urls.get(provider_name, "")
 
-    disable_thinking = os.environ.get("SOURCEBRIDGE_LLM_ENABLE_THINKING", "").lower() not in ("true", "1", "yes")
+    disable_thinking = _resolve_disable_thinking(report=True)
 
     return OpenAICompatProvider(
         api_key=api_key,
