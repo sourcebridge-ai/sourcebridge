@@ -41,15 +41,23 @@ This note tracks the live remediation work for poor enterprise report quality ag
     - `third_party_services` reduced to evidence-backed `Supabase`, `Vercel`, `OneLogin`
     - `package_dependencies` stopped inventing deprecation/replacement narratives
 
+- `20260411T203719Z-macu-residence-deep`
+  - report `c1853125-f16a-45e1-9f66-ff26686c81d9`
+  - `quality_score=78`
+  - used deterministic renderers for `third_party_services` and `package_dependencies`
+  - improved control, but added lower-value package-risk noise from structural `package_health` flags
+  - not promoted as the live baseline
+
 ## Current Recommendation
 
-Use the trust-hardened worker behavior as the baseline, even though its heuristic score is lower than the peak `91` run.
+Use the trust-hardened worker behavior from `ent-20260411-144002` as the baseline, even though its heuristic score is lower than the peak `91` run.
 
 Reason:
 
 - The `91` run looked cleaner, but it still fabricated materially important details about third-party services and dependency risk.
 - The current trust-hardened behavior is closer to something defensible in a client-facing setting.
 - Remaining problems are now mostly presentation/noise problems rather than high-severity factual invention.
+- The later deterministic-section experiment was useful for learning, but it did not outperform the current baseline end-to-end and was rolled back from the live deployment.
 
 ## Current Live Worker Tag
 
