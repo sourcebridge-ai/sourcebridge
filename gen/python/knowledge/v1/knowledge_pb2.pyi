@@ -246,7 +246,7 @@ class GenerateReportRequest(_message.Message):
     def __init__(self, report_id: _Optional[str] = ..., report_name: _Optional[str] = ..., report_type: _Optional[str] = ..., audience: _Optional[str] = ..., repository_ids: _Optional[_Iterable[str]] = ..., selected_sections: _Optional[_Iterable[str]] = ..., include_diagrams: bool = ..., loe_mode: _Optional[str] = ..., output_dir: _Optional[str] = ..., repo_data_json: _Optional[str] = ..., section_definitions_json: _Optional[str] = ..., model_override: _Optional[str] = ..., analysis_depth: _Optional[str] = ..., include_recommendations: bool = ..., include_loe: bool = ..., style_system_prompt: _Optional[str] = ..., style_section_rules: _Optional[str] = ...) -> None: ...
 
 class GenerateReportResponse(_message.Message):
-    __slots__ = ("markdown", "section_count", "word_count", "evidence_count", "content_dir", "sections", "usage")
+    __slots__ = ("markdown", "section_count", "word_count", "evidence_count", "content_dir", "sections", "usage", "evidence_json")
     MARKDOWN_FIELD_NUMBER: _ClassVar[int]
     SECTION_COUNT_FIELD_NUMBER: _ClassVar[int]
     WORD_COUNT_FIELD_NUMBER: _ClassVar[int]
@@ -254,6 +254,7 @@ class GenerateReportResponse(_message.Message):
     CONTENT_DIR_FIELD_NUMBER: _ClassVar[int]
     SECTIONS_FIELD_NUMBER: _ClassVar[int]
     USAGE_FIELD_NUMBER: _ClassVar[int]
+    EVIDENCE_JSON_FIELD_NUMBER: _ClassVar[int]
     markdown: str
     section_count: int
     word_count: int
@@ -261,7 +262,8 @@ class GenerateReportResponse(_message.Message):
     content_dir: str
     sections: _containers.RepeatedCompositeFieldContainer[ReportSectionResult]
     usage: _types_pb2.LLMUsage
-    def __init__(self, markdown: _Optional[str] = ..., section_count: _Optional[int] = ..., word_count: _Optional[int] = ..., evidence_count: _Optional[int] = ..., content_dir: _Optional[str] = ..., sections: _Optional[_Iterable[_Union[ReportSectionResult, _Mapping]]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ...) -> None: ...
+    evidence_json: str
+    def __init__(self, markdown: _Optional[str] = ..., section_count: _Optional[int] = ..., word_count: _Optional[int] = ..., evidence_count: _Optional[int] = ..., content_dir: _Optional[str] = ..., sections: _Optional[_Iterable[_Union[ReportSectionResult, _Mapping]]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ..., evidence_json: _Optional[str] = ...) -> None: ...
 
 class ReportSectionResult(_message.Message):
     __slots__ = ("key", "title", "category", "status", "word_count", "duration_ms", "error_message")

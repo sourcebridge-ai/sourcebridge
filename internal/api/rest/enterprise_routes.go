@@ -86,7 +86,7 @@ func (s *Server) registerEnterpriseRoutes(r chi.Router) {
 	// The callback collects REAL repository data from the GraphStore so
 	// the LLM has actual evidence to write about (not hallucinations).
 	if s.worker != nil {
-		ectx.API.SetReportGenerator(func(reportID, reportType, audience, repoDataJSON, sectionDefsJSON, outputDir string, repoIDs, selectedSections []string, includeDiagrams, includeRecommendations, includeLOE bool, loeMode, reportName, analysisDepth, styleSystemPrompt, styleSectionRules string) (string, int, int, int, error) {
+		ectx.API.SetReportGenerator(func(reportID, reportType, audience, repoDataJSON, sectionDefsJSON, outputDir string, repoIDs, selectedSections []string, includeDiagrams, includeRecommendations, includeLOE bool, loeMode, reportName, analysisDepth, styleSystemPrompt, styleSectionRules string) (string, int, int, int, string, error) {
 			// Collect actual repo data from the graph and knowledge stores
 			realRepoData := collectRepoDataForReport(s.store, s.knowledgeStore, repoIDs)
 			repoJSON, _ := json.Marshal(realRepoData)
@@ -112,9 +112,9 @@ func (s *Server) registerEnterpriseRoutes(r chi.Router) {
 				StyleSectionRules:      styleSectionRules,
 			})
 			if err != nil {
-				return "", 0, 0, 0, err
+				return "", 0, 0, 0, "", err
 			}
-			return resp.Markdown, int(resp.SectionCount), int(resp.WordCount), int(resp.EvidenceCount), nil
+			return resp.Markdown, int(resp.SectionCount), int(resp.WordCount), int(resp.EvidenceCount), resp.EvidenceJson, nil
 		})
 		slog.Info("report generator wired to Python worker via gRPC")
 	}

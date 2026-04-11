@@ -880,6 +880,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 evidence_count=result.evidence_count,
                 content_dir=result.content_dir,
                 sections=section_results,
+                evidence_json=json.dumps(result.evidence_items),
                 usage=types_pb2.LLMUsage(
                     model=getattr(report_provider, 'model', 'unknown'),
                     input_tokens=total_input,
