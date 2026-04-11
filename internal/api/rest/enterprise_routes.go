@@ -7,9 +7,12 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -79,9 +82,16 @@ func (s *Server) registerEnterpriseRoutes(r chi.Router) {
 	// Reports — registered alongside existing admin routes.
 	slog.Info("registering report routes at /api/v1/reports")
 
-	// Wire the report generator to call the Python worker via gRPC
+	// Wire the report generator to call the Python worker via gRPC.
+	// The callback collects REAL repository data from the GraphStore so
+	// the LLM has actual evidence to write about (not hallucinations).
 	if s.worker != nil {
 		ectx.API.SetReportGenerator(func(reportID, reportType, audience, repoDataJSON, sectionDefsJSON, outputDir string, repoIDs, selectedSections []string, includeDiagrams bool, loeMode, reportName string) (string, int, int, int, error) {
+			// Collect actual repo data from the graph and knowledge stores
+			realRepoData := collectRepoDataForReport(s.store, s.knowledgeStore, repoIDs)
+			repoJSON, _ := json.Marshal(realRepoData)
+			slog.Info("report: collected repo data", "repos", len(repoIDs), "jsonBytes", len(repoJSON))
+
 			ctx := context.Background()
 			resp, err := s.worker.GenerateReport(ctx, &knowledgev1.GenerateReportRequest{
 				ReportId:               reportID,
@@ -93,7 +103,7 @@ func (s *Server) registerEnterpriseRoutes(r chi.Router) {
 				IncludeDiagrams:        includeDiagrams,
 				LoeMode:                loeMode,
 				OutputDir:              outputDir,
-				RepoDataJson:           repoDataJSON,
+				RepoDataJson:           string(repoJSON),
 				SectionDefinitionsJson: sectionDefsJSON,
 			})
 			if err != nil {
@@ -283,6 +293,281 @@ func (h *graphStoreHostServices) GetLatestImpactReport(repoID string) *routes.Im
 		})
 	}
 	return out
+}
+
+// collectRepoDataForReport gathers real repository data from the GraphStore
+// and KnowledgeStore so the Python report engine has actual evidence.
+// This replaces the previous empty "{}" that caused hallucinated reports.
+func collectRepoDataForReport(store graphstore.GraphStore, knowledgeStore knowledge.KnowledgeStore, repoIDs []string) map[string]interface{} {
+	data := make(map[string]interface{})
+
+	for _, repoID := range repoIDs {
+		repo := store.GetRepository(repoID)
+		if repo == nil {
+			continue
+		}
+
+		rd := map[string]interface{}{
+			"name":         repo.Name,
+			"remote_url":   repo.RemoteURL,
+			"branch":       repo.Branch,
+			"commit_sha":   repo.CommitSHA,
+			"file_count":   repo.FileCount,
+			"symbol_count": repo.FunctionCount + repo.ClassCount,
+		}
+
+		// --- Language distribution from actual files ---
+		files := store.GetFiles(repoID)
+		langCounts := map[string]int{}
+		topDirs := map[string]bool{}
+		var sampleFiles []string
+		for _, f := range files {
+			if f.Language != "" {
+				langCounts[f.Language]++
+			}
+			// Collect top-level directories
+			if parts := strings.SplitN(f.Path, "/", 2); len(parts) > 1 {
+				topDirs[parts[0]] = true
+			}
+			// Sample file paths (up to 100)
+			if len(sampleFiles) < 100 {
+				sampleFiles = append(sampleFiles, f.Path)
+			}
+		}
+
+		// Sort languages by count descending
+		type langCount struct {
+			Name  string `json:"name"`
+			Count int    `json:"count"`
+		}
+		var languages []langCount
+		for lang, count := range langCounts {
+			languages = append(languages, langCount{Name: lang, Count: count})
+		}
+		sort.Slice(languages, func(i, j int) bool { return languages[i].Count > languages[j].Count })
+		rd["languages"] = languages
+
+		dirs := make([]string, 0, len(topDirs))
+		for d := range topDirs {
+			dirs = append(dirs, d)
+		}
+		sort.Strings(dirs)
+		rd["top_level_dirs"] = dirs
+		rd["sample_files"] = sampleFiles
+
+		// --- Understanding score ---
+		var kfp graphstore.KnowledgeFreshnessProvider
+		if knowledgeStore != nil {
+			kfp = &knowledgeFreshnessAdapter{store: knowledgeStore}
+		}
+		score := graphstore.ComputeUnderstandingScore(store, kfp, repoID)
+		if score != nil {
+			rd["understanding_score"] = map[string]interface{}{
+				"overall":               score.Overall,
+				"traceabilityCoverage":  score.TraceabilityCoverage,
+				"documentationCoverage": score.DocumentationCoverage,
+				"reviewCoverage":        score.ReviewCoverage,
+				"testCoverage":          score.TestCoverage,
+				"knowledgeFreshness":    score.KnowledgeFreshness,
+				"aiCodeRatio":           score.AICodeRatio,
+			}
+		}
+
+		// --- Test detection from actual symbols ---
+		testSymbols, totalSymbols := store.GetTestSymbolRatio(repoID)
+		var testFrameworks []string
+		for _, f := range files {
+			ext := filepath.Ext(f.Path)
+			base := filepath.Base(f.Path)
+			if strings.Contains(base, "_test.go") {
+				testFrameworks = appendUnique(testFrameworks, "Go testing")
+			} else if strings.Contains(base, ".test.") || strings.Contains(base, ".spec.") {
+				if ext == ".ts" || ext == ".tsx" || ext == ".js" || ext == ".jsx" {
+					if strings.Contains(f.Path, "jest") || strings.Contains(base, ".test.") {
+						testFrameworks = appendUnique(testFrameworks, "Jest")
+					}
+					if strings.Contains(f.Path, "vitest") {
+						testFrameworks = appendUnique(testFrameworks, "Vitest")
+					}
+				}
+			} else if strings.HasPrefix(base, "test_") && ext == ".py" {
+				testFrameworks = appendUnique(testFrameworks, "pytest")
+			}
+		}
+		rd["test_detection"] = map[string]interface{}{
+			"test_file_count": testSymbols,
+			"total_symbols":   totalSymbols,
+			"frameworks":      testFrameworks,
+		}
+
+		// --- Auth detection from file paths ---
+		var authPatterns []string
+		for _, f := range files {
+			lower := strings.ToLower(f.Path)
+			if strings.Contains(lower, "auth") || strings.Contains(lower, "login") {
+				if strings.Contains(lower, "oauth") {
+					authPatterns = appendUnique(authPatterns, "OAuth")
+				}
+				if strings.Contains(lower, "jwt") || strings.Contains(lower, "token") {
+					authPatterns = appendUnique(authPatterns, "JWT")
+				}
+				if strings.Contains(lower, "saml") {
+					authPatterns = appendUnique(authPatterns, "SAML")
+				}
+				if strings.Contains(lower, "session") {
+					authPatterns = appendUnique(authPatterns, "Session-based")
+				}
+				if len(authPatterns) == 0 {
+					authPatterns = appendUnique(authPatterns, "Authentication (detected)")
+				}
+			}
+			if strings.Contains(lower, "rbac") || strings.Contains(lower, "permission") || strings.Contains(lower, "role") {
+				authPatterns = appendUnique(authPatterns, "RBAC")
+			}
+		}
+		rd["auth_detection"] = map[string]interface{}{"patterns": authPatterns}
+
+		// --- CI/CD detection from file paths ---
+		var cicdTools []string
+		hasDockerfile := false
+		for _, f := range files {
+			base := filepath.Base(f.Path)
+			lower := strings.ToLower(base)
+			if lower == "dockerfile" || strings.HasPrefix(lower, "dockerfile.") {
+				hasDockerfile = true
+			}
+			if lower == "jenkinsfile" {
+				cicdTools = appendUnique(cicdTools, "Jenkins")
+			}
+			if strings.Contains(f.Path, ".github/workflows") {
+				cicdTools = appendUnique(cicdTools, "GitHub Actions")
+			}
+			if strings.Contains(f.Path, ".gitlab-ci") {
+				cicdTools = appendUnique(cicdTools, "GitLab CI")
+			}
+			if strings.Contains(f.Path, "tekton") {
+				cicdTools = appendUnique(cicdTools, "Tekton")
+			}
+			if lower == "docker-compose.yml" || lower == "docker-compose.yaml" || lower == "compose.yml" {
+				cicdTools = appendUnique(cicdTools, "Docker Compose")
+			}
+			if lower == "vercel.json" || lower == ".vercel" {
+				cicdTools = appendUnique(cicdTools, "Vercel")
+			}
+			if strings.Contains(f.Path, "kubernetes") || strings.Contains(f.Path, "k8s") || lower == "kustomization.yaml" {
+				cicdTools = appendUnique(cicdTools, "Kubernetes")
+			}
+		}
+		if hasDockerfile {
+			cicdTools = appendUnique(cicdTools, "Docker")
+		}
+		rd["cicd_detection"] = map[string]interface{}{
+			"tools":          cicdTools,
+			"has_dockerfile": hasDockerfile,
+		}
+
+		// --- Cliff notes (actual knowledge artifacts) ---
+		if knowledgeStore != nil {
+			artifacts := knowledgeStore.GetKnowledgeArtifacts(repoID)
+			var cliffNotes []map[string]string
+			for _, art := range artifacts {
+				if art.Type == knowledge.ArtifactCliffNotes && art.Status == knowledge.StatusReady {
+					sections := knowledgeStore.GetKnowledgeSections(art.ID)
+					for _, sec := range sections {
+						cliffNotes = append(cliffNotes, map[string]string{
+							"title":   sec.Title,
+							"summary": sec.Summary,
+							"content": sec.Content,
+						})
+					}
+				}
+			}
+			if len(cliffNotes) > 0 {
+				rd["cliff_notes"] = cliffNotes
+			}
+		}
+
+		// --- Requirements ---
+		reqs, reqTotal := store.GetRequirements(repoID, 50, 0)
+		if reqTotal > 0 {
+			var reqSummaries []map[string]string
+			linkedCount := 0
+			for _, req := range reqs {
+				reqSummaries = append(reqSummaries, map[string]string{
+					"external_id": req.ExternalID,
+					"title":       req.Title,
+					"source":      req.Source,
+				})
+				links := store.GetLinksForRequirement(req.ID, false)
+				if len(links) > 0 {
+					linkedCount++
+				}
+			}
+			rd["requirements"] = map[string]interface{}{
+				"total":           reqTotal,
+				"linked_count":    linkedCount,
+				"coverage_pct":    float64(linkedCount) / float64(reqTotal) * 100,
+				"sample_titles":   reqSummaries,
+			}
+		}
+
+		// --- Symbols summary (top classes/functions) ---
+		symbols, symTotal := store.GetSymbols(repoID, nil, nil, 100, 0)
+		kindCounts := map[string]int{}
+		var publicSymbols []map[string]string
+		for _, sym := range symbols {
+			kindCounts[string(sym.Kind)]++
+			if sym.DocComment != "" && len(publicSymbols) < 30 {
+				publicSymbols = append(publicSymbols, map[string]string{
+					"name":      sym.Name,
+					"kind":      string(sym.Kind),
+					"file":      sym.FilePath,
+					"signature": sym.Signature,
+				})
+			}
+		}
+		rd["symbols"] = map[string]interface{}{
+			"total":           symTotal,
+			"by_kind":         kindCounts,
+			"documented_sample": publicSymbols,
+		}
+
+		// --- Doc and AI coverage ---
+		withDocs, totalPub := store.GetPublicSymbolDocCoverage(repoID)
+		aiFiles, totalFiles := store.GetAICodeFileRatio(repoID)
+		rd["doc_coverage"] = map[string]interface{}{
+			"documented": withDocs,
+			"total":      totalPub,
+		}
+		rd["ai_code"] = map[string]interface{}{
+			"ai_files":    aiFiles,
+			"total_files": totalFiles,
+		}
+
+		// --- Git analysis ---
+		rd["git_analysis"] = map[string]interface{}{
+			"branch":     repo.Branch,
+			"commit_sha": repo.CommitSHA,
+		}
+
+		// --- Secret scanner placeholder ---
+		rd["secret_scanner"] = map[string]interface{}{
+			"finding_count": 0,
+		}
+
+		data[repoID] = rd
+	}
+
+	return data
+}
+
+func appendUnique(slice []string, val string) []string {
+	for _, s := range slice {
+		if s == val {
+			return slice
+		}
+	}
+	return append(slice, val)
 }
 
 // knowledgeFreshnessAdapter bridges KnowledgeStore to KnowledgeFreshnessProvider.
