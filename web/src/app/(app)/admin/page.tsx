@@ -77,6 +77,7 @@ interface LLMConfigState {
   review_model: string;
   ask_model: string;
   knowledge_model: string;
+  report_model?: string;
   draft_model: string;
   timeout_secs: number;
   advanced_mode: boolean;
@@ -134,6 +135,7 @@ function useAdminFetch<T>(path: string) {
 }
 
 export default function AdminPage() {
+  const isEnterprise = process.env.NEXT_PUBLIC_EDITION === "enterprise";
   const [tab, setTab] = useState<Tab>("status");
   const { data: status, refetch: refetchStatus } = useAdminFetch<AdminStatus>("/api/v1/admin/status");
   const { data: config } = useAdminFetch<AdminConfig>("/api/v1/admin/config");
@@ -151,6 +153,7 @@ export default function AdminPage() {
   const [llmReviewModel, setLlmReviewModel] = useState("");
   const [llmAskModel, setLlmAskModel] = useState("");
   const [llmKnowledgeModel, setLlmKnowledgeModel] = useState("");
+  const [llmReportModel, setLlmReportModel] = useState("");
   const [llmTimeoutSecs, setLlmTimeoutSecs] = useState(30);
   const [llmAdvancedMode, setLlmAdvancedMode] = useState(false);
   const [llmDraftModel, setLlmDraftModel] = useState("");
@@ -226,6 +229,7 @@ export default function AdminPage() {
       setLlmReviewModel(llmConfig.review_model || "");
       setLlmAskModel(llmConfig.ask_model || "");
       setLlmKnowledgeModel(llmConfig.knowledge_model || "");
+      setLlmReportModel(llmConfig.report_model || "");
       setLlmTimeoutSecs(llmConfig.timeout_secs || 30);
       setLlmAdvancedMode(llmConfig.advanced_mode || false);
       setLlmDraftModel(llmConfig.draft_model || "");
@@ -245,6 +249,9 @@ export default function AdminPage() {
         setLlmReviewModel(defaults.model);
         setLlmAskModel(defaults.model);
         setLlmKnowledgeModel(defaults.model);
+        if (isEnterprise) {
+          setLlmReportModel(defaults.model);
+        }
       }
       fetchModels(newProvider, defaults.baseURL);
     }
@@ -274,6 +281,9 @@ export default function AdminPage() {
         timeout_secs: llmTimeoutSecs,
         advanced_mode: llmAdvancedMode,
       };
+      if (isEnterprise) {
+        body.report_model = llmReportModel;
+      }
       if (llmAPIKey) body.api_key = llmAPIKey;
       const res = await fetch("/api/v1/admin/llm-config", {
         method: "PUT",
@@ -605,6 +615,9 @@ export default function AdminPage() {
                             setLlmReviewModel(e.target.value);
                             setLlmAskModel(e.target.value);
                             setLlmKnowledgeModel(e.target.value);
+                            if (isEnterprise) {
+                              setLlmReportModel(e.target.value);
+                            }
                           }
                         }
                       }}
@@ -628,6 +641,9 @@ export default function AdminPage() {
                           setLlmReviewModel(e.target.value);
                           setLlmAskModel(e.target.value);
                           setLlmKnowledgeModel(e.target.value);
+                          if (isEnterprise) {
+                            setLlmReportModel(e.target.value);
+                          }
                         }
                       }}
                       placeholder="Or type a model ID manually"
@@ -687,6 +703,9 @@ export default function AdminPage() {
                     { label: "Code Review", key: "review", value: llmReviewModel, setter: setLlmReviewModel, badge: "Medium ~5K tok", help: "reviewCode (all templates)" },
                     { label: "Discussion & Q&A", key: "discussion", value: llmAskModel, setter: setLlmAskModel, badge: "Medium ~1-5K tok", help: "discussCode, answerQuestion" },
                     { label: "Knowledge Generation", key: "knowledge", value: llmKnowledgeModel, setter: setLlmKnowledgeModel, badge: "High ~10-37K tok", help: "cliffNotes, learningPath, codeTour, workflowStory, explainSystem" },
+                    ...(isEnterprise
+                      ? [{ label: "Reports", key: "report", value: llmReportModel, setter: setLlmReportModel, badge: "High long-form", help: "architecture baseline, SWOT, due diligence, portfolio and compliance reports" }]
+                      : []),
                   ] as const).map((group) => (
                     <div key={group.key} className={fieldWrapClass}>
                       <div className="flex items-center gap-2">

@@ -113,6 +113,29 @@ def create_llm_provider(config: WorkerConfig) -> LLMProvider:
         raise ValueError(f"Unknown LLM provider: {config.llm_provider}")
 
 
+def create_llm_provider_for_request(
+    config: WorkerConfig,
+    *,
+    provider: str = "",
+    base_url: str = "",
+    api_key: str = "",
+    model: str = "",
+    draft_model: str = "",
+) -> tuple[LLMProvider, str]:
+    """Create a per-request provider from effective runtime settings.
+
+    Empty override fields fall back to the worker's bootstrap config.
+    """
+    effective = config.model_copy(update={
+        "llm_provider": provider or config.llm_provider,
+        "llm_base_url": base_url or config.llm_base_url,
+        "llm_api_key": api_key or config.llm_api_key,
+        "llm_model": model or config.llm_model,
+        "llm_draft_model": draft_model or config.llm_draft_model,
+    })
+    return create_llm_provider(effective), effective.llm_model
+
+
 def create_report_provider(config: WorkerConfig) -> LLMProvider | None:
     """Create a separate LLM provider for report generation, if configured.
 

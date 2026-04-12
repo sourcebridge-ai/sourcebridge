@@ -82,13 +82,13 @@ async def serve() -> None:
     )
 
     # --- Register servicers ---
-    reasoning_servicer = ReasoningServicer(llm_provider, embedding_provider)
+    reasoning_servicer = ReasoningServicer(llm_provider, embedding_provider, worker_config=config)
     reasoning_pb2_grpc.add_ReasoningServiceServicer_to_server(reasoning_servicer, server)
 
     linking_servicer = LinkingServicer(llm_provider, embedding_provider)
     linking_pb2_grpc.add_LinkingServiceServicer_to_server(linking_servicer, server)
 
-    requirements_servicer = RequirementsServicer(llm_provider)
+    requirements_servicer = RequirementsServicer(llm_provider, worker_config=config)
     requirements_pb2_grpc.add_RequirementsServiceServicer_to_server(requirements_servicer, server)
 
     knowledge_servicer = KnowledgeServicer(

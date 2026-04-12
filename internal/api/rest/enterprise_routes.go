@@ -16,11 +16,13 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/jstuart0/sourcebridge-enterprise/routes"
 	knowledgev1 "github.com/sourcebridge/sourcebridge/gen/go/knowledge/v1"
 	"github.com/sourcebridge/sourcebridge/internal/api/middleware"
 	"github.com/sourcebridge/sourcebridge/internal/auth"
+	"github.com/sourcebridge/sourcebridge/internal/config"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	surrealdb "github.com/surrealdb/surrealdb.go"
@@ -92,7 +94,7 @@ func (s *Server) registerEnterpriseRoutes(r chi.Router) {
 			repoJSON, _ := json.Marshal(realRepoData)
 			slog.Info("report: collected repo data", "repos", len(repoIDs), "jsonBytes", len(repoJSON))
 
-			ctx := context.Background()
+			ctx := withWorkerLLMMetadata(context.Background(), s.cfg, "report")
 			resp, err := s.worker.GenerateReport(ctx, &knowledgev1.GenerateReportRequest{
 				ReportId:               reportID,
 				ReportName:             reportName,
@@ -122,6 +124,24 @@ func (s *Server) registerEnterpriseRoutes(r chi.Router) {
 	r.Route("/api/v1/reports", func(r chi.Router) {
 		ectx.RegisterReportRoutes(r)
 	})
+}
+
+func withWorkerLLMMetadata(ctx context.Context, cfg *config.Config, operationGroup string) context.Context {
+	if cfg == nil {
+		return ctx
+	}
+	model := cfg.LLM.ModelForOperation(operationGroup)
+	pairs := []string{
+		"x-sb-llm-provider", cfg.LLM.Provider,
+		"x-sb-llm-base-url", cfg.LLM.BaseURL,
+		"x-sb-llm-api-key", cfg.LLM.APIKey,
+		"x-sb-llm-draft-model", cfg.LLM.DraftModel,
+		"x-sb-operation", operationGroup,
+	}
+	if model != "" {
+		pairs = append(pairs, "x-sb-model", model)
+	}
+	return metadata.NewOutgoingContext(ctx, metadata.Pairs(pairs...))
 }
 
 type claimsFirstTenantExtractor struct {

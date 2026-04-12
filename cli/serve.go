@@ -175,6 +175,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if rec.KnowledgeModel != "" {
 				cfg.LLM.KnowledgeModel = rec.KnowledgeModel
 			}
+			if rec.ReportModel != "" {
+				cfg.LLM.ReportModel = rec.ReportModel
+			}
 			if rec.DraftModel != "" {
 				cfg.LLM.DraftModel = rec.DraftModel
 			}

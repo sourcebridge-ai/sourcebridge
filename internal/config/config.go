@@ -90,12 +90,13 @@ type LLMConfig struct {
 	BaseURL        string `mapstructure:"base_url"`
 	APIKey         string `mapstructure:"api_key"`
 	SummaryModel   string `mapstructure:"summary_model"`   // default model (used for analysis in advanced mode)
-	ReviewModel    string `mapstructure:"review_model"`     // review operations
-	AskModel       string `mapstructure:"ask_model"`        // discussion/Q&A operations
-	KnowledgeModel string `mapstructure:"knowledge_model"`  // knowledge generation (cliffNotes, codeTour, etc.)
-	DraftModel     string `mapstructure:"draft_model"`      // LM Studio only: sent as draft_model per request
+	ReviewModel    string `mapstructure:"review_model"`    // review operations
+	AskModel       string `mapstructure:"ask_model"`       // discussion/Q&A operations
+	KnowledgeModel string `mapstructure:"knowledge_model"` // knowledge generation (cliffNotes, codeTour, etc.)
+	ReportModel    string `mapstructure:"report_model"`    // report generation
+	DraftModel     string `mapstructure:"draft_model"`     // LM Studio only: sent as draft_model per request
 	TimeoutSecs    int    `mapstructure:"timeout_seconds"`
-	AdvancedMode   bool   `mapstructure:"advanced_mode"`    // when true, per-operation models are active
+	AdvancedMode   bool   `mapstructure:"advanced_mode"` // when true, per-operation models are active
 }
 
 // ModelForOperation returns the model to use for a given operation group.
@@ -122,6 +123,10 @@ func (l *LLMConfig) ModelForOperation(group string) string {
 		if l.KnowledgeModel != "" {
 			return l.KnowledgeModel
 		}
+	case "report":
+		if l.ReportModel != "" {
+			return l.ReportModel
+		}
 	}
 	return l.SummaryModel
 }
@@ -142,15 +147,15 @@ type UIConfig struct {
 
 // SecurityConfig holds security-related settings.
 type SecurityConfig struct {
-	JWTSecret            string     `mapstructure:"jwt_secret"`
-	JWTTTLMinutes        int        `mapstructure:"jwt_ttl_minutes"`
-	EncryptionKey        string     `mapstructure:"encryption_key"`
-	CSRFEnabled          bool       `mapstructure:"csrf_enabled"`
-	GRPCAuthSecret       string     `mapstructure:"grpc_auth_secret"`
-	Mode                 string     `mapstructure:"mode"` // oss, commercial
-	OIDC                 OIDCConfig `mapstructure:"oidc"`
-	GitHubWebhookSecret  string     `mapstructure:"github_webhook_secret"`
-	GitLabWebhookSecret  string     `mapstructure:"gitlab_webhook_secret"`
+	JWTSecret           string     `mapstructure:"jwt_secret"`
+	JWTTTLMinutes       int        `mapstructure:"jwt_ttl_minutes"`
+	EncryptionKey       string     `mapstructure:"encryption_key"`
+	CSRFEnabled         bool       `mapstructure:"csrf_enabled"`
+	GRPCAuthSecret      string     `mapstructure:"grpc_auth_secret"`
+	Mode                string     `mapstructure:"mode"` // oss, commercial
+	OIDC                OIDCConfig `mapstructure:"oidc"`
+	GitHubWebhookSecret string     `mapstructure:"github_webhook_secret"`
+	GitLabWebhookSecret string     `mapstructure:"gitlab_webhook_secret"`
 }
 
 // OIDCConfig holds OpenID Connect settings for SSO integration.
@@ -171,9 +176,9 @@ type WorkerConfig struct {
 type MCPConfig struct {
 	Enabled     bool   `mapstructure:"enabled"`
 	Repos       string `mapstructure:"repos"`        // comma-separated repo IDs (empty = all)
-	SessionTTL  int    `mapstructure:"session_ttl"`   // seconds before idle session is reaped
-	Keepalive   int    `mapstructure:"keepalive"`      // seconds between SSE keepalive pings
-	MaxSessions int    `mapstructure:"max_sessions"`   // max concurrent MCP sessions (0 = unlimited)
+	SessionTTL  int    `mapstructure:"session_ttl"`  // seconds before idle session is reaped
+	Keepalive   int    `mapstructure:"keepalive"`    // seconds between SSE keepalive pings
+	MaxSessions int    `mapstructure:"max_sessions"` // max concurrent MCP sessions (0 = unlimited)
 }
 
 // Defaults returns a Config with all default values.
@@ -231,8 +236,8 @@ func Defaults() *Config {
 		},
 		MCP: MCPConfig{
 			Enabled:     false,
-			SessionTTL:  3600,  // 1 hour
-			Keepalive:   30,    // 30 seconds
+			SessionTTL:  3600, // 1 hour
+			Keepalive:   30,   // 30 seconds
 			MaxSessions: 100,
 		},
 	}
@@ -275,6 +280,7 @@ func Load() (*Config, error) {
 	v.SetDefault("llm.base_url", cfg.LLM.BaseURL)
 	v.SetDefault("llm.api_key", "")
 	v.SetDefault("llm.summary_model", cfg.LLM.SummaryModel)
+	v.SetDefault("llm.report_model", cfg.LLM.ReportModel)
 	v.SetDefault("llm.timeout_seconds", cfg.LLM.TimeoutSecs)
 	v.SetDefault("security.jwt_ttl_minutes", cfg.Security.JWTTTLMinutes)
 	v.SetDefault("security.mode", cfg.Security.Mode)

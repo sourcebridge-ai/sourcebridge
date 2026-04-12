@@ -15,7 +15,8 @@ from knowledge.v1 import knowledge_pb2, knowledge_pb2_grpc
 
 from workers.common.config import WorkerConfig
 from workers.common.embedding.provider import EmbeddingProvider
-from workers.common.grpc_metadata import resolve_model_override
+from workers.common.grpc_metadata import resolve_llm_override, resolve_model_override
+from workers.common.llm.config import create_llm_provider_for_request
 from workers.common.llm.provider import LLMProvider, SnapshotTooLargeError
 from workers.comprehension.adapters.code import CodeCorpus
 from workers.comprehension.hierarchical import HierarchicalConfig, HierarchicalStrategy
@@ -124,6 +125,40 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         self._default_model_id = (default_model_id or "").strip()
         self._selector = StrategySelector()
 
+    def _resolve_request_provider(self, context: grpc.aio.ServicerContext) -> tuple[LLMProvider, str | None]:
+        override = resolve_llm_override(context)
+        if override is None or self._config is None:
+            return self._llm, resolve_model_override(context)
+        provider, model = create_llm_provider_for_request(
+            self._config,
+            provider=override.provider,
+            base_url=override.base_url,
+            api_key=override.api_key,
+            model=override.model,
+            draft_model=override.draft_model,
+        )
+        return provider, model or None
+
+    def _resolve_report_provider(self, context: grpc.aio.ServicerContext) -> tuple[LLMProvider, str | None]:
+        override = resolve_llm_override(context)
+        if override is None:
+            model = resolve_model_override(context)
+            if self._report_llm is not None:
+                fallback_model = self._config.llm_report_model if self._config else None
+                return self._report_llm, model or fallback_model or None
+            return self._llm, model
+        if self._config is None:
+            return self._report_llm or self._llm, override.model or None
+        provider, model = create_llm_provider_for_request(
+            self._config,
+            provider=override.provider,
+            base_url=override.base_url,
+            api_key=override.api_key,
+            model=override.model,
+            draft_model=override.draft_model,
+        )
+        return provider, model or None
+
     async def _prepare_snapshot(
         self,
         snapshot_json: str,
@@ -170,6 +205,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
     def _build_cliff_notes_strategies(
         self,
         *,
+        provider: LLMProvider,
         request: knowledge_pb2.GenerateCliffNotesRequest,
         audience: str,
         depth: str,
@@ -186,11 +222,11 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         repo_name = request.repository_name
         return {
             "hierarchical": HierarchicalStrategy(
-                provider=self._llm,
+                provider=provider,
                 config=HierarchicalConfig.from_env(repository_name=repo_name),
             ),
             "long_context_direct": LongContextDirectStrategy(
-                provider=self._llm,
+                provider=provider,
                 config=LongContextConfig.from_env(
                     repository_name=repo_name,
                     audience=audience,
@@ -202,7 +238,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 ),
             ),
             "single_shot": SingleShotStrategy(
-                provider=self._llm,
+                provider=provider,
                 config=SingleShotConfig(
                     repository_name=repo_name,
                     audience=audience,
@@ -218,6 +254,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
     async def _run_cliff_notes_strategy_chain(
         self,
         *,
+        provider: LLMProvider | None = None,
         request: knowledge_pb2.GenerateCliffNotesRequest,
         audience: str,
         depth: str,
@@ -236,6 +273,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         Returns the final result, usage record, and the selector's
         trace so the caller can log why a particular strategy was used.
         """
+        provider = provider or self._llm
         # Condense once up-front and share the same snapshot across all
         # strategies in the chain. The hierarchical path still walks
         # the CodeCorpus built from this JSON, so the retrieval /
@@ -254,6 +292,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         model_id = self._resolve_model_id(model_override)
         strategies = self._build_cliff_notes_strategies(
             request=request,
+            provider=provider,
             audience=audience,
             depth=depth,
             scope_type=scope_type,
@@ -287,6 +326,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             tried.append(name)
             try:
                 result, usage = await self._run_one_cliff_notes_strategy(
+                    provider=provider,
                     strategy=selection.strategy,
                     strategy_name=name,
                     request=request,
@@ -318,6 +358,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
     async def _run_one_cliff_notes_strategy(
         self,
         *,
+        provider: LLMProvider | None = None,
         strategy: ComprehensionStrategy,
         strategy_name: str,
         request: knowledge_pb2.GenerateCliffNotesRequest,
@@ -330,10 +371,12 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         """Actually run a single strategy and produce the final cliff
         notes result. Kept separate from the chain walker so the logic
         is easy to unit-test."""
+        provider = provider or self._llm
         if strategy_name == "hierarchical":
             # Hierarchical: build tree from the CodeCorpus, then render.
             return await self._generate_cliff_notes_hierarchical(
                 request=request,
+                provider=provider,
                 audience=audience,
                 depth=depth,
                 scope_type=scope_type,
@@ -357,6 +400,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
     async def _generate_cliff_notes_hierarchical(
         self,
         *,
+        provider: LLMProvider | None = None,
         request: knowledge_pb2.GenerateCliffNotesRequest,
         audience: str,
         depth: str,
@@ -378,6 +422,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
           4. Render the final structured cliff notes from the tree
              via CliffNotesRenderer.
         """
+        provider = provider or self._llm
         raw_snapshot = snapshot_json if snapshot_json is not None else request.snapshot_json
         try:
             snapshot_dict = json.loads(raw_snapshot)
@@ -386,7 +431,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
 
         corpus = CodeCorpus(snapshot=snapshot_dict)
         strategy = HierarchicalStrategy(
-            provider=self._llm,
+            provider=provider,
             config=HierarchicalConfig.from_env(repository_name=request.repository_name or corpus.root().label),
         )
 
@@ -422,7 +467,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         pre_analysis = snapshot_dict.get("_pre_analysis") if isinstance(snapshot_dict, dict) else None
 
         renderer = CliffNotesRenderer(
-            provider=self._llm,
+            provider=provider,
             model_override=model_override,
         )
         result, usage = await renderer.render(
@@ -476,7 +521,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         audience = request.audience or "developer"
         depth = request.depth or "medium"
         scope_type = request.scope_type or "repository"
-        model_override = resolve_model_override(context)
+        provider, model_override = self._resolve_request_provider(context)
 
         # Run through the StrategySelector with the preference chain from
         # the environment. The selector handles capability gating and
@@ -485,6 +530,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         try:
             result, usage, selection = await self._run_cliff_notes_strategy_chain(
                 request=request,
+                provider=provider,
                 audience=audience,
                 depth=depth,
                 scope_type=scope_type,
@@ -563,10 +609,10 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             query = f"{request.focus_area} {query}"
         snapshot = await self._prepare_snapshot(request.snapshot_json, query)
 
-        model_override = resolve_model_override(context)
+        provider, model_override = self._resolve_request_provider(context)
         try:
             result, usage = await generate_learning_path(
-                provider=self._llm,
+                provider=provider,
                 repository_name=request.repository_name,
                 audience=audience,
                 depth=depth,
@@ -630,10 +676,10 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             query = f"{request.anchor_label} {query}"
         snapshot = await self._prepare_snapshot(request.snapshot_json, query, scope_type=scope_type)
 
-        model_override = resolve_model_override(context)
+        provider, model_override = self._resolve_request_provider(context)
         try:
             result, usage = await generate_workflow_story(
-                provider=self._llm,
+                provider=provider,
                 repository_name=request.repository_name,
                 audience=audience,
                 depth=depth,
@@ -709,10 +755,10 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         )
         snapshot = await self._prepare_snapshot(request.snapshot_json, query)
 
-        model_override = resolve_model_override(context)
+        provider, model_override = self._resolve_request_provider(context)
         try:
             result, usage = await explain_system(
-                provider=self._llm,
+                provider=provider,
                 repository_name=request.repository_name,
                 audience=audience,
                 depth=depth,
@@ -760,10 +806,10 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             query = f"{request.theme} {query}"
         snapshot = await self._prepare_snapshot(request.snapshot_json, query)
 
-        model_override = resolve_model_override(context)
+        provider, model_override = self._resolve_request_provider(context)
         try:
             result, usage = await generate_code_tour(
-                provider=self._llm,
+                provider=provider,
                 repository_name=request.repository_name,
                 audience=audience,
                 depth=depth,
@@ -859,8 +905,13 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 style_section_rules=request.style_section_rules or "",
             )
 
+            report_provider, report_model = self._resolve_report_provider(context)
+            if request.model_override:
+                report_model = request.model_override
+            config.model_override = report_model or None
+
             result = await generate_report(
-                self._report_llm or self._llm,
+                report_provider,
                 config,
                 repo_data=repo_data,
                 section_definitions=section_defs,
@@ -891,7 +942,6 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 evidence=result.evidence_count,
             )
 
-            report_provider = self._report_llm or self._llm
             return knowledge_pb2.GenerateReportResponse(
                 markdown=result.markdown,
                 section_count=result.section_count,

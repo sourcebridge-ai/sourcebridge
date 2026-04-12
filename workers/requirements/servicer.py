@@ -9,7 +9,9 @@ import structlog
 from common.v1 import types_pb2
 from requirements.v1 import requirements_pb2, requirements_pb2_grpc
 
-from workers.common.grpc_metadata import resolve_model_override
+from workers.common.config import WorkerConfig
+from workers.common.grpc_metadata import resolve_llm_override, resolve_model_override
+from workers.common.llm.config import create_llm_provider_for_request
 from workers.common.llm.provider import LLMProvider
 from workers.requirements.csv_parser import parse_csv
 from workers.requirements.markdown import parse_markdown
@@ -32,8 +34,23 @@ def _req_to_proto(req) -> types_pb2.Requirement:
 class RequirementsServicer(requirements_pb2_grpc.RequirementsServiceServicer):
     """Implements the RequirementsService gRPC service."""
 
-    def __init__(self, llm_provider: LLMProvider) -> None:
+    def __init__(self, llm_provider: LLMProvider, worker_config: WorkerConfig | None = None) -> None:
         self._llm = llm_provider
+        self._config = worker_config
+
+    def _resolve_provider(self, context: grpc.aio.ServicerContext) -> tuple[LLMProvider, str | None]:
+        override = resolve_llm_override(context)
+        if override is None or self._config is None:
+            return self._llm, resolve_model_override(context)
+        provider, model = create_llm_provider_for_request(
+            self._config,
+            provider=override.provider,
+            base_url=override.base_url,
+            api_key=override.api_key,
+            model=override.model,
+            draft_model=override.draft_model,
+        )
+        return provider, model or None
 
     async def ParseDocument(  # noqa: N802
         self,
@@ -122,9 +139,9 @@ class RequirementsServicer(requirements_pb2_grpc.RequirementsServiceServicer):
             "appropriate priority and classification tags. Return ONLY valid JSON."
         )
 
-        model_override = resolve_model_override(context)
+        provider, model_override = self._resolve_provider(context)
         try:
-            response = await self._llm.complete(prompt, system=system, temperature=0.1, model=model_override)
+            response = await provider.complete(prompt, system=system, temperature=0.1, model=model_override)
         except Exception as exc:
             log.error("enrich_requirement_failed", error=str(exc))
             await context.abort(grpc.StatusCode.INTERNAL, f"Enrichment failed: {exc}")
@@ -190,10 +207,11 @@ class RequirementsServicer(requirements_pb2_grpc.RequirementsServiceServicer):
 
         from workers.requirements.spec_extraction import extract_specs_pipeline
 
+        provider, _ = self._resolve_provider(context)
         try:
             result = await extract_specs_pipeline(
                 files=request.files,
-                llm_provider=self._llm if not request.skip_llm_refinement else None,
+                llm_provider=provider if not request.skip_llm_refinement else None,
             )
         except Exception as exc:
             log.error("extract_specs_failed", error=str(exc))

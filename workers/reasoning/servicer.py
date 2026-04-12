@@ -7,8 +7,10 @@ import structlog
 from common.v1 import types_pb2
 from reasoning.v1 import reasoning_pb2, reasoning_pb2_grpc
 
+from workers.common.config import WorkerConfig
 from workers.common.embedding.provider import EmbeddingProvider
-from workers.common.grpc_metadata import resolve_model_override
+from workers.common.grpc_metadata import resolve_llm_override, resolve_model_override
+from workers.common.llm.config import create_llm_provider_for_request
 from workers.common.llm.provider import LLMProvider
 from workers.reasoning.discussion import discuss_code
 from workers.reasoning.reviewer import review_code
@@ -53,9 +55,25 @@ class ReasoningServicer(reasoning_pb2_grpc.ReasoningServiceServicer):
         self,
         llm_provider: LLMProvider,
         embedding_provider: EmbeddingProvider,
+        worker_config: WorkerConfig | None = None,
     ) -> None:
         self._llm = llm_provider
         self._embedding = embedding_provider
+        self._config = worker_config
+
+    def _resolve_provider(self, context: grpc.aio.ServicerContext) -> tuple[LLMProvider, str | None]:
+        override = resolve_llm_override(context)
+        if override is None or self._config is None:
+            return self._llm, resolve_model_override(context)
+        provider, model = create_llm_provider_for_request(
+            self._config,
+            provider=override.provider,
+            base_url=override.base_url,
+            api_key=override.api_key,
+            model=override.model,
+            draft_model=override.draft_model,
+        )
+        return provider, model or None
 
     async def AnalyzeSymbol(  # noqa: N802
         self,
@@ -71,10 +89,10 @@ class ReasoningServicer(reasoning_pb2_grpc.ReasoningServiceServicer):
         # Build content from signature + surrounding_context
         content = request.surrounding_context or symbol.signature or ""
 
-        model_override = resolve_model_override(context)
+        provider, model_override = self._resolve_provider(context)
         try:
             summary, usage = await summarize_function(
-                provider=self._llm,
+                provider=provider,
                 name=symbol.name,
                 language=language,
                 content=content,
@@ -138,10 +156,10 @@ class ReasoningServicer(reasoning_pb2_grpc.ReasoningServiceServicer):
 
         context_code = "\n\n".join(context_parts) if context_parts else "(no code context provided)"
 
-        model_override = resolve_model_override(context)
+        provider, model_override = self._resolve_provider(context)
         try:
             answer, usage = await discuss_code(
-                provider=self._llm,
+                provider=provider,
                 question=request.question,
                 context_code=context_code,
                 model_override=model_override,
@@ -174,10 +192,10 @@ class ReasoningServicer(reasoning_pb2_grpc.ReasoningServiceServicer):
         template = request.template or "security"
         log.info("review_file", file_path=request.file_path, template=template)
 
-        model_override = resolve_model_override(context)
+        provider, model_override = self._resolve_provider(context)
         try:
             result, usage = await review_code(
-                provider=self._llm,
+                provider=provider,
                 file_path=request.file_path,
                 language=language,
                 content=request.content,

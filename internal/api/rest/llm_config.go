@@ -24,6 +24,7 @@ type LLMConfigRecord struct {
 	ReviewModel    string `json:"review_model"`
 	AskModel       string `json:"ask_model"`
 	KnowledgeModel string `json:"knowledge_model"`
+	ReportModel    string `json:"report_model,omitempty"`
 	DraftModel     string `json:"draft_model"`
 	TimeoutSecs    int    `json:"timeout_secs"`
 	AdvancedMode   bool   `json:"advanced_mode"`
@@ -38,6 +39,7 @@ type llmConfigResponse struct {
 	ReviewModel    string `json:"review_model"`
 	AskModel       string `json:"ask_model"`
 	KnowledgeModel string `json:"knowledge_model"`
+	ReportModel    string `json:"report_model,omitempty"`
 	DraftModel     string `json:"draft_model"`
 	TimeoutSecs    int    `json:"timeout_secs"`
 	AdvancedMode   bool   `json:"advanced_mode"`
@@ -51,6 +53,7 @@ type updateLLMConfigRequest struct {
 	ReviewModel    *string `json:"review_model,omitempty"`
 	AskModel       *string `json:"ask_model,omitempty"`
 	KnowledgeModel *string `json:"knowledge_model,omitempty"`
+	ReportModel    *string `json:"report_model,omitempty"`
 	DraftModel     *string `json:"draft_model,omitempty"`
 	TimeoutSecs    *int    `json:"timeout_secs,omitempty"`
 	AdvancedMode   *bool   `json:"advanced_mode,omitempty"`
@@ -71,6 +74,9 @@ func (s *Server) handleGetLLMConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.cfg.LLM.APIKey != "" {
 		resp.APIKeyHint = maskToken(s.cfg.LLM.APIKey)
+	}
+	if s.cfg.Edition == "enterprise" {
+		resp.ReportModel = s.cfg.LLM.ReportModel
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -111,6 +117,9 @@ func (s *Server) handleUpdateLLMConfig(w http.ResponseWriter, r *http.Request) {
 	if req.KnowledgeModel != nil {
 		s.cfg.LLM.KnowledgeModel = *req.KnowledgeModel
 	}
+	if req.ReportModel != nil && s.cfg.Edition == "enterprise" {
+		s.cfg.LLM.ReportModel = *req.ReportModel
+	}
 	if req.DraftModel != nil {
 		s.cfg.LLM.DraftModel = *req.DraftModel
 	}
@@ -131,6 +140,7 @@ func (s *Server) handleUpdateLLMConfig(w http.ResponseWriter, r *http.Request) {
 			ReviewModel:    s.cfg.LLM.ReviewModel,
 			AskModel:       s.cfg.LLM.AskModel,
 			KnowledgeModel: s.cfg.LLM.KnowledgeModel,
+			ReportModel:    s.cfg.LLM.ReportModel,
 			DraftModel:     s.cfg.LLM.DraftModel,
 			TimeoutSecs:    s.cfg.LLM.TimeoutSecs,
 			AdvancedMode:   s.cfg.LLM.AdvancedMode,
@@ -143,6 +153,6 @@ func (s *Server) handleUpdateLLMConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":   "saved",
 		"provider": s.cfg.LLM.Provider,
-		"note":     "LLM settings saved. The API server will use these immediately. Worker services may need a restart to pick up changes.",
+		"note":     "LLM settings saved. The API and worker will use these on new requests immediately.",
 	})
 }
