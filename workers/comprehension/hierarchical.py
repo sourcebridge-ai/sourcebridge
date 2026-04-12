@@ -106,6 +106,7 @@ class HierarchicalConfig:
     model_override: str | None = None
     cached_tree: SummaryTree | None = None
     on_stage_completed: Callable[[str, SummaryTree], Awaitable[None]] | None = None
+    on_node_completed: Callable[[str, SummaryTree, SummaryNode], Awaitable[None]] | None = None
 
     @classmethod
     def from_env(cls, repository_name: str = "") -> HierarchicalConfig:
@@ -306,6 +307,11 @@ class HierarchicalStrategy:
             return
         await self._config.on_stage_completed(stage, tree)
 
+    async def _emit_node_checkpoint(self, stage: str, tree: SummaryTree, node: SummaryNode) -> None:
+        if self._config.on_node_completed is None:
+            return
+        await self._config.on_node_completed(stage, tree, node)
+
     def diagnostics(self) -> dict[str, int | bool]:
         return {
             "fallback_count": self._fallback_count,
@@ -424,24 +430,24 @@ class HierarchicalStrategy:
             input_tokens=tokens_in,
             output_tokens=tokens_out,
         )
-        tree.add(
-            SummaryNode(
-                id=str(uuid.uuid4()),
-                corpus_id=tree.corpus_id,
-                unit_id=unit.id,
-                level=0,
-                parent_id=unit.parent_id,
-                summary_text=summary,
-                headline=_first_line(summary),
-                summary_tokens=tokens_out,
-                source_tokens=unit.size_tokens or max(len(code) // 4, 1),
-                content_hash=unit.content_hash,
-                model_used=model,
-                strategy=self.name,
-                revision_fp=tree.revision_fp,
-                metadata=dict(unit.metadata),
-            )
+        node = SummaryNode(
+            id=str(uuid.uuid4()),
+            corpus_id=tree.corpus_id,
+            unit_id=unit.id,
+            level=0,
+            parent_id=unit.parent_id,
+            summary_text=summary,
+            headline=_first_line(summary),
+            summary_tokens=tokens_out,
+            source_tokens=unit.size_tokens or max(len(code) // 4, 1),
+            content_hash=unit.content_hash,
+            model_used=model,
+            strategy=self.name,
+            revision_fp=tree.revision_fp,
+            metadata=dict(unit.metadata),
         )
+        tree.add(node)
+        await self._emit_node_checkpoint("leaves", tree, node)
 
     async def _summarize_file(
         self,
@@ -473,25 +479,25 @@ class HierarchicalStrategy:
             context=f"hierarchical:file:{file_path}",
             fallback=f"Could not summarize file {file_path}.",
         )
-        tree.add(
-            SummaryNode(
-                id=str(uuid.uuid4()),
-                corpus_id=tree.corpus_id,
-                unit_id=unit.id,
-                level=1,
-                parent_id=unit.parent_id,
-                child_ids=[n.unit_id for n in tree.children_of(unit.id)],
-                summary_text=summary,
-                headline=_first_line(summary),
-                summary_tokens=tokens_out,
-                source_tokens=sum(n.source_tokens for n in children),
-                content_hash=node_hash,
-                model_used=model,
-                strategy=self.name,
-                revision_fp=tree.revision_fp,
-                metadata=dict(unit.metadata),
-            )
+        node = SummaryNode(
+            id=str(uuid.uuid4()),
+            corpus_id=tree.corpus_id,
+            unit_id=unit.id,
+            level=1,
+            parent_id=unit.parent_id,
+            child_ids=[n.unit_id for n in tree.children_of(unit.id)],
+            summary_text=summary,
+            headline=_first_line(summary),
+            summary_tokens=tokens_out,
+            source_tokens=sum(n.source_tokens for n in children),
+            content_hash=node_hash,
+            model_used=model,
+            strategy=self.name,
+            revision_fp=tree.revision_fp,
+            metadata=dict(unit.metadata),
         )
+        tree.add(node)
+        await self._emit_node_checkpoint("files", tree, node)
 
     async def _summarize_package(
         self,
@@ -520,25 +526,25 @@ class HierarchicalStrategy:
             context=f"hierarchical:package:{unit.label}",
             fallback=f"Could not summarize package {unit.label}.",
         )
-        tree.add(
-            SummaryNode(
-                id=str(uuid.uuid4()),
-                corpus_id=tree.corpus_id,
-                unit_id=unit.id,
-                level=2,
-                parent_id=unit.parent_id,
-                child_ids=[n.unit_id for n in tree.children_of(unit.id)],
-                summary_text=summary,
-                headline=_first_line(summary),
-                summary_tokens=tokens_out,
-                source_tokens=sum(n.source_tokens for n in children),
-                content_hash=node_hash,
-                model_used=model,
-                strategy=self.name,
-                revision_fp=tree.revision_fp,
-                metadata=dict(unit.metadata),
-            )
+        node = SummaryNode(
+            id=str(uuid.uuid4()),
+            corpus_id=tree.corpus_id,
+            unit_id=unit.id,
+            level=2,
+            parent_id=unit.parent_id,
+            child_ids=[n.unit_id for n in tree.children_of(unit.id)],
+            summary_text=summary,
+            headline=_first_line(summary),
+            summary_tokens=tokens_out,
+            source_tokens=sum(n.source_tokens for n in children),
+            content_hash=node_hash,
+            model_used=model,
+            strategy=self.name,
+            revision_fp=tree.revision_fp,
+            metadata=dict(unit.metadata),
         )
+        tree.add(node)
+        await self._emit_node_checkpoint("packages", tree, node)
 
     async def _summarize_root(
         self,
@@ -571,25 +577,25 @@ class HierarchicalStrategy:
             context="hierarchical:root",
             fallback=f"Could not summarize repository {self._config.repository_name}.",
         )
-        tree.add(
-            SummaryNode(
-                id=str(uuid.uuid4()),
-                corpus_id=tree.corpus_id,
-                unit_id=unit.id,
-                level=3,
-                parent_id=None,
-                child_ids=[n.unit_id for n in tree.children_of(unit.id)],
-                summary_text=summary,
-                headline=_first_line(summary),
-                summary_tokens=tokens_out,
-                source_tokens=sum(n.source_tokens for n in children),
-                content_hash=node_hash,
-                model_used=model,
-                strategy=self.name,
-                revision_fp=tree.revision_fp,
-                metadata=dict(unit.metadata),
-            )
+        node = SummaryNode(
+            id=str(uuid.uuid4()),
+            corpus_id=tree.corpus_id,
+            unit_id=unit.id,
+            level=3,
+            parent_id=None,
+            child_ids=[n.unit_id for n in tree.children_of(unit.id)],
+            summary_text=summary,
+            headline=_first_line(summary),
+            summary_tokens=tokens_out,
+            source_tokens=sum(n.source_tokens for n in children),
+            content_hash=node_hash,
+            model_used=model,
+            strategy=self.name,
+            revision_fp=tree.revision_fp,
+            metadata=dict(unit.metadata),
         )
+        tree.add(node)
+        await self._emit_node_checkpoint("root", tree, node)
 
     # ------------------------------------------------------------------
     # Low-level helpers

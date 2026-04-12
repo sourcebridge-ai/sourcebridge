@@ -463,11 +463,27 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     error=str(exc),
                 )
 
+        async def persist_node(stage: str, tree, node) -> None:
+            if self._summary_node_cache is None:
+                return
+            try:
+                await self._summary_node_cache.store_node(tree, node, stage=stage)
+            except Exception as exc:
+                log.warning(
+                    "summary_node_cache_node_store_failed",
+                    repository_id=request.repository_id,
+                    corpus_id=tree.corpus_id,
+                    stage=stage,
+                    unit_id=node.unit_id,
+                    error=str(exc),
+                )
+
         cfg = HierarchicalConfig.from_env(
             repository_name=request.repository_name or corpus.root().label,
         )
         cfg.cached_tree = cached_tree
         cfg.on_stage_completed = persist_stage
+        cfg.on_node_completed = persist_node
         strategy = HierarchicalStrategy(
             provider=provider,
             config=cfg,

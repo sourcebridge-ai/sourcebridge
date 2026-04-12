@@ -100,6 +100,17 @@ class SurrealSummaryNodeCache:
             stage=stage,
         )
 
+    async def store_node(self, tree: SummaryTree, node: SummaryNode, *, stage: str | None = None) -> None:
+        await self._ensure_connected()
+        await self.client.query(self._upsert_statement(tree, node))
+        log.info(
+            "summary_node_cache_node_stored",
+            corpus_id=tree.corpus_id,
+            unit_id=node.unit_id,
+            level=node.level,
+            stage=stage,
+        )
+
     def _row_to_node(self, row: dict[str, Any]) -> SummaryNode:
         child_ids_raw = row.get("child_ids") or "[]"
         metadata_raw = row.get("metadata") or "{}"
