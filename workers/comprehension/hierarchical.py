@@ -38,6 +38,7 @@ import os
 import uuid
 from dataclasses import dataclass
 from time import monotonic
+from typing import Awaitable, Callable
 
 import structlog
 
@@ -49,7 +50,12 @@ from workers.common.llm.provider import (
     complete_with_optional_model,
     require_nonempty,
 )
-from workers.comprehension.corpus import CorpusSource, CorpusUnit, walk_by_level
+from workers.comprehension.corpus import (
+    CorpusSource,
+    CorpusUnit,
+    content_hash as corpus_content_hash,
+    walk_by_level,
+)
 from workers.comprehension.prompts.hierarchical import (
     HIERARCHICAL_SYSTEM,
     build_file_prompt,
@@ -99,6 +105,7 @@ class HierarchicalConfig:
     max_tokens_per_call: int = DEFAULT_MAX_TOKENS_PER_CALL
     model_override: str | None = None
     cached_tree: SummaryTree | None = None
+    on_stage_completed: Callable[[str, SummaryTree], Awaitable[None]] | None = None
 
     @classmethod
     def from_env(cls, repository_name: str = "") -> HierarchicalConfig:
@@ -194,6 +201,7 @@ class HierarchicalStrategy:
                 total=len(leaf_units),
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
+            await self._emit_stage_checkpoint("leaves", tree)
 
         # Level 1 — file summaries.
         if file_units:
@@ -223,6 +231,7 @@ class HierarchicalStrategy:
                 total=len(file_units),
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
+            await self._emit_stage_checkpoint("files", tree)
 
         # Level 2 — package summaries.
         if package_units:
@@ -253,6 +262,7 @@ class HierarchicalStrategy:
                 total=len(package_units),
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
+            await self._emit_stage_checkpoint("packages", tree)
 
         # Level 3 — root summary.
         if root_units:
@@ -280,6 +290,7 @@ class HierarchicalStrategy:
                 total=1,
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
+            await self._emit_stage_checkpoint("root", tree)
 
         log.info(
             "hierarchical_build_completed",
@@ -289,6 +300,11 @@ class HierarchicalStrategy:
         )
         await _maybe_await(progress("ready", 1.0, "Hierarchical summary tree built"))
         return tree
+
+    async def _emit_stage_checkpoint(self, stage: str, tree: SummaryTree) -> None:
+        if self._config.on_stage_completed is None:
+            return
+        await self._config.on_stage_completed(stage, tree)
 
     def diagnostics(self) -> dict[str, int | bool]:
         return {
@@ -395,9 +411,13 @@ class HierarchicalStrategy:
         unit: CorpusUnit,
         tree: SummaryTree,
     ) -> None:
-        child_summaries = [
-            n.summary_text for n in tree.children_of(unit.id) if n.summary_text
-        ]
+        children = tree.children_of(unit.id)
+        node_hash = self._derived_content_hash(unit, children)
+        cached = self._cached_node(unit.id, node_hash)
+        if cached is not None:
+            tree.add(cached)
+            return
+        child_summaries = [n.summary_text for n in children if n.summary_text]
         if not child_summaries:
             tree.add(self._stub_node(unit, tree, "File contains no summarizable segments."))
             return
@@ -426,7 +446,8 @@ class HierarchicalStrategy:
                 summary_text=summary,
                 headline=_first_line(summary),
                 summary_tokens=tokens_out,
-                source_tokens=sum(n.source_tokens for n in tree.children_of(unit.id)),
+                source_tokens=sum(n.source_tokens for n in children),
+                content_hash=node_hash,
                 model_used=model,
                 strategy=self.name,
                 revision_fp=tree.revision_fp,
@@ -440,9 +461,13 @@ class HierarchicalStrategy:
         unit: CorpusUnit,
         tree: SummaryTree,
     ) -> None:
-        child_summaries = [
-            n.summary_text for n in tree.children_of(unit.id) if n.summary_text
-        ]
+        children = tree.children_of(unit.id)
+        node_hash = self._derived_content_hash(unit, children)
+        cached = self._cached_node(unit.id, node_hash)
+        if cached is not None:
+            tree.add(cached)
+            return
+        child_summaries = [n.summary_text for n in children if n.summary_text]
         if not child_summaries:
             tree.add(self._stub_node(unit, tree, "Package has no summarized files."))
             return
@@ -468,7 +493,8 @@ class HierarchicalStrategy:
                 summary_text=summary,
                 headline=_first_line(summary),
                 summary_tokens=tokens_out,
-                source_tokens=sum(n.source_tokens for n in tree.children_of(unit.id)),
+                source_tokens=sum(n.source_tokens for n in children),
+                content_hash=node_hash,
                 model_used=model,
                 strategy=self.name,
                 revision_fp=tree.revision_fp,
@@ -485,9 +511,13 @@ class HierarchicalStrategy:
         file_count: int,
         segment_count: int,
     ) -> None:
-        child_summaries = [
-            n.summary_text for n in tree.children_of(unit.id) if n.summary_text
-        ]
+        children = tree.children_of(unit.id)
+        node_hash = self._derived_content_hash(unit, children)
+        cached = self._cached_node(unit.id, node_hash)
+        if cached is not None:
+            tree.add(cached)
+            return
+        child_summaries = [n.summary_text for n in children if n.summary_text]
         if not child_summaries:
             tree.add(self._stub_node(unit, tree, "Repository has no summarizable packages."))
             return
@@ -514,7 +544,8 @@ class HierarchicalStrategy:
                 summary_text=summary,
                 headline=_first_line(summary),
                 summary_tokens=tokens_out,
-                source_tokens=sum(n.source_tokens for n in tree.children_of(unit.id)),
+                source_tokens=sum(n.source_tokens for n in children),
+                content_hash=node_hash,
                 model_used=model,
                 strategy=self.name,
                 revision_fp=tree.revision_fp,
@@ -648,6 +679,21 @@ class HierarchicalStrategy:
             revision_fp=tree.revision_fp,
             metadata=dict(unit.metadata),
         )
+
+    def _cached_node(self, unit_id: str, content_hash: str) -> SummaryNode | None:
+        if not content_hash or self._config.cached_tree is None:
+            return None
+        cached = self._config.cached_tree.get(unit_id)
+        if cached and cached.content_hash == content_hash and cached.summary_text:
+            log.debug("hierarchical_node_cache_hit", unit_id=unit_id, level=cached.level)
+            return cached
+        return None
+
+    def _derived_content_hash(self, unit: CorpusUnit, children: list[SummaryNode]) -> str:
+        child_fingerprints = [child.content_hash or child.unit_id for child in children]
+        if not child_fingerprints:
+            return ""
+        return corpus_content_hash("|".join([unit.label, *child_fingerprints]))
 
 
 def _first_line(text: str) -> str:

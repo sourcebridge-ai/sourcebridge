@@ -36,6 +36,7 @@ from workers.knowledge.retrieval import (
     retrieve_relevant_snapshot,
 )
 from workers.knowledge.snapshot_truncate import condense_snapshot
+from workers.knowledge.summary_nodes import SurrealSummaryNodeCache
 from workers.knowledge.types import CliffNotesResult
 from workers.knowledge.workflow_story import generate_workflow_story
 from workers.reasoning.types import LLMUsageRecord
@@ -112,11 +113,13 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         default_model_id: str = "",
         report_llm: LLMProvider | None = None,
         worker_config: WorkerConfig | None = None,
+        summary_node_cache: SurrealSummaryNodeCache | None = None,
     ) -> None:
         self._llm = llm_provider
         self._embedding = embedding_provider
         self._report_llm = report_llm
         self._config = worker_config
+        self._summary_node_cache = summary_node_cache
         # default_model_id is the best-effort identifier of the model
         # the LLM provider is configured with. The selector uses it to
         # look up the model's capability profile when no per-call
@@ -430,9 +433,44 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             raise ValueError(f"snapshot_json is not valid JSON: {exc}") from exc
 
         corpus = CodeCorpus(snapshot=snapshot_dict)
+        cached_tree = None
+        if self._summary_node_cache is not None:
+            try:
+                cached_tree = await self._summary_node_cache.load_tree(
+                    corpus_id=corpus.corpus_id,
+                    corpus_type=corpus.corpus_type,
+                    strategy="hierarchical",
+                )
+            except Exception as exc:
+                log.warning(
+                    "summary_node_cache_load_failed",
+                    repository_id=request.repository_id,
+                    corpus_id=corpus.corpus_id,
+                    error=str(exc),
+                )
+
+        async def persist_stage(stage: str, tree) -> None:
+            if self._summary_node_cache is None:
+                return
+            try:
+                await self._summary_node_cache.store_tree(tree, stage=stage)
+            except Exception as exc:
+                log.warning(
+                    "summary_node_cache_store_failed",
+                    repository_id=request.repository_id,
+                    corpus_id=tree.corpus_id,
+                    stage=stage,
+                    error=str(exc),
+                )
+
+        cfg = HierarchicalConfig.from_env(
+            repository_name=request.repository_name or corpus.root().label,
+        )
+        cfg.cached_tree = cached_tree
+        cfg.on_stage_completed = persist_stage
         strategy = HierarchicalStrategy(
             provider=provider,
-            config=HierarchicalConfig.from_env(repository_name=request.repository_name or corpus.root().label),
+            config=cfg,
         )
 
         log.info(
@@ -449,6 +487,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             "cliff_notes_hierarchical_tree_built",
             repository_id=request.repository_id,
             stats=tree.stats(),
+            cached_nodes=len(cached_tree.nodes) if cached_tree is not None else 0,
             fallback_count=diagnostics["fallback_count"],
             provider_compute_errors=diagnostics["provider_compute_errors"],
             root_fallback=diagnostics["root_fallback"],

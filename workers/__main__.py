@@ -29,6 +29,7 @@ from workers.common.embedding.config import create_embedding_provider  # noqa: E
 from workers.common.llm.factory import create_llm_provider, create_report_provider  # noqa: E402
 from workers.contracts.servicer import ContractsServicer  # noqa: E402
 from workers.knowledge.servicer import KnowledgeServicer  # noqa: E402
+from workers.knowledge.summary_nodes import SurrealSummaryNodeCache  # noqa: E402
 from workers.linking.servicer import LinkingServicer  # noqa: E402
 from workers.reasoning.servicer import ReasoningServicer  # noqa: E402
 from workers.requirements.servicer import RequirementsServicer  # noqa: E402
@@ -72,6 +73,7 @@ async def serve() -> None:
     if report_llm:
         log.info("report_llm_provider_configured", provider=config.llm_report_provider or config.llm_provider, model=config.llm_report_model)
     embedding_provider = create_embedding_provider(config)
+    summary_node_cache = SurrealSummaryNodeCache.from_config(config)
 
     # --- Build async gRPC server ---
     server = grpc.aio.server(
@@ -97,6 +99,7 @@ async def serve() -> None:
         default_model_id=config.llm_model,
         report_llm=report_llm,
         worker_config=config,
+        summary_node_cache=summary_node_cache,
     )
     knowledge_pb2_grpc.add_KnowledgeServiceServicer_to_server(knowledge_servicer, server)
 

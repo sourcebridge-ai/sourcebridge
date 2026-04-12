@@ -95,6 +95,19 @@ class _StubProvider:
         yield ""
 
 
+@dataclass
+class _StubSummaryNodeCache:
+    trees: dict[str, object] = field(default_factory=dict)
+    store_calls: list[tuple[str, str]] = field(default_factory=list)
+
+    async def load_tree(self, *, corpus_id: str, corpus_type: str = "code", strategy: str = "hierarchical"):
+        return self.trees.get(corpus_id)
+
+    async def store_tree(self, tree, *, stage: str | None = None) -> None:
+        self.store_calls.append((tree.corpus_id, stage or ""))
+        self.trees[tree.corpus_id] = tree
+
+
 def _snapshot_json() -> str:
     """A minimal snapshot with two modules, three files, four symbols."""
     snap = {
@@ -402,3 +415,69 @@ async def test_hierarchical_path_handles_scoped_request(monkeypatch: pytest.Monk
     titles = [s.title for s in result.sections]
     for required in expected:
         assert required in titles
+
+
+@pytest.mark.asyncio
+async def test_hierarchical_path_persists_stage_checkpoints(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(CLIFF_NOTES_STRATEGY_ENV, "hierarchical")
+
+    provider = _StubProvider()
+    cache = _StubSummaryNodeCache()
+    servicer = KnowledgeServicer(llm_provider=provider, summary_node_cache=cache)
+
+    request = knowledge_pb2.GenerateCliffNotesRequest(
+        repository_id="repo-cache",
+        repository_name="Cached Sample",
+        audience="developer",
+        depth="medium",
+        scope_type="repository",
+        snapshot_json=_snapshot_json(),
+    )
+
+    await servicer._generate_cliff_notes_hierarchical(
+        request=request,
+        audience="developer",
+        depth="medium",
+        scope_type="repository",
+        model_override=None,
+    )
+
+    assert [stage for _, stage in cache.store_calls] == ["leaves", "files", "packages", "root"]
+    assert "repo-1" in cache.trees
+
+
+@pytest.mark.asyncio
+async def test_hierarchical_path_reuses_cached_tree(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(CLIFF_NOTES_STRATEGY_ENV, "hierarchical")
+
+    provider = _StubProvider()
+    cache = _StubSummaryNodeCache()
+    servicer = KnowledgeServicer(llm_provider=provider, summary_node_cache=cache)
+
+    request = knowledge_pb2.GenerateCliffNotesRequest(
+        repository_id="repo-cache",
+        repository_name="Cached Sample",
+        audience="developer",
+        depth="medium",
+        scope_type="repository",
+        snapshot_json=_snapshot_json(),
+    )
+
+    await servicer._generate_cliff_notes_hierarchical(
+        request=request,
+        audience="developer",
+        depth="medium",
+        scope_type="repository",
+        model_override=None,
+    )
+    first_call_count = provider.counter
+
+    await servicer._generate_cliff_notes_hierarchical(
+        request=request,
+        audience="developer",
+        depth="medium",
+        scope_type="repository",
+        model_override=None,
+    )
+
+    assert provider.counter == first_call_count + 1

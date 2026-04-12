@@ -200,7 +200,7 @@ func (r *Resolver) enqueueKnowledgeJob(
 		Strategy:    "knowledge_artifact_queue",
 		ArtifactID:  artifact.ID,
 		RepoID:      artifact.RepositoryID,
-		MaxAttempts: 3,
+		MaxAttempts: knowledgeJobMaxAttempts(artifact, scope),
 		RunWithContext: func(runCtx context.Context, rt llm.Runtime) error {
 			rt.ReportProgress(0.02, "queued", "Waiting for knowledge generation slot")
 			releaseGlobal, err := acquireKnowledgeGlobalSlot(runCtx)
@@ -240,4 +240,19 @@ func (r *Resolver) enqueueKnowledgeJob(
 		return err
 	}
 	return nil
+}
+
+func knowledgeJobMaxAttempts(artifact *knowledgepkg.Artifact, scope knowledgepkg.ArtifactScope) int {
+	if artifact == nil {
+		return 3
+	}
+	// Repository-scale cliff notes are the most expensive knowledge
+	// workload. Retrying them automatically after DeadlineExceeded is
+	// wasteful unless the worker can resume from cached summary nodes.
+	// We still persist the partial summary tree so a user-initiated
+	// retry can resume from cache instead of restarting from zero.
+	if artifact.Type == knowledgepkg.ArtifactCliffNotes && scope.ScopeType == knowledgepkg.ScopeRepository {
+		return 1
+	}
+	return 3
 }
