@@ -509,14 +509,14 @@ export default function RepositoryDetailPage() {
       const updatedMs = new Date(job.updated_at).getTime();
       if (!updatedMs || now - updatedMs > 20_000) continue;
       if (job.status === "ready") {
-        notifyJobEvent("Repository generation completed", `${job.job_type} finished for ${repo?.name || "this repository"}.`);
+        notifyJobEvent("Repository generation completed", `${job.job_type} finished for ${repoResult.data?.repository?.name || "this repository"}.`);
       } else if (job.status === "failed") {
-        notifyJobEvent("Repository generation failed", job.error_title || `${job.job_type} failed for ${repo?.name || "this repository"}.`);
+        notifyJobEvent("Repository generation failed", job.error_title || `${job.job_type} failed for ${repoResult.data?.repository?.name || "this repository"}.`);
       } else {
-        notifyJobEvent("Repository generation cancelled", `${job.job_type} was cancelled for ${repo?.name || "this repository"}.`);
+        notifyJobEvent("Repository generation cancelled", `${job.job_type} was cancelled for ${repoResult.data?.repository?.name || "this repository"}.`);
       }
     }
-  }, [repoJobs?.recent, repo?.name]);
+  }, [repoJobs?.recent, repoResult.data?.repository?.name]);
 
   const [, reindex] = useMutation(REINDEX_REPOSITORY_MUTATION);
   const [, removeRepo] = useMutation(REMOVE_REPOSITORY_MUTATION);
