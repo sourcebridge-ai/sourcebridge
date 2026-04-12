@@ -254,6 +254,17 @@ function artifactRetryLabel(
   return `Refresh ${baseLabel}`;
 }
 
+function artifactHasActiveJob(
+  artifact: KnowledgeArtifact | null | undefined,
+  job: RepoJobView | null | undefined,
+): boolean {
+  if (!artifact) return false;
+  if (job) {
+    return job.status === "pending" || job.status === "generating";
+  }
+  return artifact.status === "PENDING";
+}
+
 interface ScopeChild {
   scopeType: string;
   label: string;
@@ -368,9 +379,11 @@ export default function RepositoryDetailPage() {
   const [specConfidenceFilter, setSpecConfidenceFilter] = useState<string | null>(null);
   const [repoJobs, setRepoJobs] = useState<RepoJobActivityResponse | null>(null);
   const [repoJobsError, setRepoJobsError] = useState<string | null>(null);
+  const [cancellingJobIds, setCancellingJobIds] = useState<Record<string, boolean>>({});
   const repoJobsPollRef = useRef<number | null>(null);
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const seenRepoTerminalRef = useRef<Record<string, string>>({});
+  const locallyCancelledJobsRef = useRef<Record<string, number>>({});
 
   const [repoResult] = useQuery({ query: REPOSITORY_QUERY, variables: { id: repoId } });
   const [symbolsResult] = useQuery({
@@ -515,6 +528,11 @@ export default function RepositoryDetailPage() {
       } else if (job.status === "failed") {
         notifyJobEvent("Repository generation failed", job.error_title || `${job.job_type} failed for ${repoResult.data?.repository?.name || "this repository"}.`);
       } else {
+        const localCancelAt = locallyCancelledJobsRef.current[job.id];
+        if (localCancelAt && now - localCancelAt < 30_000) {
+          delete locallyCancelledJobsRef.current[job.id];
+          continue;
+        }
         notifyJobEvent("Repository generation cancelled", `${job.job_type} was cancelled for ${repoResult.data?.repository?.name || "this repository"}.`);
       }
     }
@@ -605,19 +623,15 @@ export default function RepositoryDetailPage() {
   const currentCliffNotes = knowledgeArtifacts.find(
     (a) => a.type === "CLIFF_NOTES" && a.audience === knowledgeAudience && a.depth === knowledgeDepth
   );
-  const isCliffNotesGenerating = currentCliffNotes?.status === "GENERATING" || currentCliffNotes?.status === "PENDING";
   const currentLearningPath = knowledgeArtifacts.find(
     (a) => a.type === "LEARNING_PATH" && a.audience === knowledgeAudience && a.depth === knowledgeDepth
   );
-  const isLearningPathGenerating = currentLearningPath?.status === "GENERATING" || currentLearningPath?.status === "PENDING";
   const currentCodeTour = knowledgeArtifacts.find(
     (a) => a.type === "CODE_TOUR" && a.audience === knowledgeAudience && a.depth === knowledgeDepth
   );
-  const isCodeTourGenerating = currentCodeTour?.status === "GENERATING" || currentCodeTour?.status === "PENDING";
   const currentWorkflowStory = knowledgeArtifacts.find(
     (a) => a.type === "WORKFLOW_STORY" && a.audience === knowledgeAudience && a.depth === knowledgeDepth
   );
-  const isWorkflowStoryGenerating = currentWorkflowStory?.status === "GENERATING" || currentWorkflowStory?.status === "PENDING";
   const repoActiveJobs = useMemo(() => repoJobs?.active ?? [], [repoJobs?.active]);
   const repoRecentJobs = useMemo(() => repoJobs?.recent ?? [], [repoJobs?.recent]);
   const artifactJobMap = useMemo(() => {
@@ -647,6 +661,10 @@ export default function RepositoryDetailPage() {
   const currentLearningPathJob = currentLearningPath ? artifactJobMap.get(currentLearningPath.id) : null;
   const currentCodeTourJob = currentCodeTour ? artifactJobMap.get(currentCodeTour.id) : null;
   const currentWorkflowStoryJob = currentWorkflowStory ? artifactJobMap.get(currentWorkflowStory.id) : null;
+  const isCliffNotesGenerating = artifactHasActiveJob(currentCliffNotes, currentCliffNotesJob);
+  const isLearningPathGenerating = artifactHasActiveJob(currentLearningPath, currentLearningPathJob);
+  const isCodeTourGenerating = artifactHasActiveJob(currentCodeTour, currentCodeTourJob);
+  const isWorkflowStoryGenerating = artifactHasActiveJob(currentWorkflowStory, currentWorkflowStoryJob);
   const batchSummary = useMemo(() => {
     const targets = [
       { artifact: currentCliffNotes, generating: isCliffNotesGenerating },
@@ -808,16 +826,27 @@ export default function RepositoryDetailPage() {
   }
 
   async function handleCancelRepoJob(jobId: string) {
+    if (cancellingJobIds[jobId]) return;
+    setCancellingJobIds((current) => ({ ...current, [jobId]: true }));
     const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
-    const res = await fetch(`/api/v1/admin/llm/jobs/${encodeURIComponent(jobId)}/cancel`, {
-      method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!res.ok) {
-      throw new Error(`cancel returned ${res.status}`);
+    try {
+      const res = await fetch(`/api/v1/admin/llm/jobs/${encodeURIComponent(jobId)}/cancel`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        throw new Error(`cancel returned ${res.status}`);
+      }
+      locallyCancelledJobsRef.current[jobId] = Date.now();
+      await fetchRepoJobs();
+      reexecuteKnowledge({ requestPolicy: "network-only" });
+    } finally {
+      setCancellingJobIds((current) => {
+        const next = { ...current };
+        delete next[jobId];
+        return next;
+      });
     }
-    await fetchRepoJobs();
-    reexecuteKnowledge({ requestPolicy: "network-only" });
   }
 
   async function handleToggleAlerts() {
@@ -2126,7 +2155,7 @@ export default function RepositoryDetailPage() {
                           <div className="mb-4 flex items-center justify-between">
                             <div>
                               <div className="flex items-center gap-2">
-                                {currentCliffNotes.status === "GENERATING" || currentCliffNotes.status === "PENDING" ? (
+                                {isCliffNotesGenerating ? (
                                   <span className={artifactStatusClass}>{knowledgeQueueLabel(currentCliffNotes)}</span>
                                 ) : null}
                                 {currentCliffNotes.stale ? <span className={artifactStatusClass}>Stale</span> : null}
@@ -2152,13 +2181,13 @@ export default function RepositoryDetailPage() {
                                 {artifactRetryLabel(currentCliffNotes, currentCliffNotesJob, "field guide")}
                               </Button>
                               {currentCliffNotesJob && (currentCliffNotesJob.status === "pending" || currentCliffNotesJob.status === "generating") ? (
-                                <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentCliffNotesJob.id)} disabled={knowledgeLoading}>
-                                  Cancel
+                                <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentCliffNotesJob.id)} disabled={knowledgeLoading || cancellingJobIds[currentCliffNotesJob.id]}>
+                                  {cancellingJobIds[currentCliffNotesJob.id] ? "Cancelling..." : "Cancel"}
                                 </Button>
                               ) : null}
                             </div>
                           </div>
-                          {currentCliffNotes.status === "GENERATING" || currentCliffNotes.status === "PENDING" ? (
+                          {isCliffNotesGenerating ? (
                             renderKnowledgeProgress(currentCliffNotes, "Queued for generation")
                           ) : null}
                           {currentCliffNotes.status === "FAILED" ? renderKnowledgeFailure(currentCliffNotes) : null}
@@ -2451,8 +2480,8 @@ export default function RepositoryDetailPage() {
                             </Button>
                           ) : null}
                           {currentWorkflowStoryJob && (currentWorkflowStoryJob.status === "pending" || currentWorkflowStoryJob.status === "generating") ? (
-                            <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentWorkflowStoryJob.id)} disabled={knowledgeLoading}>
-                              Cancel
+                            <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentWorkflowStoryJob.id)} disabled={knowledgeLoading || cancellingJobIds[currentWorkflowStoryJob.id]}>
+                              {cancellingJobIds[currentWorkflowStoryJob.id] ? "Cancelling..." : "Cancel"}
                             </Button>
                           ) : null}
                         </div>
@@ -2470,7 +2499,7 @@ export default function RepositoryDetailPage() {
                         </div>
                       ) : null}
 
-                      {currentWorkflowStory && (currentWorkflowStory.status === "GENERATING" || currentWorkflowStory.status === "PENDING") ? (
+                      {currentWorkflowStory && isWorkflowStoryGenerating ? (
                         renderKnowledgeProgress(currentWorkflowStory, "Queued for workflow generation")
                       ) : null}
 
@@ -2584,13 +2613,13 @@ export default function RepositoryDetailPage() {
                             </Button>
                           )}
                           {currentLearningPathJob && (currentLearningPathJob.status === "pending" || currentLearningPathJob.status === "generating") ? (
-                            <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentLearningPathJob.id)} disabled={knowledgeLoading}>
-                              Cancel learning path
+                            <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentLearningPathJob.id)} disabled={knowledgeLoading || cancellingJobIds[currentLearningPathJob.id]}>
+                              {cancellingJobIds[currentLearningPathJob.id] ? "Cancelling..." : "Cancel learning path"}
                             </Button>
                           ) : null}
                           {currentCodeTourJob && (currentCodeTourJob.status === "pending" || currentCodeTourJob.status === "generating") ? (
-                            <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentCodeTourJob.id)} disabled={knowledgeLoading}>
-                              Cancel code tour
+                            <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentCodeTourJob.id)} disabled={knowledgeLoading || cancellingJobIds[currentCodeTourJob.id]}>
+                              {cancellingJobIds[currentCodeTourJob.id] ? "Cancelling..." : "Cancel code tour"}
                             </Button>
                           ) : null}
                         </div>
@@ -2600,7 +2629,7 @@ export default function RepositoryDetailPage() {
                             {repoJobStatusLabel(currentLearningPathJob) ? (
                               <p className="mt-2 text-xs text-[var(--text-tertiary)]">{repoJobStatusLabel(currentLearningPathJob)}</p>
                             ) : null}
-                            {currentLearningPath.status === "GENERATING" || currentLearningPath.status === "PENDING" ? (
+                            {isLearningPathGenerating ? (
                               <div className="mt-3">{renderKnowledgeProgress(currentLearningPath, "Queued for learning path generation")}</div>
                             ) : null}
                             {currentLearningPath.status === "FAILED" ? (
@@ -2635,7 +2664,7 @@ export default function RepositoryDetailPage() {
                             {repoJobStatusLabel(currentCodeTourJob) ? (
                               <p className="mt-2 text-xs text-[var(--text-tertiary)]">{repoJobStatusLabel(currentCodeTourJob)}</p>
                             ) : null}
-                            {currentCodeTour.status === "GENERATING" || currentCodeTour.status === "PENDING" ? (
+                            {isCodeTourGenerating ? (
                               <div className="mt-3">{renderKnowledgeProgress(currentCodeTour, "Queued for code tour generation")}</div>
                             ) : null}
                             {currentCodeTour.status === "FAILED" ? (

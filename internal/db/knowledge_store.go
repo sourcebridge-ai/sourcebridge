@@ -363,7 +363,13 @@ func (s *SurrealStore) SetArtifactFailed(id string, code string, message string)
 
 	_, err := queryOne[interface{}](ctx(), db,
 		`UPDATE type::thing('ca_knowledge_artifact', $id)
-		 SET status = $status, error_code = $error_code, error_message = $error_message, updated_at = time::now()`,
+		 SET status = $status,
+		     progress = 0,
+		     progress_phase = '',
+		     progress_message = '',
+		     error_code = $error_code,
+		     error_message = $error_message,
+		     updated_at = time::now()`,
 		map[string]any{
 			"id":            id,
 			"status":        string(knowledge.StatusFailed),

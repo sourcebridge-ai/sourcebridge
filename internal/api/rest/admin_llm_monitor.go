@@ -383,6 +383,12 @@ func (s *Server) handleLLMJobCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job := s.orchestrator.GetJob(id)
+	if s.knowledgeStore != nil && job != nil && job.ArtifactID != "" {
+		_ = s.knowledgeStore.SetArtifactFailed(job.ArtifactID, "CANCELLED", "Generation was cancelled before completion.")
+		job.Progress = 0
+		job.ProgressPhase = ""
+		job.ProgressMessage = ""
+	}
 	if job == nil {
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "cancellation_requested"})
 		return
