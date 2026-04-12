@@ -31,7 +31,7 @@ func (s *SurrealQueueControlStore) LoadQueueControl() (*QueueControlRecord, erro
 	}
 	ctx := context.Background()
 	raw, err := surrealdb.Query[[]map[string]interface{}](ctx, db,
-		"SELECT value FROM type::thing('ca_config', $id)",
+		"SELECT value FROM ca_config WHERE id = type::thing('ca_config', $id) LIMIT 1",
 		map[string]any{"id": "llm_queue_control"})
 	if err != nil {
 		slog.Warn("surreal queue control load query failed", "error", err)
