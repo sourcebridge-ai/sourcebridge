@@ -63,6 +63,10 @@ type JobStore interface {
 	// IncrementRetry bumps the retry counter on an existing job without
 	// changing its status. Called between retry attempts.
 	IncrementRetry(id string) error
+
+	// IncrementAttachedRequests bumps the dedupe attachment count when a new
+	// enqueue request attaches to an already-active job.
+	IncrementAttachedRequests(id string) error
 }
 
 // ListFilter narrows the result of the list endpoints. Zero-value filters
@@ -71,6 +75,7 @@ type ListFilter struct {
 	Subsystem  Subsystem
 	JobType    string
 	RepoID     string
+	ArtifactID string
 	TargetKey  string
 	Statuses   []JobStatus
 	Limit      int

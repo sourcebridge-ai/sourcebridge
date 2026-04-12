@@ -110,13 +110,13 @@ func (r *mutationResolver) ensureKnowledgeArtifact(repo *graphstore.Repository, 
 		return
 	}
 
-	run := func(rt llm.Runtime) error {
+	run := func(runCtx context.Context, rt llm.Runtime) error {
 		rt.ReportProgress(0.1, "snapshot", "Seed snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Seed snapshot assembled")
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
 		defer stopProgress()
 
-		bgCtx := r.withModelMetadata(context.Background(), "knowledge")
+		bgCtx := r.withModelMetadata(runCtx, "knowledge")
 		switch key.Type {
 		case knowledgepkg.ArtifactCliffNotes:
 			resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
@@ -237,7 +237,7 @@ func (r *mutationResolver) ensureKnowledgeArtifact(repo *graphstore.Repository, 
 
 	jobType := "seed:" + string(key.Type)
 	if r.Orchestrator == nil {
-		if err := run(noopRuntime{}); err != nil {
+		if err := run(context.Background(), noopRuntime{}); err != nil {
 			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 		}
 		return

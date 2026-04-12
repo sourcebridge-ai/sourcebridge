@@ -150,6 +150,9 @@ func (s *MemStore) listLocked(filter ListFilter, statuses []JobStatus, since tim
 		if filter.RepoID != "" && j.RepoID != filter.RepoID {
 			continue
 		}
+		if filter.ArtifactID != "" && j.ArtifactID != filter.ArtifactID {
+			continue
+		}
 		if filter.TargetKey != "" && j.TargetKey != filter.TargetKey {
 			continue
 		}
@@ -257,6 +260,22 @@ func (s *MemStore) SetSnapshotBytes(id string, bytes int) error {
 		return fmt.Errorf("job %s not found", id)
 	}
 	j.SnapshotBytes = bytes
+	j.UpdatedAt = time.Now()
+	return nil
+}
+
+// IncrementAttachedRequests bumps the deduped request count.
+func (s *MemStore) IncrementAttachedRequests(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j, ok := s.jobs[id]
+	if !ok {
+		return fmt.Errorf("job %s not found", id)
+	}
+	if j.AttachedRequests <= 0 {
+		j.AttachedRequests = 1
+	}
+	j.AttachedRequests++
 	j.UpdatedAt = time.Now()
 	return nil
 }

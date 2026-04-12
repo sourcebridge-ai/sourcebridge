@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -104,6 +105,10 @@ type Orchestrator struct {
 	queue   chan *workItem
 	workers sync.WaitGroup
 
+	runMu      sync.Mutex
+	runCancels map[string]context.CancelFunc
+	cancelled  map[string]struct{}
+
 	// shutdown lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -136,6 +141,8 @@ func New(store llm.JobStore, cfg Config) *Orchestrator {
 		ctx:         ctx,
 		cancel:      cancel,
 		subscribers: make(map[int64]chan llm.JobEvent),
+		runCancels:  make(map[string]context.CancelFunc),
+		cancelled:   make(map[string]struct{}),
 	}
 	for i := 0; i < cfg.MaxConcurrency; i++ {
 		o.workers.Add(1)
@@ -220,6 +227,8 @@ func (o *Orchestrator) Enqueue(req *llm.EnqueueRequest) (*llm.Job, error) {
 	// DB-level dedupe first — this also covers the "process restarted
 	// with active jobs still in-flight per the DB" case.
 	if existing := o.store.GetActiveByTargetKey(req.TargetKey); existing != nil {
+		_ = o.store.IncrementAttachedRequests(existing.ID)
+		existing = o.store.GetByID(existing.ID)
 		// Synchronize the in-process registry so the fast path agrees.
 		o.inflight.claim(req.TargetKey, existing.ID)
 		slog.Info("llm_job_dedupe_hit_store",
@@ -236,6 +245,8 @@ func (o *Orchestrator) Enqueue(req *llm.EnqueueRequest) (*llm.Job, error) {
 	if winner, ok := o.inflight.claim(req.TargetKey, id); !ok {
 		existing := o.store.GetByID(winner)
 		if existing != nil {
+			_ = o.store.IncrementAttachedRequests(winner)
+			existing = o.store.GetByID(winner)
 			slog.Info("llm_job_dedupe_hit_inflight",
 				"job_id", winner,
 				"target_key", req.TargetKey)
@@ -247,19 +258,20 @@ func (o *Orchestrator) Enqueue(req *llm.EnqueueRequest) (*llm.Job, error) {
 
 	// Materialize the job and persist it.
 	job := &llm.Job{
-		ID:          id,
-		Subsystem:   req.Subsystem,
-		JobType:     req.JobType,
-		TargetKey:   req.TargetKey,
-		Strategy:    req.Strategy,
-		Model:       req.Model,
-		ArtifactID:  req.ArtifactID,
-		RepoID:      req.RepoID,
-		Status:      llm.StatusPending,
-		MaxAttempts: req.MaxAttempts,
-		TimeoutSec:  req.TimeoutSec,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:               id,
+		Subsystem:        req.Subsystem,
+		JobType:          req.JobType,
+		TargetKey:        req.TargetKey,
+		Strategy:         req.Strategy,
+		Model:            req.Model,
+		ArtifactID:       req.ArtifactID,
+		RepoID:           req.RepoID,
+		Status:           llm.StatusPending,
+		MaxAttempts:      req.MaxAttempts,
+		TimeoutSec:       req.TimeoutSec,
+		AttachedRequests: 1,
+		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
 	}
 	if job.MaxAttempts <= 0 {
 		job.MaxAttempts = o.cfg.Retry.MaxAttempts
@@ -286,6 +298,32 @@ func (o *Orchestrator) Enqueue(req *llm.EnqueueRequest) (*llm.Job, error) {
 // GetJob returns the current state of a job by id, or nil.
 func (o *Orchestrator) GetJob(id string) *llm.Job {
 	return o.store.GetByID(id)
+}
+
+// Cancel requests cancellation of an active job. Pending jobs are cancelled
+// immediately; generating jobs are cancelled through their run context.
+func (o *Orchestrator) Cancel(jobID string) error {
+	job := o.store.GetByID(jobID)
+	if job == nil {
+		return fmt.Errorf("job not found")
+	}
+	if job.Status.IsTerminal() {
+		return fmt.Errorf("job is already %s", job.Status)
+	}
+
+	o.runMu.Lock()
+	o.cancelled[jobID] = struct{}{}
+	cancelFn := o.runCancels[jobID]
+	o.runMu.Unlock()
+
+	if cancelFn != nil {
+		cancelFn()
+		return nil
+	}
+
+	o.inflight.release(job.TargetKey)
+	o.finalizeCancelled(jobID)
+	return nil
 }
 
 // EnqueueSync is a blocking variant of Enqueue used by resolvers that
@@ -390,6 +428,16 @@ func (o *Orchestrator) MaxConcurrency() int {
 	return o.cfg.MaxConcurrency
 }
 
+// PendingSnapshot returns pending jobs ordered by queue order, oldest first.
+func (o *Orchestrator) PendingSnapshot(filter llm.ListFilter) []*llm.Job {
+	filter.Statuses = []llm.JobStatus{llm.StatusPending}
+	pending := o.store.ListActive(filter)
+	sort.Slice(pending, func(i, j int) bool {
+		return pending[i].CreatedAt.Before(pending[j].CreatedAt)
+	})
+	return pending
+}
+
 // Subscribe returns a channel that receives JobEvents and an unsubscribe
 // function the caller must invoke when done. The channel is buffered to
 // avoid blocking the publisher; subscribers that fall too far behind
@@ -457,6 +505,14 @@ func (o *Orchestrator) runJob(item *workItem) {
 	req := item.req
 
 	defer o.inflight.release(req.TargetKey)
+	defer o.clearRunState(jobID)
+
+	if o.isCancelled(jobID) {
+		if job := o.store.GetByID(jobID); job != nil && !job.Status.IsTerminal() {
+			o.finalizeCancelled(jobID)
+		}
+		return
+	}
 
 	// Transition pending -> generating.
 	if err := o.store.SetStatus(jobID, llm.StatusGenerating); err != nil {
@@ -500,16 +556,29 @@ func (o *Orchestrator) runJob(item *workItem) {
 		}
 
 		rt := newRuntime(o, jobID)
-		err := req.Run(rt)
+		runCtx, cancel := context.WithCancel(o.ctx)
+		o.setRunCancel(jobID, cancel)
+		var err error
+		if req.RunWithContext != nil {
+			err = req.RunWithContext(runCtx, rt)
+		} else {
+			err = req.Run(rt)
+		}
+		cancel()
+		o.clearRunCancel(jobID)
 		rt.flush()
 
 		if err == nil {
+			if o.isCancelled(jobID) {
+				o.finalizeCancelled(jobID)
+				return
+			}
 			o.finalizeReady(jobID, req)
 			return
 		}
 		lastErr = err
 
-		if errors.Is(err, ErrJobCancelled) {
+		if errors.Is(err, ErrJobCancelled) || errors.Is(err, context.Canceled) || o.isCancelled(jobID) {
 			o.finalizeCancelled(jobID)
 			return
 		}
@@ -573,4 +642,30 @@ func (o *Orchestrator) finalizeCancelled(jobID string) {
 		o.metrics.record(job.Subsystem, job.JobType, job.Elapsed(), llm.StatusCancelled)
 		o.publish(llm.JobEvent{Kind: llm.EventCancelled, Job: job})
 	}
+}
+
+func (o *Orchestrator) setRunCancel(jobID string, cancel context.CancelFunc) {
+	o.runMu.Lock()
+	defer o.runMu.Unlock()
+	o.runCancels[jobID] = cancel
+}
+
+func (o *Orchestrator) clearRunCancel(jobID string) {
+	o.runMu.Lock()
+	defer o.runMu.Unlock()
+	delete(o.runCancels, jobID)
+}
+
+func (o *Orchestrator) clearRunState(jobID string) {
+	o.runMu.Lock()
+	defer o.runMu.Unlock()
+	delete(o.runCancels, jobID)
+	delete(o.cancelled, jobID)
+}
+
+func (o *Orchestrator) isCancelled(jobID string) bool {
+	o.runMu.Lock()
+	defer o.runMu.Unlock()
+	_, ok := o.cancelled[jobID]
+	return ok
 }

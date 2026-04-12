@@ -138,7 +138,7 @@ func (r *Resolver) enqueueKnowledgeJob(
 	artifact *knowledgepkg.Artifact,
 	jobType string,
 	snapshotBytes int,
-	run func(rt llm.Runtime) error,
+	run func(ctx context.Context, rt llm.Runtime) error,
 ) error {
 	if r.Orchestrator == nil {
 		return fmt.Errorf("llm orchestrator is not configured")
@@ -171,9 +171,9 @@ func (r *Resolver) enqueueKnowledgeJob(
 		ArtifactID:  artifact.ID,
 		RepoID:      artifact.RepositoryID,
 		MaxAttempts: 3,
-		Run: func(rt llm.Runtime) error {
+		RunWithContext: func(runCtx context.Context, rt llm.Runtime) error {
 			rt.ReportProgress(0.02, "queued", "Waiting for knowledge generation slot")
-			release, err := acquireKnowledgeJobSlot(context.Background(), jobType)
+			release, err := acquireKnowledgeJobSlot(runCtx, jobType)
 			if err != nil {
 				return err
 			}
@@ -181,7 +181,7 @@ func (r *Resolver) enqueueKnowledgeJob(
 			if snapshotBytes > 0 {
 				rt.ReportSnapshotBytes(snapshotBytes)
 			}
-			err = run(rt)
+			err = run(runCtx, rt)
 			if err != nil {
 				// Mirror the failure onto the artifact so the existing
 				// knowledgeArtifact GraphQL type shows the error. The

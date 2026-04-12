@@ -1,6 +1,7 @@
 package graphql
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -38,7 +39,7 @@ func TestEnqueueKnowledgeJobCreatesQueuedKnowledgeJob(t *testing.T) {
 	}
 
 	block := make(chan struct{})
-	err = r.enqueueKnowledgeJob(artifact, "seed:cliff_notes", 1234, func(rt llm.Runtime) error {
+	err = r.enqueueKnowledgeJob(artifact, "seed:cliff_notes", 1234, func(_ context.Context, rt llm.Runtime) error {
 		rt.ReportProgress(0.2, "snapshot", "queued")
 		<-block
 		return nil

@@ -103,31 +103,30 @@ func WithSummaryNodeStore(sns comprehension.SummaryNodeStore) ServerOption {
 	return func(s *Server) { s.summaryNodeStore = sns }
 }
 
-
 // Server is the HTTP API server.
 type Server struct {
-	cfg            *config.Config
-	router         chi.Router
-	localAuth      *auth.LocalAuth
-	jwtMgr         *auth.JWTManager
-	oidc           *auth.OIDCProvider
-	store          graphstore.GraphStore
-	knowledgeStore knowledge.KnowledgeStore
-	jobStore       llm.JobStore                 // persistent store for llm.Job records; defaults to MemStore
-	orchestrator   *orchestrator.Orchestrator   // shared LLM job orchestrator (created in NewServer)
-	worker         *worker.Client
-	eventBus       *events.Bus
-	tokenStore     auth.APITokenStore
-	desktopAuth    DesktopAuthSessionStore
-	gitConfigStore GitConfigStore               // persists git tokens/SSH config across restarts
-	llmConfigStore LLMConfigStore               // persists LLM provider/model config across restarts
-	enterpriseDB    interface{}                  // *surrealdb.DB when available, type-asserted in enterprise_routes.go
-	repoChecker     middleware.RepoAccessChecker // set by enterprise build to enable tenant repo filtering
-	mcp             *mcpHandler                  // MCP protocol handler (nil when disabled)
-	mcpPermChecker     MCPPermissionChecker         // deferred to mcp handler at setup
-	mcpAuditLogger     MCPAuditLogger               // deferred to mcp handler at setup
-	mcpToolExtender    MCPToolExtender              // deferred to mcp handler at setup
-	comprehensionStore comprehension.Store           // comprehension settings + model capabilities
+	cfg                *config.Config
+	router             chi.Router
+	localAuth          *auth.LocalAuth
+	jwtMgr             *auth.JWTManager
+	oidc               *auth.OIDCProvider
+	store              graphstore.GraphStore
+	knowledgeStore     knowledge.KnowledgeStore
+	jobStore           llm.JobStore               // persistent store for llm.Job records; defaults to MemStore
+	orchestrator       *orchestrator.Orchestrator // shared LLM job orchestrator (created in NewServer)
+	worker             *worker.Client
+	eventBus           *events.Bus
+	tokenStore         auth.APITokenStore
+	desktopAuth        DesktopAuthSessionStore
+	gitConfigStore     GitConfigStore                 // persists git tokens/SSH config across restarts
+	llmConfigStore     LLMConfigStore                 // persists LLM provider/model config across restarts
+	enterpriseDB       interface{}                    // *surrealdb.DB when available, type-asserted in enterprise_routes.go
+	repoChecker        middleware.RepoAccessChecker   // set by enterprise build to enable tenant repo filtering
+	mcp                *mcpHandler                    // MCP protocol handler (nil when disabled)
+	mcpPermChecker     MCPPermissionChecker           // deferred to mcp handler at setup
+	mcpAuditLogger     MCPAuditLogger                 // deferred to mcp handler at setup
+	mcpToolExtender    MCPToolExtender                // deferred to mcp handler at setup
+	comprehensionStore comprehension.Store            // comprehension settings + model capabilities
 	summaryNodeStore   comprehension.SummaryNodeStore // cached summary tree nodes
 
 }
@@ -308,6 +307,7 @@ func (s *Server) setupRouter() {
 		r.Get("/api/v1/admin/llm/activity", s.handleLLMActivity)
 		r.Get("/api/v1/admin/llm/stream", s.handleLLMStream)
 		r.Get("/api/v1/admin/llm/jobs/{id}", s.handleLLMJobDetail)
+		r.Post("/api/v1/admin/llm/jobs/{id}/cancel", s.handleLLMJobCancel)
 		r.Post("/api/v1/admin/llm/jobs/{id}/retry", s.handleLLMJobRetry)
 
 		// LLM configuration

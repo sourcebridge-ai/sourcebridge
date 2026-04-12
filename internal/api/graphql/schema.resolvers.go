@@ -1572,13 +1572,13 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		}
 	}
 
-	err = r.enqueueKnowledgeJob(artifact, "cliff_notes", len(enrichedCliffSnapJSON), func(rt llm.Runtime) error {
+	err = r.enqueueKnowledgeJob(artifact, "cliff_notes", len(enrichedCliffSnapJSON), func(runCtx context.Context, rt llm.Runtime) error {
 		genStart := time.Now()
 		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
-		bgCtx := r.withModelMetadata(context.Background(), "knowledge")
+		bgCtx := r.withModelMetadata(runCtx, "knowledge")
 		resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
 			RepositoryId:   repo.ID,
 			RepositoryName: repo.Name,
@@ -1750,12 +1750,12 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 
 	// Run LLM generation async via the orchestrator.
 	store := r.getStore(ctx)
-	err = r.enqueueKnowledgeJob(artifact, "learning_path", len(snapJSON), func(rt llm.Runtime) error {
+	err = r.enqueueKnowledgeJob(artifact, "learning_path", len(snapJSON), func(runCtx context.Context, rt llm.Runtime) error {
 		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
-		bgCtx := r.withModelMetadata(context.Background(), "knowledge")
+		bgCtx := r.withModelMetadata(runCtx, "knowledge")
 		resp, err := r.Worker.GenerateLearningPath(bgCtx, &knowledgev1.GenerateLearningPathRequest{
 			RepositoryId:   repo.ID,
 			RepositoryName: repo.Name,
@@ -1911,12 +1911,12 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 
 	// Run LLM generation async via the orchestrator.
 	store := r.getStore(ctx)
-	err = r.enqueueKnowledgeJob(artifact, "code_tour", len(snapJSON), func(rt llm.Runtime) error {
+	err = r.enqueueKnowledgeJob(artifact, "code_tour", len(snapJSON), func(runCtx context.Context, rt llm.Runtime) error {
 		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
-		bgCtx := r.withModelMetadata(context.Background(), "knowledge")
+		bgCtx := r.withModelMetadata(runCtx, "knowledge")
 		resp, err := r.Worker.GenerateCodeTour(bgCtx, &knowledgev1.GenerateCodeTourRequest{
 			RepositoryId:   repo.ID,
 			RepositoryName: repo.Name,
@@ -2111,12 +2111,12 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 	}
 
 	store := r.getStore(ctx)
-	err = r.enqueueKnowledgeJob(artifact, "workflow_story", len(enrichedSnapJSON), func(rt llm.Runtime) error {
+	err = r.enqueueKnowledgeJob(artifact, "workflow_story", len(enrichedSnapJSON), func(runCtx context.Context, rt llm.Runtime) error {
 		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
-		bgCtx := r.withModelMetadata(context.Background(), "knowledge")
+		bgCtx := r.withModelMetadata(runCtx, "knowledge")
 		resp, err := r.Worker.GenerateWorkflowStory(bgCtx, &knowledgev1.GenerateWorkflowStoryRequest{
 			RepositoryId:      repo.ID,
 			RepositoryName:    repo.Name,
@@ -2342,7 +2342,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 	// Generate* mutations. We don't know the snapshot size until we
 	// assemble it inside the closure, so snapshotBytes is reported via
 	// Runtime after assembly rather than up-front.
-	err := r.enqueueKnowledgeJob(existing, "refresh:"+string(existing.Type), 0, func(rt llm.Runtime) error {
+	err := r.enqueueKnowledgeJob(existing, "refresh:"+string(existing.Type), 0, func(runCtx context.Context, rt llm.Runtime) error {
 		var (
 			snap *knowledgepkg.KnowledgeSnapshot
 			err  error
@@ -2384,7 +2384,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 
 		switch existing.Type {
 		case knowledgepkg.ArtifactCliffNotes:
-			resp, err := r.Worker.GenerateCliffNotes(r.withModelMetadata(context.Background(), "knowledge"), &knowledgev1.GenerateCliffNotesRequest{
+			resp, err := r.Worker.GenerateCliffNotes(r.withModelMetadata(runCtx, "knowledge"), &knowledgev1.GenerateCliffNotesRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),
@@ -2413,7 +2413,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				return err
 			}
 		case knowledgepkg.ArtifactLearningPath:
-			resp, err := r.Worker.GenerateLearningPath(r.withModelMetadata(context.Background(), "knowledge"), &knowledgev1.GenerateLearningPathRequest{
+			resp, err := r.Worker.GenerateLearningPath(r.withModelMetadata(runCtx, "knowledge"), &knowledgev1.GenerateLearningPathRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),
@@ -2438,7 +2438,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				return err
 			}
 		case knowledgepkg.ArtifactCodeTour:
-			resp, err := r.Worker.GenerateCodeTour(r.withModelMetadata(context.Background(), "knowledge"), &knowledgev1.GenerateCodeTourRequest{
+			resp, err := r.Worker.GenerateCodeTour(r.withModelMetadata(runCtx, "knowledge"), &knowledgev1.GenerateCodeTourRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),
@@ -2474,7 +2474,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				return err
 			}
 		case knowledgepkg.ArtifactWorkflowStory:
-			resp, err := r.Worker.GenerateWorkflowStory(r.withModelMetadata(context.Background(), "knowledge"), &knowledgev1.GenerateWorkflowStoryRequest{
+			resp, err := r.Worker.GenerateWorkflowStory(r.withModelMetadata(runCtx, "knowledge"), &knowledgev1.GenerateWorkflowStoryRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useClient, useQuery, useMutation } from "urql";
@@ -58,6 +58,7 @@ import { SymbolTree } from "@/components/source/SymbolTree";
 import { SymbolList } from "@/components/source/SymbolList";
 import { kindBadgeClass, kindLabel, SYMBOL_KINDS } from "@/components/source/symbol-kind";
 import { trackEvent } from "@/lib/telemetry";
+import { TOKEN_KEY } from "@/lib/token-key";
 
 type Tab = "files" | "symbols" | "requirements" | "specs" | "analysis" | "impact" | "architecture" | "related" | "knowledge" | "settings";
 type SymbolDetailTab = "source" | "cliff-notes" | "chat";
@@ -155,6 +156,10 @@ function knowledgeErrorHint(errorCode: string | null | undefined): string {
       return "The worker timed out before the generation completed. The provider may be overloaded.";
     case "WORKER_UNAVAILABLE":
       return "The worker could not be reached. Check the worker process or deployment health.";
+    case "PROVIDER_COMPUTE":
+      return "The model backend returned a compute failure. The queue now backs off automatically, but you may need to retry once the model server recovers.";
+    case "CANCELLED":
+      return "The generation was cancelled before completion.";
     default:
       return "The artifact generation failed. Check the latest error details before retrying.";
   }
@@ -214,6 +219,38 @@ function renderKnowledgeProgress(artifact: KnowledgeArtifact, waitingLabel: stri
   );
 }
 
+function formatQueueEta(ms?: number): string | null {
+  if (!ms || ms <= 0) return null;
+  const seconds = Math.ceil(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes}m`;
+}
+
+function repoJobStatusLabel(job: RepoJobView | null | undefined): string | null {
+  if (!job) return null;
+  if (job.status === "pending" && job.queue_position) {
+    const eta = formatQueueEta(job.estimated_wait_ms);
+    return eta ? `Queued #${job.queue_position} · ~${eta}` : `Queued #${job.queue_position}`;
+  }
+  if (job.status === "generating") return "Generating now";
+  if (job.status === "failed") return job.error_title || "Last run failed";
+  if (job.status === "cancelled") return "Cancelled";
+  if (job.status === "ready") return "Completed";
+  return null;
+}
+
+function artifactRetryLabel(
+  artifact: { status: string } | null | undefined,
+  job: RepoJobView | null | undefined,
+  baseLabel: string,
+): string {
+  if (artifact?.status === "FAILED" || job?.status === "cancelled" || job?.status === "failed") {
+    return `Retry ${baseLabel}`;
+  }
+  return `Refresh ${baseLabel}`;
+}
+
 interface ScopeChild {
   scopeType: string;
   label: string;
@@ -258,6 +295,40 @@ interface ExecutionPathResult {
   steps: ExecutionPathStep[];
 }
 
+interface RepoJobView {
+  id: string;
+  subsystem: string;
+  job_type: string;
+  status: "pending" | "generating" | "ready" | "failed" | "cancelled";
+  progress: number;
+  progress_phase?: string;
+  progress_message?: string;
+  error_code?: string;
+  error_message?: string;
+  error_title?: string;
+  error_hint?: string;
+  retry_count: number;
+  max_attempts: number;
+  attached_requests: number;
+  artifact_id?: string;
+  repo_id?: string;
+  queue_position?: number;
+  queue_depth?: number;
+  estimated_wait_ms?: number;
+  elapsed_ms: number;
+  updated_at: string;
+}
+
+interface RepoJobActivityResponse {
+  active: RepoJobView[];
+  recent: RepoJobView[];
+  stats: {
+    in_flight: number;
+    queue_depth: number;
+    max_concurrency: number;
+  };
+}
+
 interface SymbolChatMessage {
   role: "user" | "assistant";
   text: string;
@@ -292,6 +363,9 @@ export default function RepositoryDetailPage() {
   const [specExtracting, setSpecExtracting] = useState(false);
   const [specExtractionResult, setSpecExtractionResult] = useState<string | null>(null);
   const [specConfidenceFilter, setSpecConfidenceFilter] = useState<string | null>(null);
+  const [repoJobs, setRepoJobs] = useState<RepoJobActivityResponse | null>(null);
+  const [repoJobsError, setRepoJobsError] = useState<string | null>(null);
+  const repoJobsPollRef = useRef<number | null>(null);
 
   const [repoResult] = useQuery({ query: REPOSITORY_QUERY, variables: { id: repoId } });
   const [symbolsResult] = useQuery({
@@ -369,6 +443,23 @@ export default function RepositoryDetailPage() {
     pause: !executionRequested || !executionInput,
   });
 
+  const fetchRepoJobs = useCallback(async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+      const res = await fetch(`/api/v1/admin/llm/activity?repo_id=${encodeURIComponent(repoId)}&limit=40`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        throw new Error(`job activity returned ${res.status}`);
+      }
+      const body = (await res.json()) as RepoJobActivityResponse;
+      setRepoJobs(body);
+      setRepoJobsError(null);
+    } catch (error) {
+      setRepoJobsError(error instanceof Error ? error.message : "failed to load queue activity");
+    }
+  }, [repoId]);
+
   // Poll for knowledge artifacts when any are in GENERATING state
   const hasGenerating = knowledgeResult.data?.knowledgeArtifacts?.some(
     (a: KnowledgeArtifact) => a.status === "GENERATING" || a.status === "PENDING"
@@ -381,6 +472,24 @@ export default function RepositoryDetailPage() {
     }, 2000);
     return () => clearInterval(interval);
   }, [hasGenerating, reexecuteKnowledge, reexecuteScopeChildren]);
+
+  useEffect(() => {
+    void fetchRepoJobs();
+    const schedule = () => {
+      if (repoJobsPollRef.current) window.clearInterval(repoJobsPollRef.current);
+      const interval = document.visibilityState === "visible" ? 3000 : 10000;
+      repoJobsPollRef.current = window.setInterval(() => {
+        void fetchRepoJobs();
+      }, interval);
+    };
+    schedule();
+    const onVisibilityChange = () => schedule();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      if (repoJobsPollRef.current) window.clearInterval(repoJobsPollRef.current);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [fetchRepoJobs]);
 
   const [, reindex] = useMutation(REINDEX_REPOSITORY_MUTATION);
   const [, removeRepo] = useMutation(REMOVE_REPOSITORY_MUTATION);
@@ -480,6 +589,57 @@ export default function RepositoryDetailPage() {
     (a) => a.type === "WORKFLOW_STORY" && a.audience === knowledgeAudience && a.depth === knowledgeDepth
   );
   const isWorkflowStoryGenerating = currentWorkflowStory?.status === "GENERATING" || currentWorkflowStory?.status === "PENDING";
+  const repoActiveJobs = useMemo(() => repoJobs?.active ?? [], [repoJobs?.active]);
+  const repoRecentJobs = useMemo(() => repoJobs?.recent ?? [], [repoJobs?.recent]);
+  const artifactJobMap = useMemo(() => {
+    const map = new Map<string, RepoJobView>();
+    for (const job of [...repoActiveJobs, ...repoRecentJobs]) {
+      if (job.artifact_id && !map.has(job.artifact_id)) {
+        map.set(job.artifact_id, job);
+      }
+    }
+    return map;
+  }, [repoActiveJobs, repoRecentJobs]);
+  const artifactHistoryMap = useMemo(() => {
+    const map = new Map<string, RepoJobView[]>();
+    for (const job of [...repoActiveJobs, ...repoRecentJobs]) {
+      if (!job.artifact_id) continue;
+      const current = map.get(job.artifact_id) || [];
+      current.push(job);
+      map.set(job.artifact_id, current);
+    }
+    for (const [artifactId, jobs] of map.entries()) {
+      jobs.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+      map.set(artifactId, jobs.slice(0, 3));
+    }
+    return map;
+  }, [repoActiveJobs, repoRecentJobs]);
+  const currentCliffNotesJob = currentCliffNotes ? artifactJobMap.get(currentCliffNotes.id) : null;
+  const currentLearningPathJob = currentLearningPath ? artifactJobMap.get(currentLearningPath.id) : null;
+  const currentCodeTourJob = currentCodeTour ? artifactJobMap.get(currentCodeTour.id) : null;
+  const currentWorkflowStoryJob = currentWorkflowStory ? artifactJobMap.get(currentWorkflowStory.id) : null;
+  const batchSummary = useMemo(() => {
+    const targets = [
+      { artifact: currentCliffNotes, generating: isCliffNotesGenerating },
+      { artifact: currentLearningPath, generating: isLearningPathGenerating },
+      { artifact: currentCodeTour, generating: isCodeTourGenerating },
+      { artifact: currentWorkflowStory, generating: isWorkflowStoryGenerating },
+    ].filter((item) => item.artifact || item.generating);
+    const total = targets.length;
+    const completed = targets.filter((item) => item.artifact && (item.artifact.status === "READY" || item.artifact.status === "STALE")).length;
+    const running = targets.filter((item) => item.generating).length;
+    const failed = targets.filter((item) => item.artifact?.status === "FAILED").length;
+    return { total, completed, running, failed };
+  }, [
+    currentCliffNotes,
+    currentLearningPath,
+    currentCodeTour,
+    currentWorkflowStory,
+    isCliffNotesGenerating,
+    isLearningPathGenerating,
+    isCodeTourGenerating,
+    isWorkflowStoryGenerating,
+  ]);
 
   // Reset tour stop index when code tour changes (e.g. after refresh with different stop count)
   const codeTourId = currentCodeTour?.id;
@@ -616,6 +776,19 @@ export default function RepositoryDetailPage() {
   async function handleDismissAllSpecs() {
     await dismissAllDiscoveredReqs({ repositoryId: repoId });
     reexecuteDiscoveredReqs({ requestPolicy: "network-only" });
+  }
+
+  async function handleCancelRepoJob(jobId: string) {
+    const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+    const res = await fetch(`/api/v1/admin/llm/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      throw new Error(`cancel returned ${res.status}`);
+    }
+    await fetchRepoJobs();
+    reexecuteKnowledge({ requestPolicy: "network-only" });
   }
 
   async function handleGenerateCliffNotesFor(scopeType = knowledgeScopeType, scopePath = knowledgeScopePath) {
@@ -1843,6 +2016,20 @@ export default function RepositoryDetailPage() {
               )}
             </div>
 
+            <div className="border-t border-[var(--border-subtle)] px-6 py-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-tertiary)]">
+                <span className={artifactStatusClass}>
+                  Queue {repoJobs?.stats.queue_depth ?? 0} / {repoJobs?.stats.max_concurrency ?? 0} slots
+                </span>
+                <span className={artifactStatusClass}>
+                  Batch {batchSummary.completed}/{batchSummary.total || 0} complete
+                </span>
+                {batchSummary.running > 0 ? <span className={artifactStatusClass}>{batchSummary.running} running</span> : null}
+                {batchSummary.failed > 0 ? <span className={artifactStatusClass}>{batchSummary.failed} failed</span> : null}
+                {repoJobsError ? <span className="text-[var(--color-error,#ef4444)]">{repoJobsError}</span> : null}
+              </div>
+            </div>
+
             <div className="grid gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-2">
                 {/* Category 1: Field Guide */}
@@ -1904,20 +2091,44 @@ export default function RepositoryDetailPage() {
                                   ? ` · revision ${currentCliffNotes.sourceRevision.commitSha.slice(0, 7)}`
                                   : ""}
                               </p>
+                              {repoJobStatusLabel(currentCliffNotesJob) ? (
+                                <p className="mt-2 text-xs text-[var(--text-tertiary)]">{repoJobStatusLabel(currentCliffNotesJob)}</p>
+                              ) : null}
                             </div>
                             <div className="flex gap-2">
                               <Button variant="secondary" size="sm" onClick={handleGenerateCliffNotes} disabled={knowledgeLoading || isCliffNotesGenerating}>
                                 {currentCliffNotes?.status === "PENDING" ? "Queued..." : isCliffNotesGenerating ? "Generating..." : "Generate this lens"}
                               </Button>
                               <Button variant="secondary" size="sm" onClick={() => handleRefreshArtifact(currentCliffNotes.id)} disabled={knowledgeLoading || isCliffNotesGenerating}>
-                                Refresh
+                                {artifactRetryLabel(currentCliffNotes, currentCliffNotesJob, "field guide")}
                               </Button>
+                              {currentCliffNotesJob && (currentCliffNotesJob.status === "pending" || currentCliffNotesJob.status === "generating") ? (
+                                <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentCliffNotesJob.id)} disabled={knowledgeLoading}>
+                                  Cancel
+                                </Button>
+                              ) : null}
                             </div>
                           </div>
                           {currentCliffNotes.status === "GENERATING" || currentCliffNotes.status === "PENDING" ? (
                             renderKnowledgeProgress(currentCliffNotes, "Queued for generation")
                           ) : null}
                           {currentCliffNotes.status === "FAILED" ? renderKnowledgeFailure(currentCliffNotes) : null}
+                          {(artifactHistoryMap.get(currentCliffNotes.id)?.length ?? 0) > 0 ? (
+                            <div className="mb-4 rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
+                              <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Recent runs</p>
+                              <div className="space-y-1 text-xs text-[var(--text-secondary)]">
+                                {(artifactHistoryMap.get(currentCliffNotes.id) || []).map((job) => (
+                                  <div key={job.id} className="flex items-center justify-between gap-3">
+                                    <span className="truncate">
+                                      {job.status === "failed" ? (job.error_title || "Failed") : job.status === "pending" ? "Queued" : job.status === "generating" ? "Generating" : job.status === "cancelled" ? "Cancelled" : "Completed"}
+                                      {job.attached_requests > 1 ? ` · shared by ${job.attached_requests}` : ""}
+                                    </span>
+                                    <span>{new Date(job.updated_at).toLocaleTimeString()}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
                           {currentCliffNotes.sections
                             .slice()
                             .sort((a, b) => a.orderIndex - b.orderIndex)
@@ -2187,11 +2398,19 @@ export default function RepositoryDetailPage() {
                           ) : null}
                           {currentWorkflowStory ? (
                             <Button variant="secondary" size="sm" onClick={() => handleRefreshArtifact(currentWorkflowStory.id)} disabled={knowledgeLoading}>
-                              Refresh
+                              {artifactRetryLabel(currentWorkflowStory, currentWorkflowStoryJob, "story")}
+                            </Button>
+                          ) : null}
+                          {currentWorkflowStoryJob && (currentWorkflowStoryJob.status === "pending" || currentWorkflowStoryJob.status === "generating") ? (
+                            <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentWorkflowStoryJob.id)} disabled={knowledgeLoading}>
+                              Cancel
                             </Button>
                           ) : null}
                         </div>
                       </div>
+                      {repoJobStatusLabel(currentWorkflowStoryJob) ? (
+                        <p className="mb-4 text-xs text-[var(--text-tertiary)]">{repoJobStatusLabel(currentWorkflowStoryJob)}</p>
+                      ) : null}
 
                       {!currentWorkflowStory && !knowledgeLoading ? (
                         <div className="rounded-[var(--radius-sm)] border border-dashed border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
@@ -2295,18 +2514,43 @@ export default function RepositoryDetailPage() {
                         <div className="mb-4 flex flex-wrap gap-2">
                           {features.learningPaths && (
                             <Button variant="secondary" size="sm" onClick={currentLearningPath ? () => handleRefreshArtifact(currentLearningPath.id) : handleGenerateLearningPath} disabled={knowledgeLoading || isLearningPathGenerating}>
-                              {currentLearningPath?.status === "PENDING" ? "Queued..." : isLearningPathGenerating ? "Generating..." : currentLearningPath ? "Refresh learning path" : "Generate learning path"}
+                              {currentLearningPath?.status === "PENDING"
+                                ? "Queued..."
+                                : isLearningPathGenerating
+                                  ? "Generating..."
+                                  : currentLearningPath
+                                    ? artifactRetryLabel(currentLearningPath, currentLearningPathJob, "learning path")
+                                    : "Generate learning path"}
                             </Button>
                           )}
                           {features.codeTours && (
                             <Button variant="secondary" size="sm" onClick={currentCodeTour ? () => handleRefreshArtifact(currentCodeTour.id) : handleGenerateCodeTour} disabled={knowledgeLoading || isCodeTourGenerating}>
-                              {currentCodeTour?.status === "PENDING" ? "Queued..." : isCodeTourGenerating ? "Generating..." : currentCodeTour ? "Refresh code tour" : "Generate code tour"}
+                              {currentCodeTour?.status === "PENDING"
+                                ? "Queued..."
+                                : isCodeTourGenerating
+                                  ? "Generating..."
+                                  : currentCodeTour
+                                    ? artifactRetryLabel(currentCodeTour, currentCodeTourJob, "code tour")
+                                    : "Generate code tour"}
                             </Button>
                           )}
+                          {currentLearningPathJob && (currentLearningPathJob.status === "pending" || currentLearningPathJob.status === "generating") ? (
+                            <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentLearningPathJob.id)} disabled={knowledgeLoading}>
+                              Cancel learning path
+                            </Button>
+                          ) : null}
+                          {currentCodeTourJob && (currentCodeTourJob.status === "pending" || currentCodeTourJob.status === "generating") ? (
+                            <Button variant="secondary" size="sm" onClick={() => void handleCancelRepoJob(currentCodeTourJob.id)} disabled={knowledgeLoading}>
+                              Cancel code tour
+                            </Button>
+                          ) : null}
                         </div>
                         {currentLearningPath && (
                           <div className="mb-5">
                             <h4 className="text-sm font-semibold text-[var(--text-primary)]">Learning Path</h4>
+                            {repoJobStatusLabel(currentLearningPathJob) ? (
+                              <p className="mt-2 text-xs text-[var(--text-tertiary)]">{repoJobStatusLabel(currentLearningPathJob)}</p>
+                            ) : null}
                             {currentLearningPath.status === "GENERATING" || currentLearningPath.status === "PENDING" ? (
                               <div className="mt-3">{renderKnowledgeProgress(currentLearningPath, "Queued for learning path generation")}</div>
                             ) : null}
@@ -2339,6 +2583,9 @@ export default function RepositoryDetailPage() {
                         {currentCodeTour && (
                           <div>
                             <h4 className="text-sm font-semibold text-[var(--text-primary)]">Code Tour</h4>
+                            {repoJobStatusLabel(currentCodeTourJob) ? (
+                              <p className="mt-2 text-xs text-[var(--text-tertiary)]">{repoJobStatusLabel(currentCodeTourJob)}</p>
+                            ) : null}
                             {currentCodeTour.status === "GENERATING" || currentCodeTour.status === "PENDING" ? (
                               <div className="mt-3">{renderKnowledgeProgress(currentCodeTour, "Queued for code tour generation")}</div>
                             ) : null}

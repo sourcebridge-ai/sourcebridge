@@ -50,11 +50,15 @@ interface JobView {
   error_hint?: string;
   retry_count: number;
   max_attempts: number;
+  attached_requests: number;
   input_tokens: number;
   output_tokens: number;
   snapshot_bytes: number;
   artifact_id?: string;
   repo_id?: string;
+  queue_position?: number;
+  queue_depth?: number;
+  estimated_wait_ms?: number;
   elapsed_ms: number;
   created_at: string;
   started_at?: string;
@@ -146,6 +150,13 @@ function statusDot(status: Status): string {
   }
 }
 
+function formatQueueEta(ms?: number): string | null {
+  if (!ms || ms <= 0) return null;
+  const seconds = Math.ceil(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.ceil(seconds / 60)}m`;
+}
+
 function healthStyle(status: HealthPayload["status"]) {
   switch (status) {
     case "healthy":
@@ -194,6 +205,16 @@ export default function MonitorPage() {
       setError(e instanceof Error ? e.message : "failed to load activity");
     }
   }, []);
+
+  const cancelJob = useCallback(async (jobId: string) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+    const res = await fetch(`/api/v1/admin/llm/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`cancel returned ${res.status}`);
+    await fetchActivity();
+  }, [fetchActivity]);
 
   // Poll the activity endpoint every 2 seconds while the tab is visible.
   // Switch to a 10-second interval when hidden so we don't burn bandwidth
@@ -274,7 +295,7 @@ export default function MonitorPage() {
             Refresh
           </Button>
         </header>
-        <ActiveJobsSection jobs={data?.active ?? []} onSelect={setSelected} />
+        <ActiveJobsSection jobs={data?.active ?? []} onSelect={setSelected} onCancel={cancelJob} />
       </Panel>
 
       {/* Zone 3 — Recent history */}
@@ -342,9 +363,11 @@ function HealthBanner({ health, error }: { health?: HealthPayload; error: string
 function ActiveJobsSection({
   jobs,
   onSelect,
+  onCancel,
 }: {
   jobs: JobView[];
   onSelect: (job: JobView) => void;
+  onCancel: (jobId: string) => Promise<void>;
 }) {
   if (jobs.length === 0) {
     return (
@@ -363,7 +386,7 @@ function ActiveJobsSection({
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {jobs.map((job) => (
-        <ActiveJobCard key={job.id} job={job} onSelect={onSelect} />
+        <ActiveJobCard key={job.id} job={job} onSelect={onSelect} onCancel={onCancel} />
       ))}
     </div>
   );
@@ -372,15 +395,24 @@ function ActiveJobsSection({
 function ActiveJobCard({
   job,
   onSelect,
+  onCancel,
 }: {
   job: JobView;
   onSelect: (job: JobView) => void;
+  onCancel: (jobId: string) => Promise<void>;
 }) {
   const progressPct = Math.max(5, Math.round(job.progress * 100));
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(job)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(job);
+        }
+      }}
       className="flex flex-col gap-2 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-base)] p-4 text-left transition-colors hover:border-[var(--border-strong)]"
     >
       <div className="flex items-start justify-between gap-2">
@@ -398,6 +430,13 @@ function ActiveJobCard({
           <span>{job.progress_message || job.progress_phase || "Working…"}</span>
           <span>{progressPct}%</span>
         </div>
+        {job.status === "pending" && job.queue_position ? (
+          <div className="text-[11px] text-[var(--text-tertiary)]">
+            Queue #{job.queue_position}
+            {job.queue_depth ? ` of ${job.queue_depth}` : ""}
+            {formatQueueEta(job.estimated_wait_ms) ? ` · ~${formatQueueEta(job.estimated_wait_ms)}` : ""}
+          </div>
+        ) : null}
         <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-subtle)]">
           <div
             className="h-full rounded-full bg-[color:var(--color-accent,#3b82f6)] transition-all"
@@ -406,11 +445,26 @@ function ActiveJobCard({
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-[var(--text-tertiary)]">
+      <div className="flex items-center justify-between gap-2 text-xs text-[var(--text-tertiary)]">
         <span>{formatElapsed(job.elapsed_ms)}</span>
-        {job.retry_count > 0 ? <span>retry {job.retry_count}</span> : null}
+        <span className="flex items-center gap-2">
+          {job.retry_count > 0 ? <span>retry {job.retry_count}</span> : null}
+          {job.attached_requests > 1 ? <span>shared {job.attached_requests}</span> : null}
+        </span>
       </div>
-    </button>
+      <div className="pt-1">
+        <Button
+          variant="secondary"
+          className="w-full"
+          onClick={(e) => {
+            e.stopPropagation();
+            void onCancel(job.id);
+          }}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 

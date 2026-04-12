@@ -21,56 +21,58 @@ var _ llm.JobStore = (*SurrealStore)(nil)
 // both native CBOR datetimes and legacy string values, and uses
 // option-shaped string fields so absent rows decode cleanly.
 type surrealLLMJob struct {
-	ID              *models.RecordID `json:"id,omitempty"`
-	Subsystem       string           `json:"subsystem"`
-	JobType         string           `json:"job_type"`
-	TargetKey       string           `json:"target_key"`
-	Strategy        string           `json:"strategy"`
-	Model           string           `json:"model"`
-	Status          string           `json:"status"`
-	Progress        float64          `json:"progress"`
-	ProgressPhase   string           `json:"progress_phase"`
-	ProgressMessage string           `json:"progress_message"`
-	ErrorCode       string           `json:"error_code"`
-	ErrorMessage    string           `json:"error_message"`
-	RetryCount      int              `json:"retry_count"`
-	MaxAttempts     int              `json:"max_attempts"`
-	TimeoutSec      int              `json:"timeout_sec"`
-	InputTokens     int              `json:"input_tokens"`
-	OutputTokens    int              `json:"output_tokens"`
-	SnapshotBytes   int              `json:"snapshot_bytes"`
-	ArtifactID      string           `json:"artifact_id"`
-	RepoID          string           `json:"repo_id"`
-	CreatedAt       surrealTime      `json:"created_at"`
-	StartedAt       surrealTime      `json:"started_at"`
-	UpdatedAt       surrealTime      `json:"updated_at"`
-	CompletedAt     surrealTime      `json:"completed_at"`
+	ID               *models.RecordID `json:"id,omitempty"`
+	Subsystem        string           `json:"subsystem"`
+	JobType          string           `json:"job_type"`
+	TargetKey        string           `json:"target_key"`
+	Strategy         string           `json:"strategy"`
+	Model            string           `json:"model"`
+	Status           string           `json:"status"`
+	Progress         float64          `json:"progress"`
+	ProgressPhase    string           `json:"progress_phase"`
+	ProgressMessage  string           `json:"progress_message"`
+	ErrorCode        string           `json:"error_code"`
+	ErrorMessage     string           `json:"error_message"`
+	RetryCount       int              `json:"retry_count"`
+	MaxAttempts      int              `json:"max_attempts"`
+	TimeoutSec       int              `json:"timeout_sec"`
+	AttachedRequests int              `json:"attached_requests"`
+	InputTokens      int              `json:"input_tokens"`
+	OutputTokens     int              `json:"output_tokens"`
+	SnapshotBytes    int              `json:"snapshot_bytes"`
+	ArtifactID       string           `json:"artifact_id"`
+	RepoID           string           `json:"repo_id"`
+	CreatedAt        surrealTime      `json:"created_at"`
+	StartedAt        surrealTime      `json:"started_at"`
+	UpdatedAt        surrealTime      `json:"updated_at"`
+	CompletedAt      surrealTime      `json:"completed_at"`
 }
 
 func (r *surrealLLMJob) toJob() *llm.Job {
 	job := &llm.Job{
-		ID:              recordIDString(r.ID),
-		Subsystem:       llm.Subsystem(r.Subsystem),
-		JobType:         r.JobType,
-		TargetKey:       r.TargetKey,
-		Strategy:        r.Strategy,
-		Model:           r.Model,
-		Status:          llm.JobStatus(r.Status),
-		Progress:        r.Progress,
-		ProgressPhase:   r.ProgressPhase,
-		ProgressMessage: r.ProgressMessage,
-		ErrorCode:       r.ErrorCode,
-		ErrorMessage:    r.ErrorMessage,
-		RetryCount:      r.RetryCount,
-		MaxAttempts:     r.MaxAttempts,
-		TimeoutSec:      r.TimeoutSec,
-		InputTokens:     r.InputTokens,
-		OutputTokens:    r.OutputTokens,
-		SnapshotBytes:   r.SnapshotBytes,
-		ArtifactID:      r.ArtifactID,
-		RepoID:          r.RepoID,
-		CreatedAt:       r.CreatedAt.Time,
-		UpdatedAt:       r.UpdatedAt.Time,
+		ID:               recordIDString(r.ID),
+		Subsystem:        llm.Subsystem(r.Subsystem),
+		JobType:          r.JobType,
+		TargetKey:        r.TargetKey,
+		Strategy:         r.Strategy,
+		Model:            r.Model,
+		Status:           llm.JobStatus(r.Status),
+		Progress:         r.Progress,
+		ProgressPhase:    r.ProgressPhase,
+		ProgressMessage:  r.ProgressMessage,
+		ErrorCode:        r.ErrorCode,
+		ErrorMessage:     r.ErrorMessage,
+		RetryCount:       r.RetryCount,
+		MaxAttempts:      r.MaxAttempts,
+		TimeoutSec:       r.TimeoutSec,
+		AttachedRequests: r.AttachedRequests,
+		InputTokens:      r.InputTokens,
+		OutputTokens:     r.OutputTokens,
+		SnapshotBytes:    r.SnapshotBytes,
+		ArtifactID:       r.ArtifactID,
+		RepoID:           r.RepoID,
+		CreatedAt:        r.CreatedAt.Time,
+		UpdatedAt:        r.UpdatedAt.Time,
 	}
 	if !r.StartedAt.Time.IsZero() {
 		t := r.StartedAt.Time
@@ -118,6 +120,7 @@ func (s *SurrealStore) Create(job *llm.Job) (*llm.Job, error) {
 		retry_count = $retry_count,
 		max_attempts = $max_attempts,
 		timeout_sec = $timeout_sec,
+		attached_requests = $attached_requests,
 		input_tokens = $input_tokens,
 		output_tokens = $output_tokens,
 		snapshot_bytes = $snapshot_bytes,
@@ -127,26 +130,27 @@ func (s *SurrealStore) Create(job *llm.Job) (*llm.Job, error) {
 		updated_at = time::now()`
 
 	vars := map[string]any{
-		"id":               job.ID,
-		"subsystem":        string(job.Subsystem),
-		"job_type":         job.JobType,
-		"target_key":       job.TargetKey,
-		"strategy":         job.Strategy,
-		"model":            job.Model,
-		"status":           string(status),
-		"progress":         job.Progress,
-		"progress_phase":   job.ProgressPhase,
-		"progress_message": job.ProgressMessage,
-		"error_code":       job.ErrorCode,
-		"error_message":    job.ErrorMessage,
-		"retry_count":      job.RetryCount,
-		"max_attempts":     job.MaxAttempts,
-		"timeout_sec":      job.TimeoutSec,
-		"input_tokens":     job.InputTokens,
-		"output_tokens":    job.OutputTokens,
-		"snapshot_bytes":   job.SnapshotBytes,
-		"artifact_id":      job.ArtifactID,
-		"repo_id":          job.RepoID,
+		"id":                job.ID,
+		"subsystem":         string(job.Subsystem),
+		"job_type":          job.JobType,
+		"target_key":        job.TargetKey,
+		"strategy":          job.Strategy,
+		"model":             job.Model,
+		"status":            string(status),
+		"progress":          job.Progress,
+		"progress_phase":    job.ProgressPhase,
+		"progress_message":  job.ProgressMessage,
+		"error_code":        job.ErrorCode,
+		"error_message":     job.ErrorMessage,
+		"retry_count":       job.RetryCount,
+		"max_attempts":      job.MaxAttempts,
+		"timeout_sec":       job.TimeoutSec,
+		"attached_requests": job.AttachedRequests,
+		"input_tokens":      job.InputTokens,
+		"output_tokens":     job.OutputTokens,
+		"snapshot_bytes":    job.SnapshotBytes,
+		"artifact_id":       job.ArtifactID,
+		"repo_id":           job.RepoID,
 	}
 
 	if _, err := surrealdb.Query[interface{}](ctx(), db, sql, vars); err != nil {
@@ -181,6 +185,7 @@ func (s *SurrealStore) Update(job *llm.Job) error {
 		retry_count = $retry_count,
 		max_attempts = $max_attempts,
 		timeout_sec = $timeout_sec,
+		attached_requests = $attached_requests,
 		input_tokens = $input_tokens,
 		output_tokens = $output_tokens,
 		snapshot_bytes = $snapshot_bytes,
@@ -188,26 +193,27 @@ func (s *SurrealStore) Update(job *llm.Job) error {
 		repo_id = $repo_id,
 		updated_at = time::now()`
 	vars := map[string]any{
-		"id":               job.ID,
-		"subsystem":        string(job.Subsystem),
-		"job_type":         job.JobType,
-		"target_key":       job.TargetKey,
-		"strategy":         job.Strategy,
-		"model":            job.Model,
-		"status":           string(job.Status),
-		"progress":         job.Progress,
-		"progress_phase":   job.ProgressPhase,
-		"progress_message": job.ProgressMessage,
-		"error_code":       job.ErrorCode,
-		"error_message":    job.ErrorMessage,
-		"retry_count":      job.RetryCount,
-		"max_attempts":     job.MaxAttempts,
-		"timeout_sec":      job.TimeoutSec,
-		"input_tokens":     job.InputTokens,
-		"output_tokens":    job.OutputTokens,
-		"snapshot_bytes":   job.SnapshotBytes,
-		"artifact_id":      job.ArtifactID,
-		"repo_id":          job.RepoID,
+		"id":                job.ID,
+		"subsystem":         string(job.Subsystem),
+		"job_type":          job.JobType,
+		"target_key":        job.TargetKey,
+		"strategy":          job.Strategy,
+		"model":             job.Model,
+		"status":            string(job.Status),
+		"progress":          job.Progress,
+		"progress_phase":    job.ProgressPhase,
+		"progress_message":  job.ProgressMessage,
+		"error_code":        job.ErrorCode,
+		"error_message":     job.ErrorMessage,
+		"retry_count":       job.RetryCount,
+		"max_attempts":      job.MaxAttempts,
+		"timeout_sec":       job.TimeoutSec,
+		"attached_requests": job.AttachedRequests,
+		"input_tokens":      job.InputTokens,
+		"output_tokens":     job.OutputTokens,
+		"snapshot_bytes":    job.SnapshotBytes,
+		"artifact_id":       job.ArtifactID,
+		"repo_id":           job.RepoID,
 	}
 	_, err := queryOne[interface{}](ctx(), db, sql, vars)
 	return err
@@ -293,6 +299,10 @@ func (s *SurrealStore) listJobs(filter llm.ListFilter, statuses []llm.JobStatus,
 	if filter.RepoID != "" {
 		sql += " AND repo_id = $repo_id"
 		vars["repo_id"] = filter.RepoID
+	}
+	if filter.ArtifactID != "" {
+		sql += " AND artifact_id = $artifact_id"
+		vars["artifact_id"] = filter.ArtifactID
 	}
 	if filter.TargetKey != "" {
 		sql += " AND target_key = $target_key"
@@ -455,5 +465,31 @@ func (s *SurrealStore) IncrementRetry(id string) error {
 			retry_count = retry_count + 1,
 			updated_at = time::now()`,
 		map[string]any{"id": id})
+	return err
+}
+
+// IncrementAttachedRequests bumps the deduped request count.
+func (s *SurrealStore) IncrementAttachedRequests(id string) error {
+	db := s.client.DB()
+	if db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	job := s.GetByID(id)
+	if job == nil {
+		return fmt.Errorf("job %s not found", id)
+	}
+	next := job.AttachedRequests
+	if next <= 0 {
+		next = 1
+	}
+	next++
+	_, err := queryOne[interface{}](ctx(), db, `
+		UPDATE type::thing('ca_llm_job', $id)
+		SET attached_requests = $attached_requests,
+		    updated_at = time::now()
+	`, map[string]any{
+		"id":                id,
+		"attached_requests": next,
+	})
 	return err
 }

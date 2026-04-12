@@ -52,32 +52,36 @@ type monitorStats struct {
 // of human-readable fields so the frontend doesn't have to duplicate
 // any of the formatting logic.
 type monitorJobView struct {
-	ID              string     `json:"id"`
-	Subsystem       string     `json:"subsystem"`
-	JobType         string     `json:"job_type"`
-	TargetKey       string     `json:"target_key"`
-	Strategy        string     `json:"strategy,omitempty"`
-	Model           string     `json:"model,omitempty"`
-	Status          string     `json:"status"`
-	Progress        float64    `json:"progress"`
-	ProgressPhase   string     `json:"progress_phase,omitempty"`
-	ProgressMessage string     `json:"progress_message,omitempty"`
-	ErrorCode       string     `json:"error_code,omitempty"`
-	ErrorMessage    string     `json:"error_message,omitempty"`
-	ErrorTitle      string     `json:"error_title,omitempty"` // human-readable title derived from error_code
-	ErrorHint       string     `json:"error_hint,omitempty"`  // one-sentence remediation
-	RetryCount      int        `json:"retry_count"`
-	MaxAttempts     int        `json:"max_attempts"`
-	InputTokens     int        `json:"input_tokens"`
-	OutputTokens    int        `json:"output_tokens"`
-	SnapshotBytes   int        `json:"snapshot_bytes"`
-	ArtifactID      string     `json:"artifact_id,omitempty"`
-	RepoID          string     `json:"repo_id,omitempty"`
-	ElapsedMs       int64      `json:"elapsed_ms"`
-	CreatedAt       time.Time  `json:"created_at"`
-	StartedAt       *time.Time `json:"started_at,omitempty"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	CompletedAt     *time.Time `json:"completed_at,omitempty"`
+	ID               string     `json:"id"`
+	Subsystem        string     `json:"subsystem"`
+	JobType          string     `json:"job_type"`
+	TargetKey        string     `json:"target_key"`
+	Strategy         string     `json:"strategy,omitempty"`
+	Model            string     `json:"model,omitempty"`
+	Status           string     `json:"status"`
+	Progress         float64    `json:"progress"`
+	ProgressPhase    string     `json:"progress_phase,omitempty"`
+	ProgressMessage  string     `json:"progress_message,omitempty"`
+	ErrorCode        string     `json:"error_code,omitempty"`
+	ErrorMessage     string     `json:"error_message,omitempty"`
+	ErrorTitle       string     `json:"error_title,omitempty"` // human-readable title derived from error_code
+	ErrorHint        string     `json:"error_hint,omitempty"`  // one-sentence remediation
+	RetryCount       int        `json:"retry_count"`
+	MaxAttempts      int        `json:"max_attempts"`
+	AttachedRequests int        `json:"attached_requests"`
+	InputTokens      int        `json:"input_tokens"`
+	OutputTokens     int        `json:"output_tokens"`
+	SnapshotBytes    int        `json:"snapshot_bytes"`
+	ArtifactID       string     `json:"artifact_id,omitempty"`
+	RepoID           string     `json:"repo_id,omitempty"`
+	ElapsedMs        int64      `json:"elapsed_ms"`
+	QueuePosition    int        `json:"queue_position,omitempty"`
+	QueueDepth       int        `json:"queue_depth,omitempty"`
+	EstimatedWaitMs  int64      `json:"estimated_wait_ms,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	StartedAt        *time.Time `json:"started_at,omitempty"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
 }
 
 // errorTitleForCode maps a classified error code to a plain-English
@@ -130,32 +134,33 @@ func toMonitorJobView(j *llm.Job) monitorJobView {
 	}
 	title, hint := errorTitleForCode(j.ErrorCode)
 	return monitorJobView{
-		ID:              j.ID,
-		Subsystem:       string(j.Subsystem),
-		JobType:         j.JobType,
-		TargetKey:       j.TargetKey,
-		Strategy:        j.Strategy,
-		Model:           j.Model,
-		Status:          string(j.Status),
-		Progress:        j.Progress,
-		ProgressPhase:   j.ProgressPhase,
-		ProgressMessage: j.ProgressMessage,
-		ErrorCode:       j.ErrorCode,
-		ErrorMessage:    j.ErrorMessage,
-		ErrorTitle:      title,
-		ErrorHint:       hint,
-		RetryCount:      j.RetryCount,
-		MaxAttempts:     j.MaxAttempts,
-		InputTokens:     j.InputTokens,
-		OutputTokens:    j.OutputTokens,
-		SnapshotBytes:   j.SnapshotBytes,
-		ArtifactID:      j.ArtifactID,
-		RepoID:          j.RepoID,
-		ElapsedMs:       j.Elapsed().Milliseconds(),
-		CreatedAt:       j.CreatedAt,
-		StartedAt:       j.StartedAt,
-		UpdatedAt:       j.UpdatedAt,
-		CompletedAt:     j.CompletedAt,
+		ID:               j.ID,
+		Subsystem:        string(j.Subsystem),
+		JobType:          j.JobType,
+		TargetKey:        j.TargetKey,
+		Strategy:         j.Strategy,
+		Model:            j.Model,
+		Status:           string(j.Status),
+		Progress:         j.Progress,
+		ProgressPhase:    j.ProgressPhase,
+		ProgressMessage:  j.ProgressMessage,
+		ErrorCode:        j.ErrorCode,
+		ErrorMessage:     j.ErrorMessage,
+		ErrorTitle:       title,
+		ErrorHint:        hint,
+		RetryCount:       j.RetryCount,
+		MaxAttempts:      j.MaxAttempts,
+		AttachedRequests: j.AttachedRequests,
+		InputTokens:      j.InputTokens,
+		OutputTokens:     j.OutputTokens,
+		SnapshotBytes:    j.SnapshotBytes,
+		ArtifactID:       j.ArtifactID,
+		RepoID:           j.RepoID,
+		ElapsedMs:        j.Elapsed().Milliseconds(),
+		CreatedAt:        j.CreatedAt,
+		StartedAt:        j.StartedAt,
+		UpdatedAt:        j.UpdatedAt,
+		CompletedAt:      j.CompletedAt,
 	}
 }
 
@@ -164,10 +169,11 @@ func toMonitorJobView(j *llm.Job) monitorJobView {
 func parseListFilter(r *http.Request) llm.ListFilter {
 	q := r.URL.Query()
 	filter := llm.ListFilter{
-		Subsystem: llm.Subsystem(q.Get("subsystem")),
-		JobType:   q.Get("job_type"),
-		RepoID:    q.Get("repo_id"),
-		TargetKey: q.Get("target_key"),
+		Subsystem:  llm.Subsystem(q.Get("subsystem")),
+		JobType:    q.Get("job_type"),
+		RepoID:     q.Get("repo_id"),
+		ArtifactID: q.Get("artifact_id"),
+		TargetKey:  q.Get("target_key"),
 	}
 	if v := q.Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -221,6 +227,7 @@ func (s *Server) handleLLMActivity(w http.ResponseWriter, r *http.Request) {
 	for _, j := range active {
 		activeViews = append(activeViews, toMonitorJobView(j))
 	}
+	enrichQueueMetadata(activeViews, s.orchestrator.PendingSnapshot(activeFilter), s.orchestrator.Metrics(), s.orchestrator.MaxConcurrency())
 	recentViews := make([]monitorJobView, 0, len(recent))
 	for _, j := range recent {
 		recentViews = append(recentViews, toMonitorJobView(j))
@@ -255,6 +262,43 @@ func (s *Server) handleLLMActivity(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func enrichQueueMetadata(active []monitorJobView, pending []*llm.Job, metrics orchestrator.Snapshot, maxConcurrency int) {
+	if len(active) == 0 {
+		return
+	}
+	positions := make(map[string]int, len(pending))
+	queueDepth := len(pending)
+	for idx, job := range pending {
+		positions[job.ID] = idx + 1
+	}
+	defaultWait := metrics.Overall.P50LatencyMs
+	if defaultWait <= 0 {
+		defaultWait = 30000
+	}
+	if maxConcurrency <= 0 {
+		maxConcurrency = 1
+	}
+	for i := range active {
+		if active[i].Status != string(llm.StatusPending) {
+			continue
+		}
+		pos := positions[active[i].ID]
+		active[i].QueuePosition = pos
+		active[i].QueueDepth = queueDepth
+		waitBase := defaultWait
+		if stats, ok := metrics.ByJobType[active[i].Subsystem+"/"+active[i].JobType]; ok && stats.P50LatencyMs > 0 {
+			waitBase = stats.P50LatencyMs
+		} else if stats, ok := metrics.BySubsystem[active[i].Subsystem]; ok && stats.P50LatencyMs > 0 {
+			waitBase = stats.P50LatencyMs
+		}
+		wavesAhead := pos - 1
+		if wavesAhead < 0 {
+			wavesAhead = 0
+		}
+		active[i].EstimatedWaitMs = int64((wavesAhead / maxConcurrency)) * waitBase
+	}
 }
 
 // computeMonitorHealth derives the traffic-light health banner from
@@ -312,6 +356,33 @@ func (s *Server) handleLLMJobDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, toMonitorJobView(job))
+}
+
+func (s *Server) handleLLMJobCancel(w http.ResponseWriter, r *http.Request) {
+	if s.orchestrator == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "llm orchestrator not configured",
+		})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
+		return
+	}
+	if err := s.orchestrator.Cancel(id); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	job := s.orchestrator.GetJob(id)
+	if job == nil {
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "cancellation_requested"})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status": "cancellation_requested",
+		"job":    toMonitorJobView(job),
+	})
 }
 
 // handleLLMJobRetry is a convenience endpoint. Today it does not

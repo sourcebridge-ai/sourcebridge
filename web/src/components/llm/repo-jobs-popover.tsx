@@ -28,6 +28,10 @@ interface JobView {
   error_title?: string;
   error_hint?: string;
   error_code?: string;
+  attached_requests?: number;
+  queue_position?: number;
+  queue_depth?: number;
+  estimated_wait_ms?: number;
   elapsed_ms: number;
   updated_at: string;
 }
@@ -61,6 +65,13 @@ function statusColor(status: JobView["status"]): string {
     case "cancelled":
       return "bg-gray-400";
   }
+}
+
+function formatQueueEta(ms?: number): string | null {
+  if (!ms || ms <= 0) return null;
+  const seconds = Math.ceil(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.ceil(seconds / 60)}m`;
 }
 
 export function RepoJobsPopover({ repoId }: { repoId: string }) {
@@ -193,6 +204,18 @@ export function RepoJobsPopover({ repoId }: { repoId: string }) {
                       </span>
                       <span>{pct}%</span>
                     </div>
+                    {job.status === "pending" && job.queue_position ? (
+                      <div className="mt-1 text-[11px] text-[var(--text-tertiary)]">
+                        Queue #{job.queue_position}
+                        {job.queue_depth ? ` of ${job.queue_depth}` : ""}
+                        {formatQueueEta(job.estimated_wait_ms) ? ` · ~${formatQueueEta(job.estimated_wait_ms)}` : ""}
+                      </div>
+                    ) : null}
+                    {job.attached_requests && job.attached_requests > 1 ? (
+                      <div className="mt-1 text-[11px] text-[var(--text-tertiary)]">
+                        Shared by {job.attached_requests} requests
+                      </div>
+                    ) : null}
                     <div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--bg-subtle)]">
                       <div
                         className="h-full rounded-full bg-[color:var(--color-accent,#3b82f6)] transition-all"

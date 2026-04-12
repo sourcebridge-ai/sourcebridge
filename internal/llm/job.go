@@ -9,6 +9,7 @@
 package llm
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -94,6 +95,9 @@ type Job struct {
 	RetryCount  int `json:"retry_count"`
 	MaxAttempts int `json:"max_attempts"`
 	TimeoutSec  int `json:"timeout_sec"`
+	// AttachedRequests counts how many enqueue attempts coalesced into this
+	// job through dedupe. The initial request sets it to 1.
+	AttachedRequests int `json:"attached_requests"`
 
 	InputTokens   int `json:"input_tokens"`
 	OutputTokens  int `json:"output_tokens"`
@@ -148,6 +152,10 @@ type EnqueueRequest struct {
 	RepoID      string
 	TimeoutSec  int
 	MaxAttempts int
+	// RunWithContext is the preferred execution hook. The orchestrator supplies
+	// a cancellable context so queued/running jobs can be cancelled cleanly.
+	// When nil, Run is used for backward compatibility.
+	RunWithContext func(ctx context.Context, rt Runtime) error
 	// Run is the closure that performs the actual work. It receives a
 	// Runtime for reporting progress, tokens, and errors. The orchestrator
 	// calls Run inside the bounded queue worker, so Run must be safe to
@@ -169,7 +177,7 @@ func (r *EnqueueRequest) Validate() error {
 	if strings.TrimSpace(r.TargetKey) == "" {
 		return fmt.Errorf("target_key is required (used for dedupe)")
 	}
-	if r.Run == nil {
+	if r.RunWithContext == nil && r.Run == nil {
 		return fmt.Errorf("run function is required")
 	}
 	return nil
