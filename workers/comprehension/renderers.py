@@ -214,28 +214,52 @@ class CliffNotesRenderer:
             context=f"hierarchical_render:cliff_notes:{scope_type}",
         )
 
-        response: LLMResponse = require_nonempty(
-            await complete_with_optional_model(
-                self.provider,
-                prompt,
-                system=CLIFF_NOTES_SYSTEM,
-                temperature=0.0,
-                max_tokens=self.max_tokens_per_call,
-                model=self.model_override,
-            ),
-            context=f"hierarchical_render:cliff_notes:{scope_type}",
-        )
+        try:
+            response: LLMResponse = require_nonempty(
+                await complete_with_optional_model(
+                    self.provider,
+                    prompt,
+                    system=CLIFF_NOTES_SYSTEM,
+                    temperature=0.0,
+                    max_tokens=self.max_tokens_per_call,
+                    model=self.model_override,
+                ),
+                context=f"hierarchical_render:cliff_notes:{scope_type}",
+            )
 
-        sections = self._parse_sections(response.content, required_sections)
+            sections = self._parse_sections(response.content, required_sections)
 
-        usage = LLMUsageRecord(
-            provider="llm",
-            model=response.model,
-            input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens,
-            operation="cliff_notes_render",
-            entity_name=repository_name,
-        )
+            usage = LLMUsageRecord(
+                provider="llm",
+                model=response.model,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                operation="cliff_notes_render",
+                entity_name=repository_name,
+            )
+        except Exception as exc:
+            log.warning(
+                "cliff_notes_renderer_fallback",
+                repository=repository_name,
+                scope_type=scope_type,
+                error=str(exc),
+            )
+            sections = self._fallback_sections(
+                required_sections=required_sections,
+                root=root,
+                groups=group_nodes,
+                files=file_nodes,
+                scope_type=scope_type,
+                scope_path=scope_path,
+            )
+            usage = LLMUsageRecord(
+                provider="llm",
+                model=self.model_override or "fallback",
+                input_tokens=0,
+                output_tokens=0,
+                operation="cliff_notes_render_fallback",
+                entity_name=repository_name,
+            )
 
         log.info(
             "cliff_notes_renderer_completed",
@@ -313,6 +337,57 @@ class CliffNotesRenderer:
             body = node.summary_text.strip()
             lines.append(f"{label_prefix}: {label}\n  {headline}\n  {body}")
         return "\n\n".join(lines)
+
+    def _fallback_sections(
+        self,
+        *,
+        required_sections: list[str],
+        root: SummaryNode,
+        groups: list[SummaryNode],
+        files: list[SummaryNode],
+        scope_type: str,
+        scope_path: str,
+    ) -> list[CliffNotesSection]:
+        scope_label = scope_path or scope_type or "repository"
+        root_summary = (root.summary_text or "No repository summary was available.").strip()
+        group_lines = self._summary_bullets(groups, max_items=4)
+        file_lines = self._summary_bullets(files, max_items=6)
+        fallback_note = (
+            "The model backend failed during the final render step, so this section was assembled "
+            "from the hierarchical summaries that were already produced."
+        )
+        sections: list[CliffNotesSection] = []
+        for title in required_sections:
+            content = (
+                f"{root_summary}\n\n"
+                f"Scope: {scope_label}.\n\n"
+                f"Notable subsystems:\n{group_lines}\n\n"
+                f"Notable files:\n{file_lines}\n\n"
+                f"{fallback_note}"
+            )
+            sections.append(
+                CliffNotesSection(
+                    title=title,
+                    content=content,
+                    summary=f"Fallback summary for {title.lower()} built from hierarchical repository notes.",
+                    confidence="low",
+                    inferred=True,
+                    evidence=[],
+                )
+            )
+        return sections
+
+    def _summary_bullets(self, nodes: list[SummaryNode], *, max_items: int) -> str:
+        if not nodes:
+            return "- No grounded summaries were available."
+        lines: list[str] = []
+        for node in nodes[:max_items]:
+            label = _node_label(node)
+            summary = (node.summary_text or node.headline or "").strip().replace("\n", " ")
+            if not summary:
+                summary = "Summary unavailable."
+            lines.append(f"- {label}: {summary[:220]}")
+        return "\n".join(lines)
 
     def _parse_sections(
         self,

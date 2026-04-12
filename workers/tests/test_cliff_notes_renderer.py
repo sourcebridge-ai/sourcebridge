@@ -56,6 +56,31 @@ class _RecordingProvider:
         yield ""
 
 
+@dataclass
+class _FailingProvider:
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        model: str | None = None,
+    ) -> LLMResponse:
+        raise RuntimeError("Compute error.")
+
+    async def stream(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        model: str | None = None,
+    ) -> AsyncIterator[str]:
+        yield ""
+
+
 def _build_tree() -> SummaryTree:
     """A small 4-level tree with 1 root, 2 packages, 3 files, 4 leaves.
     Sufficient to exercise the renderer's selection + formatting."""
@@ -216,6 +241,22 @@ async def test_render_raises_on_empty_tree() -> None:
 
     with pytest.raises(ValueError):
         await renderer.render(empty_tree, repository_name="Sample")
+
+
+@pytest.mark.asyncio
+async def test_render_falls_back_when_final_render_call_fails() -> None:
+    provider = _FailingProvider()
+    renderer = CliffNotesRenderer(provider=provider)
+    tree = _build_tree()
+
+    result, usage = await renderer.render(tree, repository_name="Sample")
+
+    titles = [s.title for s in result.sections]
+    for required in REQUIRED_SECTIONS:
+        assert required in titles
+    assert all(s.confidence == "low" for s in result.sections)
+    assert all(s.inferred for s in result.sections)
+    assert usage.operation == "cliff_notes_render_fallback"
 
 
 @pytest.mark.asyncio
