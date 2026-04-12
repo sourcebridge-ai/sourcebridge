@@ -518,9 +518,8 @@ export default function RepositoryDetailPage() {
     const now = Date.now();
     for (const job of repoJobs.recent) {
       if (job.status !== "ready" && job.status !== "failed" && job.status !== "cancelled") continue;
-      const marker = `${job.status}:${job.updated_at}`;
-      if (seenRepoTerminalRef.current[job.id] === marker) continue;
-      seenRepoTerminalRef.current[job.id] = marker;
+      if (seenRepoTerminalRef.current[job.id] === job.status) continue;
+      seenRepoTerminalRef.current[job.id] = job.status;
       const updatedMs = new Date(job.updated_at).getTime();
       if (!updatedMs || now - updatedMs > 20_000) continue;
       if (job.status === "ready") {
@@ -528,12 +527,7 @@ export default function RepositoryDetailPage() {
       } else if (job.status === "failed") {
         notifyJobEvent("Repository generation failed", job.error_title || `${job.job_type} failed for ${repoResult.data?.repository?.name || "this repository"}.`);
       } else {
-        const localCancelAt = locallyCancelledJobsRef.current[job.id];
-        if (localCancelAt && now - localCancelAt < 30_000) {
-          delete locallyCancelledJobsRef.current[job.id];
-          continue;
-        }
-        notifyJobEvent("Repository generation cancelled", `${job.job_type} was cancelled for ${repoResult.data?.repository?.name || "this repository"}.`);
+        delete locallyCancelledJobsRef.current[job.id];
       }
     }
   }, [repoJobs?.recent, repoResult.data?.repository?.name]);
