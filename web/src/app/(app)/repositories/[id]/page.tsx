@@ -2182,7 +2182,7 @@ export default function RepositoryDetailPage() {
                         <div className="flex shrink-0 gap-2">
                           {!currentWorkflowStory ? (
                             <Button variant="secondary" size="sm" onClick={handleGenerateWorkflowStory} disabled={knowledgeLoading || isWorkflowStoryGenerating}>
-                              {currentWorkflowStory?.status === "PENDING" ? "Queued..." : isWorkflowStoryGenerating ? "Generating..." : "Generate story"}
+                              {isWorkflowStoryGenerating ? "Generating..." : "Generate story"}
                             </Button>
                           ) : null}
                           {currentWorkflowStory ? (
