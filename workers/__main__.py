@@ -91,7 +91,13 @@ async def serve() -> None:
     requirements_servicer = RequirementsServicer(llm_provider)
     requirements_pb2_grpc.add_RequirementsServiceServicer_to_server(requirements_servicer, server)
 
-    knowledge_servicer = KnowledgeServicer(llm_provider, embedding_provider, report_llm=report_llm, worker_config=config)
+    knowledge_servicer = KnowledgeServicer(
+        llm_provider,
+        embedding_provider,
+        default_model_id=config.llm_model,
+        report_llm=report_llm,
+        worker_config=config,
+    )
     knowledge_pb2_grpc.add_KnowledgeServiceServicer_to_server(knowledge_servicer, server)
 
     contracts_servicer = ContractsServicer()

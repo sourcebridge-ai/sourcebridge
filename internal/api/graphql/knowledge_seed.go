@@ -9,6 +9,7 @@ import (
 	knowledgev1 "github.com/sourcebridge/sourcebridge/gen/go/knowledge/v1"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/llm"
 )
 
 func (r *mutationResolver) seedRepositoryFieldGuide(repoID string) {
@@ -109,117 +110,140 @@ func (r *mutationResolver) ensureKnowledgeArtifact(repo *graphstore.Repository, 
 		return
 	}
 
-	switch key.Type {
-	case knowledgepkg.ArtifactCliffNotes:
-		resp, err := r.Worker.GenerateCliffNotes(context.Background(), &knowledgev1.GenerateCliffNotesRequest{
-			RepositoryId:   repo.ID,
-			RepositoryName: repo.Name,
-			Audience:       string(key.Audience),
-			Depth:          string(key.Depth),
-			ScopeType:      string(key.Scope.ScopeType),
-			ScopePath:      key.Scope.ScopePath,
-			SnapshotJson:   snapshotJSON,
-		})
-		if err != nil {
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
-		}
-		sections := make([]knowledgepkg.Section, len(resp.Sections))
-		for i, sec := range resp.Sections {
-			sections[i] = knowledgepkg.Section{
-				Title:      sec.Title,
-				Content:    sec.Content,
-				Summary:    sec.Summary,
-				Confidence: mapProtoConfidence(sec.Confidence),
-				Inferred:   sec.Inferred,
-				Evidence:   mapProtoEvidence(sec.Evidence),
+	run := func(rt llm.Runtime) error {
+		rt.ReportProgress(0.1, "snapshot", "Seed snapshot assembled")
+		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Seed snapshot assembled")
+		stopProgress := r.startProgressTicker(rt, artifact.ID)
+		defer stopProgress()
+
+		bgCtx := r.withModelMetadata(context.Background(), "knowledge")
+		switch key.Type {
+		case knowledgepkg.ArtifactCliffNotes:
+			resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
+				RepositoryId:   repo.ID,
+				RepositoryName: repo.Name,
+				Audience:       string(key.Audience),
+				Depth:          string(key.Depth),
+				ScopeType:      string(key.Scope.ScopeType),
+				ScopePath:      key.Scope.ScopePath,
+				SnapshotJson:   snapshotJSON,
+			})
+			if err != nil {
+				return err
 			}
-		}
-		if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, sections); err != nil {
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-		}
-	case knowledgepkg.ArtifactLearningPath:
-		resp, err := r.Worker.GenerateLearningPath(context.Background(), &knowledgev1.GenerateLearningPathRequest{
-			RepositoryId:   repo.ID,
-			RepositoryName: repo.Name,
-			Audience:       string(key.Audience),
-			Depth:          string(key.Depth),
-			SnapshotJson:   snapshotJSON,
-		})
-		if err != nil {
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
-		}
-		sections := make([]knowledgepkg.Section, len(resp.Steps))
-		for i, step := range resp.Steps {
-			sections[i] = knowledgepkg.Section{
-				Title:      step.Title,
-				Content:    step.Content,
-				Summary:    step.Objective,
-				Confidence: knowledgepkg.ConfidenceMedium,
+			rt.ReportProgress(0.8, "llm", "Seed LLM completed, persisting")
+			sections := make([]knowledgepkg.Section, len(resp.Sections))
+			for i, sec := range resp.Sections {
+				sections[i] = knowledgepkg.Section{
+					Title:      sec.Title,
+					Content:    sec.Content,
+					Summary:    sec.Summary,
+					Confidence: mapProtoConfidence(sec.Confidence),
+					Inferred:   sec.Inferred,
+					Evidence:   mapProtoEvidence(sec.Evidence),
+				}
 			}
-		}
-		if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, sections); err != nil {
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-		}
-	case knowledgepkg.ArtifactCodeTour:
-		resp, err := r.Worker.GenerateCodeTour(context.Background(), &knowledgev1.GenerateCodeTourRequest{
-			RepositoryId:   repo.ID,
-			RepositoryName: repo.Name,
-			Audience:       string(key.Audience),
-			Depth:          string(key.Depth),
-			SnapshotJson:   snapshotJSON,
-		})
-		if err != nil {
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
-		}
-		sections := make([]knowledgepkg.Section, len(resp.Stops))
-		for i, stop := range resp.Stops {
-			sections[i] = knowledgepkg.Section{
-				Title:      stop.Title,
-				Content:    stop.Description,
-				Summary:    stop.FilePath,
-				Confidence: knowledgepkg.ConfidenceMedium,
-				Evidence: []knowledgepkg.Evidence{{
-					SourceType: knowledgepkg.EvidenceFile,
-					FilePath:   stop.FilePath,
-					LineStart:  int(stop.LineStart),
-					LineEnd:    int(stop.LineEnd),
-				}},
+			if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, sections); err != nil {
+				return err
 			}
-		}
-		if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, sections); err != nil {
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-		}
-	case knowledgepkg.ArtifactWorkflowStory:
-		resp, err := r.Worker.GenerateWorkflowStory(context.Background(), &knowledgev1.GenerateWorkflowStoryRequest{
-			RepositoryId:   repo.ID,
-			RepositoryName: repo.Name,
-			Audience:       string(key.Audience),
-			Depth:          string(key.Depth),
-			ScopeType:      string(key.Scope.ScopeType),
-			ScopePath:      key.Scope.ScopePath,
-			SnapshotJson:   snapshotJSON,
-		})
-		if err != nil {
-			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
-			return
-		}
-		sections := make([]knowledgepkg.Section, len(resp.Sections))
-		for i, sec := range resp.Sections {
-			sections[i] = knowledgepkg.Section{
-				Title:      sec.Title,
-				Content:    sec.Content,
-				Summary:    sec.Summary,
-				Confidence: mapProtoConfidence(sec.Confidence),
-				Inferred:   sec.Inferred,
-				Evidence:   mapProtoEvidence(sec.Evidence),
+		case knowledgepkg.ArtifactLearningPath:
+			resp, err := r.Worker.GenerateLearningPath(bgCtx, &knowledgev1.GenerateLearningPathRequest{
+				RepositoryId:   repo.ID,
+				RepositoryName: repo.Name,
+				Audience:       string(key.Audience),
+				Depth:          string(key.Depth),
+				SnapshotJson:   snapshotJSON,
+			})
+			if err != nil {
+				return err
 			}
+			rt.ReportProgress(0.8, "llm", "Seed LLM completed, persisting")
+			sections := make([]knowledgepkg.Section, len(resp.Steps))
+			for i, step := range resp.Steps {
+				sections[i] = knowledgepkg.Section{
+					Title:      step.Title,
+					Content:    step.Content,
+					Summary:    step.Objective,
+					Confidence: knowledgepkg.ConfidenceMedium,
+				}
+			}
+			if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, sections); err != nil {
+				return err
+			}
+		case knowledgepkg.ArtifactCodeTour:
+			resp, err := r.Worker.GenerateCodeTour(bgCtx, &knowledgev1.GenerateCodeTourRequest{
+				RepositoryId:   repo.ID,
+				RepositoryName: repo.Name,
+				Audience:       string(key.Audience),
+				Depth:          string(key.Depth),
+				SnapshotJson:   snapshotJSON,
+			})
+			if err != nil {
+				return err
+			}
+			rt.ReportProgress(0.8, "llm", "Seed LLM completed, persisting")
+			sections := make([]knowledgepkg.Section, len(resp.Stops))
+			for i, stop := range resp.Stops {
+				sections[i] = knowledgepkg.Section{
+					Title:      stop.Title,
+					Content:    stop.Description,
+					Summary:    stop.FilePath,
+					Confidence: knowledgepkg.ConfidenceMedium,
+					Evidence: []knowledgepkg.Evidence{{
+						SourceType: knowledgepkg.EvidenceFile,
+						FilePath:   stop.FilePath,
+						LineStart:  int(stop.LineStart),
+						LineEnd:    int(stop.LineEnd),
+					}},
+				}
+			}
+			if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, sections); err != nil {
+				return err
+			}
+		case knowledgepkg.ArtifactWorkflowStory:
+			resp, err := r.Worker.GenerateWorkflowStory(bgCtx, &knowledgev1.GenerateWorkflowStoryRequest{
+				RepositoryId:   repo.ID,
+				RepositoryName: repo.Name,
+				Audience:       string(key.Audience),
+				Depth:          string(key.Depth),
+				ScopeType:      string(key.Scope.ScopeType),
+				ScopePath:      key.Scope.ScopePath,
+				SnapshotJson:   snapshotJSON,
+			})
+			if err != nil {
+				return err
+			}
+			rt.ReportProgress(0.8, "llm", "Seed LLM completed, persisting")
+			sections := make([]knowledgepkg.Section, len(resp.Sections))
+			for i, sec := range resp.Sections {
+				sections[i] = knowledgepkg.Section{
+					Title:      sec.Title,
+					Content:    sec.Content,
+					Summary:    sec.Summary,
+					Confidence: mapProtoConfidence(sec.Confidence),
+					Inferred:   sec.Inferred,
+					Evidence:   mapProtoEvidence(sec.Evidence),
+				}
+			}
+			if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, sections); err != nil {
+				return err
+			}
+		default:
+			return nil
 		}
-		if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, sections); err != nil {
+		rt.ReportProgress(1.0, "ready", "Seed artifact ready")
+		return nil
+	}
+
+	jobType := "seed:" + string(key.Type)
+	if r.Orchestrator == nil {
+		if err := run(noopRuntime{}); err != nil {
 			persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 		}
+		return
+	}
+	if err := r.enqueueKnowledgeJob(artifact, jobType, len(snapshotJSON), run); err != nil {
+		persistArtifactFailure(r.KnowledgeStore, artifact.ID, err)
 	}
 }
 

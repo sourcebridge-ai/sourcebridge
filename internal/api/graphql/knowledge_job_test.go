@@ -1,0 +1,95 @@
+package graphql
+
+import (
+	"testing"
+	"time"
+
+	"github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/llm"
+	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
+)
+
+func TestEnqueueKnowledgeJobCreatesQueuedKnowledgeJob(t *testing.T) {
+	knowledgeStore := knowledge.NewMemStore()
+	jobStore := llm.NewMemStore()
+	orch := orchestrator.New(jobStore, orchestrator.Config{MaxConcurrency: 1})
+	defer func() {
+		_ = orch.Shutdown(2 * time.Second)
+	}()
+
+	key := knowledge.ArtifactKey{
+		RepositoryID: "repo-1",
+		Type:         knowledge.ArtifactCliffNotes,
+		Audience:     knowledge.AudienceDeveloper,
+		Depth:        knowledge.DepthMedium,
+		Scope:        knowledge.ArtifactScope{ScopeType: knowledge.ScopeRepository},
+	}
+	artifact, created, err := knowledgeStore.ClaimArtifact(key, knowledge.SourceRevision{})
+	if err != nil {
+		t.Fatalf("ClaimArtifact: %v", err)
+	}
+	if !created {
+		t.Fatal("expected fresh artifact claim")
+	}
+
+	r := &Resolver{
+		KnowledgeStore: knowledgeStore,
+		Orchestrator:   orch,
+	}
+
+	block := make(chan struct{})
+	err = r.enqueueKnowledgeJob(artifact, "seed:cliff_notes", 1234, func(rt llm.Runtime) error {
+		rt.ReportProgress(0.2, "snapshot", "queued")
+		<-block
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("enqueueKnowledgeJob: %v", err)
+	}
+
+	var job *llm.Job
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		active := orch.ListActive(llm.ListFilter{
+			Subsystem: llm.SubsystemKnowledge,
+			JobType:   "seed:cliff_notes",
+			RepoID:    "repo-1",
+		})
+		if len(active) > 0 {
+			job = active[0]
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if job == nil {
+		t.Fatal("expected active queued job")
+	}
+	if job.ArtifactID != artifact.ID {
+		t.Fatalf("expected artifact id %q, got %q", artifact.ID, job.ArtifactID)
+	}
+	if job.TargetKey != knowledgeJobTargetKey(key) {
+		t.Fatalf("expected target key %q, got %q", knowledgeJobTargetKey(key), job.TargetKey)
+	}
+	if job.Subsystem != llm.SubsystemKnowledge {
+		t.Fatalf("expected subsystem %q, got %q", llm.SubsystemKnowledge, job.Subsystem)
+	}
+	close(block)
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		job = jobStore.GetByID(job.ID)
+		if job != nil && job.Status == llm.StatusReady && job.SnapshotBytes == 1234 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if job == nil {
+		t.Fatal("expected completed job")
+	}
+	if job.Status != llm.StatusReady {
+		t.Fatalf("expected ready status, got %q", job.Status)
+	}
+	if job.SnapshotBytes != 1234 {
+		t.Fatalf("expected snapshot bytes 1234, got %d", job.SnapshotBytes)
+	}
+}

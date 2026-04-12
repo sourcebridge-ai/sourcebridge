@@ -109,11 +109,13 @@ func (r *Resolver) enqueueKnowledgeJob(
 	}
 
 	req := &llm.EnqueueRequest{
-		Subsystem:  llm.SubsystemKnowledge,
-		JobType:    jobType,
-		TargetKey:  knowledgeJobTargetKey(key),
-		ArtifactID: artifact.ID,
-		RepoID:     artifact.RepositoryID,
+		Subsystem:   llm.SubsystemKnowledge,
+		JobType:     jobType,
+		TargetKey:   knowledgeJobTargetKey(key),
+		Strategy:    "knowledge_artifact_queue",
+		ArtifactID:  artifact.ID,
+		RepoID:      artifact.RepositoryID,
+		MaxAttempts: 3,
 		Run: func(rt llm.Runtime) error {
 			if snapshotBytes > 0 {
 				rt.ReportSnapshotBytes(snapshotBytes)
