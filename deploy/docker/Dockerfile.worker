@@ -20,7 +20,7 @@ FROM ${PYTHON_BASE_IMAGE}
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
+    && apt-get install -y --no-install-recommends git ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for runtime
