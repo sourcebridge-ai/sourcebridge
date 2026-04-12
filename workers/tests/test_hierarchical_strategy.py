@@ -288,3 +288,19 @@ async def test_capability_requirements_allow_small_models() -> None:
     assert reqs.min_context_tokens <= 2048
     assert reqs.min_instruction_following == "low"
     assert reqs.requires_json_mode is False
+
+
+def test_config_from_env_reads_stage_token_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SOURCEBRIDGE_HIERARCHICAL_CONCURRENCY", "4")
+    monkeypatch.setenv("SOURCEBRIDGE_HIERARCHICAL_LEAF_MAX_TOKENS", "111")
+    monkeypatch.setenv("SOURCEBRIDGE_HIERARCHICAL_FILE_MAX_TOKENS", "222")
+    monkeypatch.setenv("SOURCEBRIDGE_HIERARCHICAL_PACKAGE_MAX_TOKENS", "333")
+    monkeypatch.setenv("SOURCEBRIDGE_HIERARCHICAL_ROOT_MAX_TOKENS", "444")
+
+    cfg = HierarchicalConfig.from_env(repository_name="toy")
+
+    assert cfg.leaf_concurrency == 4
+    assert cfg.leaf_max_tokens == 111
+    assert cfg.file_max_tokens == 222
+    assert cfg.package_max_tokens == 333
+    assert cfg.root_max_tokens == 444

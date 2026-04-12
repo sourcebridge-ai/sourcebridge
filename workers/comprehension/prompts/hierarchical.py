@@ -34,9 +34,11 @@ LEAF_SUMMARY_TEMPLATE = """\
 Summarize this code segment for a developer who is reading the rest of the repository.
 
 Constraints:
-- Output format: first line is a headline (≤100 chars), then a blank line, then a body of 2-5 sentences.
+- Output format: first line is a headline (≤100 chars), then a blank line, then a body of 2-3 short sentences.
 - The headline should name what this code does, not what it's called.
-- Mention any external dependencies, side effects, or pitfalls you can identify.
+- Focus on the primary responsibility first.
+- Mention external dependencies, side effects, or pitfalls only if they materially matter.
+- Keep the body under 120 words.
 - Do NOT copy the code into the summary.
 - Do NOT speculate beyond what the code shows.
 
@@ -61,10 +63,11 @@ FILE_SUMMARY_TEMPLATE = """\
 Summarize this file based on the summaries of its segments below.
 
 Constraints:
-- Output format: first line is a headline (≤100 chars), then a blank line, then a body of 2-5 sentences.
+- Output format: first line is a headline (≤100 chars), then a blank line, then a body of 3-4 short sentences.
 - Explain what role this file plays in the repository, not a line-by-line walkthrough.
 - Cross-reference segments when one depends on another.
 - Flag anything unusual (complex logic, heavy side effects, test/mock status).
+- Keep the body under 160 words.
 
 Context:
 - Repository: {repository_name}
@@ -84,9 +87,10 @@ PACKAGE_SUMMARY_TEMPLATE = """\
 Summarize this package/module based on the summaries of its files below.
 
 Constraints:
-- Output format: first line is a headline (≤100 chars), then a blank line, then a body of 3-6 sentences.
+- Output format: first line is a headline (≤100 chars), then a blank line, then a body of 4-5 short sentences.
 - Explain what this package is for, how its files cooperate, and what depends on it.
 - Flag cross-package collaboration you can infer from the file summaries.
+- Keep the body under 220 words.
 
 Context:
 - Repository: {repository_name}
@@ -107,11 +111,12 @@ ROOT_SUMMARY_TEMPLATE = """\
 Summarize this entire repository based on the package summaries below.
 
 Constraints:
-- Output format: headline (≤120 chars), blank line, then 6-12 sentences.
+- Output format: headline (≤120 chars), blank line, then 6-8 short sentences.
 - Cover: what the repo is, who it serves, the main building blocks, the
   primary execution flows, and any notable dependencies/infrastructure.
 - Do NOT invent details that aren't in the package summaries.
 - Do NOT include marketing language.
+- Keep the body under 320 words.
 
 Context:
 - Repository: {repository_name}

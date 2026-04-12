@@ -74,7 +74,10 @@ log = structlog.get_logger()
 
 
 DEFAULT_LEAF_CONCURRENCY = 1
-DEFAULT_MAX_TOKENS_PER_CALL = 16384  # thinking models (Qwen 3.x) consume thousands of tokens on <think> chains before producing visible summary text
+DEFAULT_LEAF_MAX_TOKENS = 384
+DEFAULT_FILE_MAX_TOKENS = 640
+DEFAULT_PACKAGE_MAX_TOKENS = 896
+DEFAULT_ROOT_MAX_TOKENS = 1280
 
 
 @dataclass
@@ -102,7 +105,10 @@ class HierarchicalConfig:
 
     repository_name: str = ""
     leaf_concurrency: int = DEFAULT_LEAF_CONCURRENCY
-    max_tokens_per_call: int = DEFAULT_MAX_TOKENS_PER_CALL
+    leaf_max_tokens: int = DEFAULT_LEAF_MAX_TOKENS
+    file_max_tokens: int = DEFAULT_FILE_MAX_TOKENS
+    package_max_tokens: int = DEFAULT_PACKAGE_MAX_TOKENS
+    root_max_tokens: int = DEFAULT_ROOT_MAX_TOKENS
     model_override: str | None = None
     cached_tree: SummaryTree | None = None
     on_stage_completed: Callable[[str, SummaryTree], Awaitable[None]] | None = None
@@ -111,16 +117,28 @@ class HierarchicalConfig:
     @classmethod
     def from_env(cls, repository_name: str = "") -> HierarchicalConfig:
         """Load tunables from environment variables, falling back to defaults."""
-        raw_conc = os.environ.get("SOURCEBRIDGE_HIERARCHICAL_CONCURRENCY", "").strip()
-        try:
-            conc = int(raw_conc) if raw_conc else DEFAULT_LEAF_CONCURRENCY
-        except ValueError:
-            conc = DEFAULT_LEAF_CONCURRENCY
+        conc = _env_int("SOURCEBRIDGE_HIERARCHICAL_CONCURRENCY", DEFAULT_LEAF_CONCURRENCY)
         if conc <= 0:
-            conc = 1
+            conc = DEFAULT_LEAF_CONCURRENCY
         return cls(
             repository_name=repository_name,
             leaf_concurrency=conc,
+            leaf_max_tokens=_env_int(
+                "SOURCEBRIDGE_HIERARCHICAL_LEAF_MAX_TOKENS",
+                DEFAULT_LEAF_MAX_TOKENS,
+            ),
+            file_max_tokens=_env_int(
+                "SOURCEBRIDGE_HIERARCHICAL_FILE_MAX_TOKENS",
+                DEFAULT_FILE_MAX_TOKENS,
+            ),
+            package_max_tokens=_env_int(
+                "SOURCEBRIDGE_HIERARCHICAL_PACKAGE_MAX_TOKENS",
+                DEFAULT_PACKAGE_MAX_TOKENS,
+            ),
+            root_max_tokens=_env_int(
+                "SOURCEBRIDGE_HIERARCHICAL_ROOT_MAX_TOKENS",
+                DEFAULT_ROOT_MAX_TOKENS,
+            ),
         )
 
 
@@ -407,6 +425,7 @@ class HierarchicalStrategy:
             prompt,
             context=context,
             fallback="Could not summarize this segment.",
+            max_tokens=self._config.leaf_max_tokens,
         )
         elapsed_ms = int((monotonic() - leaf_started) * 1000)
         if elapsed_ms >= 30000:
@@ -478,6 +497,7 @@ class HierarchicalStrategy:
             prompt,
             context=f"hierarchical:file:{file_path}",
             fallback=f"Could not summarize file {file_path}.",
+            max_tokens=self._config.file_max_tokens,
         )
         node = SummaryNode(
             id=str(uuid.uuid4()),
@@ -525,6 +545,7 @@ class HierarchicalStrategy:
             prompt,
             context=f"hierarchical:package:{unit.label}",
             fallback=f"Could not summarize package {unit.label}.",
+            max_tokens=self._config.package_max_tokens,
         )
         node = SummaryNode(
             id=str(uuid.uuid4()),
@@ -576,6 +597,7 @@ class HierarchicalStrategy:
             prompt,
             context="hierarchical:root",
             fallback=f"Could not summarize repository {self._config.repository_name}.",
+            max_tokens=self._config.root_max_tokens,
         )
         node = SummaryNode(
             id=str(uuid.uuid4()),
@@ -606,6 +628,7 @@ class HierarchicalStrategy:
         *,
         context: str,
         fallback: str,
+        max_tokens: int,
     ) -> tuple[str, str, int, int]:
         """Call the provider with budget + empty-response guards.
 
@@ -634,7 +657,7 @@ class HierarchicalStrategy:
                         prompt,
                         system=HIERARCHICAL_SYSTEM,
                         temperature=0.0,
-                        max_tokens=self._config.max_tokens_per_call,
+                        max_tokens=max_tokens,
                         model=self._config.model_override,
                     ),
                     context=context,
@@ -764,3 +787,14 @@ async def _maybe_await(value: object) -> None:
     """
     if asyncio.iscoroutine(value):
         await value
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
