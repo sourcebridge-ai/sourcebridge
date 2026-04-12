@@ -368,6 +368,7 @@ func TestIsRetryableClassification(t *testing.T) {
 		{"deadline retryable", errors.New("context deadline exceeded"), true},
 		{"snapshot too large not retryable", errors.New("snapshot too large (ctx): 30000 > 24000"), false},
 		{"connection refused retryable", errors.New("dial tcp: connection refused"), true},
+		{"provider compute retryable", errors.New("Error code: 500 - {'error': {'code': 500, 'message': 'Compute error.', 'type': 'server_error'}}"), true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -376,6 +377,60 @@ func TestIsRetryableClassification(t *testing.T) {
 				t.Fatalf("IsRetryable(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSubsystemBreakerCooldownDelaysNextJobAfterProviderComputeFailures(t *testing.T) {
+	orch := newTestOrchestrator(t, Config{
+		MaxConcurrency:        1,
+		ComputeErrorThreshold: 1,
+		ComputeCooldown:       30 * time.Millisecond,
+		Retry: RetryPolicy{
+			MaxAttempts: 1,
+		},
+	})
+
+	first, err := orch.Enqueue(&llm.EnqueueRequest{
+		Subsystem: llm.SubsystemKnowledge,
+		JobType:   "cliff_notes",
+		TargetKey: "repo-1:breaker:first",
+		Run: func(rt llm.Runtime) error {
+			return errors.New("Error code: 500 - {'error': {'code': 500, 'message': 'Compute error.', 'type': 'server_error'}}")
+		},
+	})
+	if err != nil {
+		t.Fatalf("first enqueue failed: %v", err)
+	}
+	waitFor(t, time.Second, func() bool {
+		j := orch.GetJob(first.ID)
+		return j != nil && j.Status == llm.StatusFailed
+	})
+
+	start := time.Now()
+	var ranAt atomic.Int64
+	second, err := orch.Enqueue(&llm.EnqueueRequest{
+		Subsystem: llm.SubsystemKnowledge,
+		JobType:   "learning_path",
+		TargetKey: "repo-1:breaker:second",
+		Run: func(rt llm.Runtime) error {
+			ranAt.Store(time.Now().UnixNano())
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("second enqueue failed: %v", err)
+	}
+	waitFor(t, time.Second, func() bool {
+		j := orch.GetJob(second.ID)
+		return j != nil && j.Status == llm.StatusReady
+	})
+
+	runTime := time.Unix(0, ranAt.Load())
+	if runTime.IsZero() {
+		t.Fatal("expected second job to run")
+	}
+	if runTime.Sub(start) < 25*time.Millisecond {
+		t.Fatalf("expected breaker delay before second job run, got %s", runTime.Sub(start))
 	}
 }
 

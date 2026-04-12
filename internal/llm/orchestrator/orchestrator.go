@@ -52,6 +52,12 @@ type Config struct {
 	Retry RetryPolicy
 	// MetricsCapacity is the per-bucket sample buffer. Default 256.
 	MetricsCapacity int
+	// ComputeErrorThreshold opens the subsystem breaker after this many
+	// consecutive provider compute failures. Default 3.
+	ComputeErrorThreshold int
+	// ComputeCooldown is how long the breaker stays open once tripped.
+	// Default 20s.
+	ComputeCooldown time.Duration
 	// OnStaleJob is called when the reaper marks a stuck job as failed.
 	// The orchestrator passes the job so the caller can clean up related
 	// state (e.g. mark the linked knowledge artifact as failed too).
@@ -76,6 +82,12 @@ func (c Config) withDefaults() Config {
 	if c.MetricsCapacity <= 0 {
 		c.MetricsCapacity = 256
 	}
+	if c.ComputeErrorThreshold <= 0 {
+		c.ComputeErrorThreshold = 3
+	}
+	if c.ComputeCooldown <= 0 {
+		c.ComputeCooldown = 20 * time.Second
+	}
 	return c
 }
 
@@ -86,6 +98,7 @@ type Orchestrator struct {
 	store    llm.JobStore
 	inflight *inflightRegistry
 	metrics  *metrics
+	breaker  *subsystemBreaker
 
 	// queue carries pending work to the worker pool.
 	queue   chan *workItem
@@ -118,6 +131,7 @@ func New(store llm.JobStore, cfg Config) *Orchestrator {
 		store:       store,
 		inflight:    newInflightRegistry(),
 		metrics:     newMetrics(cfg.MetricsCapacity),
+		breaker:     newSubsystemBreaker(cfg.ComputeErrorThreshold, cfg.ComputeCooldown),
 		queue:       make(chan *workItem, cfg.QueueCapacity),
 		ctx:         ctx,
 		cancel:      cancel,
@@ -460,6 +474,18 @@ func (o *Orchestrator) runJob(item *workItem) {
 		maxAttempts = o.cfg.Retry.MaxAttempts
 	}
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if cooldown := o.breaker.waitDuration(req.Subsystem); cooldown > 0 {
+			_ = o.store.SetProgress(jobID, 0.02, "backoff", "Waiting for model backend to recover")
+			if job := o.store.GetByID(jobID); job != nil {
+				o.publish(llm.JobEvent{Kind: llm.EventProgress, Job: job})
+			}
+			select {
+			case <-time.After(cooldown):
+			case <-o.ctx.Done():
+				o.finalizeCancelled(jobID)
+				return
+			}
+		}
 		if attempt > 1 {
 			backoff := o.cfg.Retry.BackoffFor(attempt)
 			select {
@@ -510,6 +536,7 @@ func (o *Orchestrator) finalizeReady(jobID string, req *llm.EnqueueRequest) {
 	if err := o.store.SetStatus(jobID, llm.StatusReady); err != nil {
 		slog.Warn("llm_job_set_ready_failed", "job_id", jobID, "error", err)
 	}
+	o.breaker.recordSuccess(req.Subsystem)
 	job := o.store.GetByID(jobID)
 	if job != nil {
 		o.metrics.record(req.Subsystem, req.JobType, job.Elapsed(), llm.StatusReady)
@@ -521,6 +548,7 @@ func (o *Orchestrator) finalizeReady(jobID string, req *llm.EnqueueRequest) {
 // and emits an event.
 func (o *Orchestrator) finalizeFailed(jobID string, req *llm.EnqueueRequest, err error) {
 	code := ClassifyError(err)
+	o.breaker.recordFailure(req.Subsystem, code)
 	msg := "unknown error"
 	if err != nil {
 		msg = err.Error()
