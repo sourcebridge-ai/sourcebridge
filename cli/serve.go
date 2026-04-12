@@ -25,6 +25,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
+	"github.com/sourcebridge/sourcebridge/internal/telemetry"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
 )
 
@@ -224,6 +225,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Start anonymous telemetry (opt-out via SOURCEBRIDGE_TELEMETRY=off)
+	dataDir := cfg.Storage.RepoCachePath
+	if dataDir == "" {
+		dataDir = "/data"
+	}
+	tracker := telemetry.New(
+		cfg.Server.PublicBaseURL,
+		cfg.Edition,
+		dataDir,
+		telemetry.WithCountProvider(&telemetryCountProvider{store: store}),
+	)
+	tracker.Start()
+	defer tracker.Stop()
+
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.HTTPPort),
 		Handler:      server.Handler(),
@@ -406,4 +421,30 @@ func (a *queueControlAdapter) SaveQueueControl(rec *rest.QueueControlRecord) err
 	return a.store.SaveQueueControl(&db.QueueControlRecord{
 		IntakePaused: rec.IntakePaused,
 	})
+}
+
+// telemetryCountProvider provides aggregate counts from the graph store.
+type telemetryCountProvider struct {
+	store graph.GraphStore
+}
+
+func (p *telemetryCountProvider) TelemetryCounts() (repos, users int, features []string, counts map[string]int) {
+	if p.store == nil {
+		return 0, 0, nil, nil
+	}
+	allRepos := p.store.ListRepositories()
+	repos = len(allRepos)
+
+	var totalFiles, totalSymbols int
+	for _, r := range allRepos {
+		totalFiles += r.FileCount
+		totalSymbols += r.FunctionCount + r.ClassCount
+	}
+
+	counts = map[string]int{
+		"total_files":   totalFiles,
+		"total_symbols": totalSymbols,
+	}
+
+	return repos, 0, nil, counts
 }

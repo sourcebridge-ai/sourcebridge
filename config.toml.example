@@ -3,6 +3,12 @@
 # Environment variables override file values. The env prefix is SOURCEBRIDGE_
 # with nested keys joined by underscores, e.g. SOURCEBRIDGE_LLM_BASE_URL.
 
+# ─── Telemetry ─────────────────────────────────────────────────────
+# Anonymous usage data helps us improve SourceBridge. No PII is collected.
+# Disable via SOURCEBRIDGE_TELEMETRY=off or DO_NOT_TRACK=1.
+# [telemetry]
+# enabled = true
+
 # ─── Cloud mode (Anthropic) — best quality, requires API key ───────
 # [llm]
 # provider = "anthropic"
