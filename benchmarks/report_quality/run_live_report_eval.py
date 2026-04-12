@@ -66,7 +66,7 @@ def http_json(
     *,
     token: str | None = None,
     payload: dict[str, Any] | None = None,
-    timeout: int = 60,
+    timeout: int = 120,
 ) -> Any:
     cmd = [
         "curl",
@@ -185,7 +185,7 @@ def poll_report(base_url: str, report_id: str, token: str | None, timeout_second
     deadline = time.time() + timeout_seconds
     last = None
     while time.time() < deadline:
-        last = http_json("GET", f"{base_url.rstrip('/')}/api/v1/reports/{report_id}", token=token)
+        last = http_json("GET", f"{base_url.rstrip('/')}/api/v1/reports/{report_id}", token=token, timeout=120)
         status = str(last.get("status", "")).lower()
         if status in {"ready", "failed"}:
             return last
@@ -287,6 +287,7 @@ def main() -> int:
     metrics["repo_id"] = target_repo["id"]
     metrics["repo_name"] = target_repo["name"]
     metrics["analysis_depth"] = args.analysis_depth
+    metrics["report_type"] = args.report_type
     metrics["base_url"] = args.base_url
     metrics["started_at"] = started_at.isoformat()
     metrics["completed_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
@@ -334,6 +335,7 @@ def main() -> int:
             "repo_id": target_repo["id"],
             "repo_name": target_repo["name"],
             "analysis_depth": args.analysis_depth,
+            "report_type": args.report_type,
             "quality_score": metrics["quality_score"],
             "evidence_count": metrics["evidence_count"],
             "placeholder_count": metrics["placeholder_count"],

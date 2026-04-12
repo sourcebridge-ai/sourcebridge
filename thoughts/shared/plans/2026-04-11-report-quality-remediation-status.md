@@ -22,6 +22,15 @@ This note tracks the live remediation work for poor enterprise report quality ag
 - Curated the default `Architecture Baseline` section set for `C-Suite / Board` so the report no longer tries to force the full long-form section catalog into a one-repository baseline.
 - Replaced more of the opening and governance-access material with deterministic descriptive rendering rather than open-ended synthesis.
 - Cleaned the cover page and appendix output so the final document reads more like a baseline deliverable and less like an exported system artifact.
+- Extended the same deterministic, descriptive rendering model to the other report types used by the enterprise wizard:
+  - `swot`
+  - `environment_eval`
+  - `due_diligence`
+  - `compliance_gap`
+  - `portfolio_health`
+- Added C-suite section curation for those report types so they no longer emit the full prompt-heavy templates by default.
+- Excluded dedicated recommendation/remediation sections automatically when `includeRecommendations=false`.
+- Increased the live benchmark harness poll timeout so long-running report types are less likely to fail due to harness-side HTTP timeouts.
 
 ## Key Live Runs
 
@@ -76,27 +85,58 @@ This note tracks the live remediation work for poor enterprise report quality ag
   - opening pages are more descriptive and less obviously system-generated
   - recommendations remain absent when disabled
 
+- `20260412T041954Z-macu-residence-deep`
+  - report `c973c5ce-2be0-42fe-8686-ab8de662ff4e`
+  - type `swot`
+  - `quality_score=100`
+  - compact four-section SWOT with deterministic, evidence-bounded bullets rather than long prompt-generated narrative
+
+- `20260412T042006Z-macu-residence-deep`
+  - report `cc9d394c-19d2-40b9-a722-d371fd2fd3cc`
+  - type `environment_eval`
+  - `quality_score=100`
+  - reduced from long inferred environment prose to six concise evidence-backed sections
+
+- `20260412T041357Z-macu-residence-deep`
+  - report `8c517d33-12f6-4208-9093-bc11dc3f34f3`
+  - type `due_diligence`
+  - `quality_score=100`
+  - now reads as a short diligence summary instead of an invented investment memo
+
+- `20260412T041409Z-macu-residence-deep`
+  - report `64d34024-f902-4d5d-b357-18f346a7cc23`
+  - type `compliance_gap`
+  - `quality_score=100`
+  - now framed as a repository-evidence control inventory instead of speculative compliance conclusions
+
+- `20260412T041421Z-macu-residence-deep`
+  - report `c250d26e-28d2-4d17-baa0-b90de663a138`
+  - type `portfolio_health`
+  - `quality_score=100`
+  - now behaves like a compact dashboard summary rather than a repeated prose dump
+
 ## Current Recommendation
 
-Use the curated descriptive worker behavior from `ent-20260411-191306` as the baseline.
+Use the curated descriptive worker behavior from `ent-20260412-001539` as the baseline.
 
 Reason:
 
 - It keeps the stronger trust boundary that earlier remediation introduced.
 - It removes more of the obvious machine-shaped framing from the cover page, opening sections, and appendices.
 - The curated section set is better aligned with a one-repository C-suite baseline and avoids low-value sections that previously made the document feel auto-generated.
-- Remaining issues are now primarily editorial polish, not factual trust or pipeline integrity.
+- The same deterministic strategy now covers the non-baseline report types as well, so they no longer drift into long synthetic consultant prose.
+- Remaining issues are now primarily editorial polish and a rollout-time worker readiness race, not factual trust or pipeline integrity.
 
 ## Current Live Worker Tag
 
-- `ent-20260411-191306`
+- `ent-20260412-001539`
 
 ## Remaining Issues
 
 - The opening summary is still more repository-metric-led than a strong human-authored baseline would be.
 - Several section titles are inherited from the long-form template and are broader than the concise descriptive content now emitted under them.
 - The appendices are cleaner, but they still read like internal evidence summaries rather than client-ready appendix prose.
-- The live benchmark still occasionally records post-rollout transient gRPC dial failures that should be classified separately from content regressions.
+- The live benchmark still occasionally records post-rollout transient gRPC dial failures because the API can enqueue work before the worker pod is fully listening on `50051`; these should be classified separately from content regressions.
 
 ## Suggested Next Moves
 
