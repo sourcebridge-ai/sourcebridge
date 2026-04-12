@@ -47,6 +47,11 @@ from workers.reasoning.types import LLMUsageRecord
 log = structlog.get_logger()
 
 
+def _is_provider_compute_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "compute error" in text or "server_error" in text
+
+
 CLIFF_NOTES_RENDER_TEMPLATE = """\
 You are writing a detailed field guide for developers joining this codebase. \
 The repository has been analyzed — use the summaries below to write \
@@ -215,20 +220,11 @@ class CliffNotesRenderer:
         )
 
         try:
-            response: LLMResponse = require_nonempty(
-                await complete_with_optional_model(
-                    self.provider,
-                    prompt,
-                    system=CLIFF_NOTES_SYSTEM,
-                    temperature=0.0,
-                    max_tokens=self.max_tokens_per_call,
-                    model=self.model_override,
-                ),
-                context=f"hierarchical_render:cliff_notes:{scope_type}",
+            response = await self._render_with_retry(
+                prompt=prompt,
+                scope_type=scope_type,
             )
-
             sections = self._parse_sections(response.content, required_sections)
-
             usage = LLMUsageRecord(
                 provider="llm",
                 model=response.model,
@@ -272,6 +268,46 @@ class CliffNotesRenderer:
         )
 
         return CliffNotesResult(sections=sections), usage
+
+    async def _render_with_retry(
+        self,
+        *,
+        prompt: str,
+        scope_type: str,
+    ) -> LLMResponse:
+        context = f"hierarchical_render:cliff_notes:{scope_type}"
+        last_exc: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                return require_nonempty(
+                    await complete_with_optional_model(
+                        self.provider,
+                        prompt,
+                        system=CLIFF_NOTES_SYSTEM,
+                        temperature=0.0,
+                        max_tokens=self.max_tokens_per_call,
+                        model=self.model_override,
+                    ),
+                    context=context,
+                )
+            except Exception as exc:
+                last_exc = exc
+                if _is_provider_compute_error(exc) and attempt < 3:
+                    delay = 0.4 * (2 ** (attempt - 1))
+                    log.warning(
+                        "cliff_notes_renderer_retry",
+                        scope_type=scope_type,
+                        attempt=attempt,
+                        delay_s=delay,
+                        error=str(exc),
+                    )
+                    import asyncio
+
+                    await asyncio.sleep(delay)
+                    continue
+                break
+        assert last_exc is not None
+        raise last_exc
 
     # ------------------------------------------------------------------
     # Selection helpers

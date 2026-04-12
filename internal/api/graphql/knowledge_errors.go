@@ -25,6 +25,9 @@ func classifyError(err error) string {
 
 	msg := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(msg, "degraded due to repeated model backend compute failures"),
+		strings.Contains(msg, "final cliff notes render degraded due to model backend compute failures"):
+		return "DEGRADED_COMPUTE"
 	case strings.Contains(msg, "llm returned empty content"):
 		return "LLM_EMPTY"
 	case strings.Contains(msg, "snapshot too large"), strings.Contains(msg, "exceeds budget"):

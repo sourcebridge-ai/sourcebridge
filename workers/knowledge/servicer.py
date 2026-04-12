@@ -398,12 +398,24 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         )
 
         tree = await strategy.build_tree(corpus)
+        diagnostics = strategy.diagnostics()
 
         log.info(
             "cliff_notes_hierarchical_tree_built",
             repository_id=request.repository_id,
             stats=tree.stats(),
+            fallback_count=diagnostics["fallback_count"],
+            provider_compute_errors=diagnostics["provider_compute_errors"],
+            root_fallback=diagnostics["root_fallback"],
         )
+
+        total_nodes = max(len(tree.nodes), 1)
+        fallback_count = int(diagnostics["fallback_count"])
+        if bool(diagnostics["root_fallback"]) or fallback_count / total_nodes >= 0.2:
+            raise RuntimeError(
+                "hierarchical summarization degraded due to repeated model backend compute failures "
+                f"(fallback_nodes={fallback_count}, total_nodes={total_nodes})"
+            )
 
         # Extract pre-analysis from enriched snapshot (deep mode injects
         # repository-level cliff notes as _pre_analysis)
@@ -423,12 +435,19 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             pre_analysis=pre_analysis,
         )
 
+        if usage.operation == "cliff_notes_render_fallback":
+            raise RuntimeError(
+                "final cliff notes render degraded due to model backend compute failures"
+            )
+
         log.info(
             "cliff_notes_hierarchical_completed",
             repository_id=request.repository_id,
             sections=len(result.sections),
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
+            fallback_count=fallback_count,
+            provider_compute_errors=diagnostics["provider_compute_errors"],
         )
         return result, usage
 

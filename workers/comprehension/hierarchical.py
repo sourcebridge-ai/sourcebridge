@@ -65,7 +65,7 @@ from workers.comprehension.tree import SummaryNode, SummaryTree
 log = structlog.get_logger()
 
 
-DEFAULT_LEAF_CONCURRENCY = 4
+DEFAULT_LEAF_CONCURRENCY = 2
 DEFAULT_MAX_TOKENS_PER_CALL = 16384  # thinking models (Qwen 3.x) consume thousands of tokens on <think> chains before producing visible summary text
 
 
@@ -122,6 +122,9 @@ class HierarchicalStrategy:
     def __init__(self, provider: LLMProvider, config: HierarchicalConfig | None = None) -> None:
         self._provider = provider
         self._config = config or HierarchicalConfig()
+        self._fallback_count = 0
+        self._provider_compute_errors = 0
+        self._root_fallback = False
 
     def capability_requirements(self) -> CapabilityRequirements:
         # Hierarchical is the floor strategy — every LLM call is small
@@ -143,6 +146,10 @@ class HierarchicalStrategy:
         each level's parents sequentially (parents are fast — one call
         per parent — and sequencing avoids a deeper concurrency bloom).
         """
+        self._fallback_count = 0
+        self._provider_compute_errors = 0
+        self._root_fallback = False
+
         by_level = walk_by_level(corpus)
         leaf_units = by_level.get(0, [])
         file_units = by_level.get(1, [])
@@ -207,6 +214,13 @@ class HierarchicalStrategy:
         )
         await _maybe_await(progress("ready", 1.0, "Hierarchical summary tree built"))
         return tree
+
+    def diagnostics(self) -> dict[str, int | bool]:
+        return {
+            "fallback_count": self._fallback_count,
+            "provider_compute_errors": self._provider_compute_errors,
+            "root_fallback": self._root_fallback,
+        }
 
     # ------------------------------------------------------------------
     # Level-specific summarization helpers
@@ -453,31 +467,53 @@ class HierarchicalStrategy:
             # body exceeding the budget is a real problem.
             raise
 
-        try:
-            response: LLMResponse = require_nonempty(
-                await complete_with_optional_model(
-                    self._provider,
-                    prompt,
-                    system=HIERARCHICAL_SYSTEM,
-                    temperature=0.0,
-                    max_tokens=self._config.max_tokens_per_call,
-                    model=self._config.model_override,
-                ),
-                context=context,
-            )
-            return (
-                response.content.strip(),
-                response.model,
-                response.input_tokens,
-                response.output_tokens,
-            )
-        except Exception as exc:
-            log.warning(
-                "hierarchical_node_fallback",
-                context=context,
-                error=str(exc),
-            )
-            return (fallback, self._config.model_override or "unknown", 0, 0)
+        max_attempts = 3
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response: LLMResponse = require_nonempty(
+                    await complete_with_optional_model(
+                        self._provider,
+                        prompt,
+                        system=HIERARCHICAL_SYSTEM,
+                        temperature=0.0,
+                        max_tokens=self._config.max_tokens_per_call,
+                        model=self._config.model_override,
+                    ),
+                    context=context,
+                )
+                return (
+                    response.content.strip(),
+                    response.model,
+                    response.input_tokens,
+                    response.output_tokens,
+                )
+            except Exception as exc:
+                last_exc = exc
+                if _is_provider_compute_error(exc):
+                    self._provider_compute_errors += 1
+                    if attempt < max_attempts:
+                        delay = 0.35 * (2 ** (attempt - 1))
+                        log.warning(
+                            "hierarchical_node_retry",
+                            context=context,
+                            attempt=attempt,
+                            delay_s=delay,
+                            error=str(exc),
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                break
+
+        self._fallback_count += 1
+        if ":root" in context:
+            self._root_fallback = True
+        log.warning(
+            "hierarchical_node_fallback",
+            context=context,
+            error=str(last_exc) if last_exc else "unknown error",
+        )
+        return (fallback, self._config.model_override or "unknown", 0, 0)
 
     def _populate_child_ids(
         self,
@@ -541,6 +577,11 @@ def _first_line(text: str) -> str:
         if line:
             return line[:140]
     return ""
+
+
+def _is_provider_compute_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "compute error" in text or "server_error" in text
 
 
 async def _maybe_await(value: object) -> None:

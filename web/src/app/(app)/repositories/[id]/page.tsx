@@ -159,6 +159,8 @@ function knowledgeErrorHint(errorCode: string | null | undefined): string {
       return "The worker could not be reached. Check the worker process or deployment health.";
     case "PROVIDER_COMPUTE":
       return "The model backend returned a compute failure. The queue now backs off automatically, but you may need to retry once the model server recovers.";
+    case "DEGRADED_COMPUTE":
+      return "The generation was blocked because the model backend degraded during summarization. The system refused to save low-quality fallback output as a completed artifact.";
     case "CANCELLED":
       return "The generation was cancelled before completion.";
     default:
