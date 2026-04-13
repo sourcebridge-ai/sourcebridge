@@ -242,18 +242,7 @@ func (s *Server) handleLLMActivity(w http.ResponseWriter, r *http.Request) {
 	// healthy orchestrator with an unreachable worker is "degraded".
 	workerConnected := s.worker != nil && s.worker.IsAvailable()
 
-	// Count recent successes and failures for the health banner.
-	var succeeded, failed int
-	for _, j := range recent {
-		switch j.Status {
-		case llm.StatusReady:
-			succeeded++
-		case llm.StatusFailed:
-			failed++
-		}
-	}
-
-	health := computeMonitorHealth(workerConnected, len(activeViews), succeeded, failed)
+	health := computeMonitorHealth(workerConnected, len(activeViews), recentViews)
 
 	resp := monitorActivityResponse{
 		Health:  health,
@@ -310,10 +299,30 @@ func enrichQueueMetadata(active []monitorJobView, pending []*llm.Job, metrics or
 }
 
 // computeMonitorHealth derives the traffic-light health banner from
-// the current worker state and the last hour's success/failure counts.
-// The thresholds are deliberately simple — if the last 5 jobs had >=4
-// failures, that's red; if >=2, yellow; otherwise green.
-func computeMonitorHealth(workerConnected bool, activeCount, succeeded, failed int) monitorHealth {
+// the current worker state and recent terminal jobs.
+//
+// Rollouts can create short bursts of WORKER_UNAVAILABLE /
+// ORCHESTRATOR_SHUTDOWN failures that do not reflect steady-state model
+// health. Those are tracked separately so the banner can warn about
+// recent churn without declaring the whole system unhealthy when the
+// worker is currently reachable and other jobs are succeeding.
+func computeMonitorHealth(workerConnected bool, activeCount int, recent []monitorJobView) monitorHealth {
+	var succeeded, failed int
+	var transientInfraFailures int
+	for _, j := range recent {
+		switch j.Status {
+		case string(llm.StatusReady):
+			succeeded++
+		case string(llm.StatusFailed):
+			failed++
+			switch j.ErrorCode {
+			case "WORKER_UNAVAILABLE", "ORCHESTRATOR_SHUTDOWN":
+				transientInfraFailures++
+			}
+		}
+	}
+	actionableFailures := failed - transientInfraFailures
+
 	h := monitorHealth{
 		WorkerConnected: workerConnected,
 		ActiveCount:     activeCount,
@@ -326,12 +335,15 @@ func computeMonitorHealth(workerConnected bool, activeCount, succeeded, failed i
 	case !workerConnected:
 		h.Status = "unhealthy"
 		h.Summary = "Worker not reachable — AI jobs cannot run until the worker comes back."
-	case total >= 5 && failed*2 > total:
+	case total >= 5 && actionableFailures*2 > total:
 		h.Status = "unhealthy"
-		h.Summary = fmt.Sprintf("Majority of recent jobs are failing — %d failed of %d in the last hour. Check the Monitor detail view for error codes.", failed, total)
-	case failed > 0 && total >= 2 && float64(failed)/float64(total) >= 0.2:
+		h.Summary = fmt.Sprintf("Majority of recent jobs are failing — %d actionable failures of %d jobs in the last hour. Check the Monitor detail view for error codes.", actionableFailures, total)
+	case transientInfraFailures > 0 && actionableFailures == 0:
 		h.Status = "degraded"
-		h.Summary = fmt.Sprintf("Some recent jobs have failed — %d of %d in the last hour. Jobs are still completing.", failed, total)
+		h.Summary = fmt.Sprintf("Recent worker restarts interrupted %d job(s), but the worker is reachable again and new jobs can run.", transientInfraFailures)
+	case actionableFailures > 0 && total >= 2 && float64(actionableFailures)/float64(total) >= 0.2:
+		h.Status = "degraded"
+		h.Summary = fmt.Sprintf("Some recent jobs have failed — %d actionable failures of %d in the last hour. Jobs are still completing.", actionableFailures, total)
 	case activeCount > 0:
 		h.Status = "healthy"
 		h.Summary = fmt.Sprintf("Running smoothly — %d job(s) active, %d completed in the last hour, %d failures.", activeCount, succeeded, failed)

@@ -171,3 +171,31 @@ def test_code_corpus_leaf_content_raises_on_non_leaf() -> None:
     corpus = CodeCorpus(snapshot=_sample_snapshot())
     with pytest.raises(ValueError):
         corpus.leaf_content(corpus.root())
+
+
+def test_code_corpus_chunks_noisy_integration_files_without_losing_symbol_names() -> None:
+    symbols = []
+    for idx in range(8):
+        symbols.append({
+            "id": f"sym-{idx}",
+            "name": f"helper_{idx}",
+            "kind": "function",
+            "file_path": "backend/services/google_sheets.py",
+            "start_line": 10 + idx * 5,
+            "end_line": 13 + idx * 5,
+            "signature": f"def helper_{idx}(): ...",
+        })
+    snap = {
+        "repository_id": "repo-noisy",
+        "repository_name": "NoisyRepo",
+        "file_count": 1,
+        "symbol_count": len(symbols),
+        "entry_points": symbols,
+    }
+    corpus = CodeCorpus(snapshot=snap)
+    leaves = list(walk_leaves(corpus))
+    assert len(leaves) == 2
+    bodies = [corpus.leaf_content(leaf) for leaf in leaves]
+    joined = "\n".join(bodies)
+    assert "helper_0" in joined
+    assert "helper_7" in joined

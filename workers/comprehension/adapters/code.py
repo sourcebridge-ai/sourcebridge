@@ -39,6 +39,19 @@ from typing import Any
 
 from workers.comprehension.corpus import CorpusUnit, UnitKind, content_hash
 
+SYMBOL_CHUNK_TARGET = 4
+NOISY_SYMBOL_THRESHOLD = 6
+INTEGRATION_PATH_MARKERS = (
+    "/service",
+    "/services/",
+    "/integration",
+    "/integrations/",
+    "crawler",
+    "scraper",
+    "sheets",
+    "client",
+)
+
 
 @dataclass
 class CodeCorpus:
@@ -216,44 +229,77 @@ class CodeCorpus:
                     self._leaf_texts[leaf_id] = leaf_text
                     continue
 
-                for sym in symbols:
-                    sym_id_raw = str(sym.get("id") or sym.get("qualified_name") or sym.get("name") or "")
-                    if not sym_id_raw:
-                        continue
-                    leaf_id = f"leaf:{file_path}#{sym_id_raw}"
-                    name = str(sym.get("name") or sym_id_raw)
-                    signature = str(sym.get("signature") or "")
-                    doc = str(sym.get("doc_comment") or "")
-                    kind = str(sym.get("kind") or "symbol")
-                    start_line = int(sym.get("start_line") or 0)
-                    end_line = int(sym.get("end_line") or 0)
-                    body_lines = int(sym.get("line_count") or max(0, end_line - start_line))
+                symbol_groups = _group_symbols_for_file(file_path, symbols)
+                for group_index, symbol_group in enumerate(symbol_groups, start=1):
+                    if len(symbol_group) == 1:
+                        sym = symbol_group[0]
+                        sym_id_raw = str(sym.get("id") or sym.get("qualified_name") or sym.get("name") or "")
+                        if not sym_id_raw:
+                            continue
+                        leaf_id = f"leaf:{file_path}#{sym_id_raw}"
+                        name = str(sym.get("name") or sym_id_raw)
+                        signature = str(sym.get("signature") or "")
+                        doc = str(sym.get("doc_comment") or "")
+                        kind = str(sym.get("kind") or "symbol")
+                        start_line = int(sym.get("start_line") or 0)
+                        end_line = int(sym.get("end_line") or 0)
+                        body_lines = int(sym.get("line_count") or max(0, end_line - start_line))
 
-                    leaf_text = _render_leaf_text(
-                        name=name,
-                        kind=kind,
-                        signature=signature,
-                        doc=doc,
+                        leaf_text = _render_leaf_text(
+                            name=name,
+                            kind=kind,
+                            signature=signature,
+                            doc=doc,
+                            file_path=file_path,
+                            start_line=start_line,
+                            end_line=end_line,
+                        )
+                        self._add_unit(CorpusUnit(
+                            id=leaf_id,
+                            kind=UnitKind.LEAF,
+                            level=0,
+                            label=name,
+                            parent_id=file_id,
+                            size_tokens=max(50, body_lines * 8),
+                            content_hash=content_hash(leaf_text),
+                            metadata={
+                                "file_path": file_path,
+                                "language": language,
+                                "symbol_id": sym_id_raw,
+                                "symbol_name": name,
+                                "symbol_kind": kind,
+                                "start_line": start_line,
+                                "end_line": end_line,
+                            },
+                        ))
+                        self._leaf_texts[leaf_id] = leaf_text
+                        continue
+
+                    chunk_label = f"{_basename(file_path)} chunk {group_index}"
+                    leaf_id = f"leaf:{file_path}#chunk:{group_index}"
+                    leaf_text = _render_symbol_chunk_text(
                         file_path=file_path,
-                        start_line=start_line,
-                        end_line=end_line,
+                        symbols=symbol_group,
                     )
+                    total_lines = 0
+                    for sym in symbol_group:
+                        start_line = int(sym.get("start_line") or 0)
+                        end_line = int(sym.get("end_line") or 0)
+                        total_lines += int(sym.get("line_count") or max(0, end_line - start_line))
                     self._add_unit(CorpusUnit(
                         id=leaf_id,
                         kind=UnitKind.LEAF,
                         level=0,
-                        label=name,
+                        label=chunk_label,
                         parent_id=file_id,
-                        size_tokens=max(50, body_lines * 8),
+                        size_tokens=max(150, total_lines * 8),
                         content_hash=content_hash(leaf_text),
                         metadata={
                             "file_path": file_path,
                             "language": language,
-                            "symbol_id": sym_id_raw,
-                            "symbol_name": name,
-                            "symbol_kind": kind,
-                            "start_line": start_line,
-                            "end_line": end_line,
+                            "symbol_count": len(symbol_group),
+                            "symbol_names": [str(sym.get("name") or "") for sym in symbol_group],
+                            "chunked": True,
                         },
                     ))
                     self._leaf_texts[leaf_id] = leaf_text
@@ -381,3 +427,52 @@ def _render_leaf_text(
         location += f":{start_line}-{end_line}"
     parts.append(location)
     return "\n".join(parts)
+
+
+def _render_symbol_chunk_text(*, file_path: str, symbols: list[dict[str, Any]]) -> str:
+    parts = [f"File summary chunk for {file_path}"]
+    for sym in symbols:
+        sym_id_raw = str(sym.get("id") or sym.get("qualified_name") or sym.get("name") or "")
+        name = str(sym.get("name") or sym_id_raw)
+        signature = str(sym.get("signature") or "")
+        doc = str(sym.get("doc_comment") or "")
+        kind = str(sym.get("kind") or "symbol")
+        start_line = int(sym.get("start_line") or 0)
+        end_line = int(sym.get("end_line") or 0)
+        parts.append("")
+        parts.append(
+            _render_leaf_text(
+                name=name,
+                kind=kind,
+                signature=signature,
+                doc=doc,
+                file_path=file_path,
+                start_line=start_line,
+                end_line=end_line,
+            )
+        )
+    return "\n".join(parts)
+
+
+def _group_symbols_for_file(file_path: str, symbols: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    if not _should_chunk_symbols(file_path, symbols):
+        return [[sym] for sym in symbols]
+    grouped: list[list[dict[str, Any]]] = []
+    for idx in range(0, len(symbols), SYMBOL_CHUNK_TARGET):
+        grouped.append(symbols[idx:idx + SYMBOL_CHUNK_TARGET])
+    return grouped
+
+
+def _should_chunk_symbols(file_path: str, symbols: list[dict[str, Any]]) -> bool:
+    if len(symbols) < NOISY_SYMBOL_THRESHOLD:
+        return False
+    lowered = file_path.lower()
+    if any(marker in lowered for marker in INTEGRATION_PATH_MARKERS):
+        return True
+    total_body_lines = 0
+    for sym in symbols:
+        start_line = int(sym.get("start_line") or 0)
+        end_line = int(sym.get("end_line") or 0)
+        total_body_lines += int(sym.get("line_count") or max(0, end_line - start_line))
+    avg_body_lines = total_body_lines / max(len(symbols), 1)
+    return avg_body_lines <= 30

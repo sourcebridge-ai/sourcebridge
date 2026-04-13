@@ -66,7 +66,13 @@ func TestErrorTitleForCodeCoversKnownCodes(t *testing.T) {
 
 func TestComputeMonitorHealthHappyPath(t *testing.T) {
 	// Worker up, 3 active, 5 succeeded, 0 failed -> healthy with active summary.
-	h := computeMonitorHealth(true, 3, 5, 0)
+	h := computeMonitorHealth(true, 3, []monitorJobView{
+		{Status: string(llm.StatusReady)},
+		{Status: string(llm.StatusReady)},
+		{Status: string(llm.StatusReady)},
+		{Status: string(llm.StatusReady)},
+		{Status: string(llm.StatusReady)},
+	})
 	if h.Status != "healthy" {
 		t.Fatalf("expected healthy status, got %q", h.Status)
 	}
@@ -77,7 +83,12 @@ func TestComputeMonitorHealthHappyPath(t *testing.T) {
 
 func TestComputeMonitorHealthDegraded(t *testing.T) {
 	// 1 failed out of 4 -> degraded (25%)
-	h := computeMonitorHealth(true, 0, 3, 1)
+	h := computeMonitorHealth(true, 0, []monitorJobView{
+		{Status: string(llm.StatusReady)},
+		{Status: string(llm.StatusReady)},
+		{Status: string(llm.StatusReady)},
+		{Status: string(llm.StatusFailed), ErrorCode: "DEADLINE_EXCEEDED"},
+	})
 	if h.Status != "degraded" {
 		t.Fatalf("expected degraded status, got %q (%s)", h.Status, h.Summary)
 	}
@@ -85,16 +96,35 @@ func TestComputeMonitorHealthDegraded(t *testing.T) {
 
 func TestComputeMonitorHealthUnhealthy(t *testing.T) {
 	// 4 failed out of 5 -> unhealthy
-	h := computeMonitorHealth(true, 0, 1, 4)
+	h := computeMonitorHealth(true, 0, []monitorJobView{
+		{Status: string(llm.StatusReady)},
+		{Status: string(llm.StatusFailed), ErrorCode: "DEADLINE_EXCEEDED"},
+		{Status: string(llm.StatusFailed), ErrorCode: "DEADLINE_EXCEEDED"},
+		{Status: string(llm.StatusFailed), ErrorCode: "INTERNAL"},
+		{Status: string(llm.StatusFailed), ErrorCode: "INTERNAL"},
+	})
 	if h.Status != "unhealthy" {
 		t.Fatalf("expected unhealthy status, got %q (%s)", h.Status, h.Summary)
 	}
 }
 
 func TestComputeMonitorHealthWorkerDown(t *testing.T) {
-	h := computeMonitorHealth(false, 0, 10, 0)
+	h := computeMonitorHealth(false, 0, []monitorJobView{
+		{Status: string(llm.StatusReady)},
+	})
 	if h.Status != "unhealthy" {
 		t.Fatalf("expected unhealthy when worker is down, got %q", h.Status)
+	}
+}
+
+func TestComputeMonitorHealthTreatsRestartNoiseAsDegraded(t *testing.T) {
+	h := computeMonitorHealth(true, 0, []monitorJobView{
+		{Status: string(llm.StatusFailed), ErrorCode: "WORKER_UNAVAILABLE"},
+		{Status: string(llm.StatusFailed), ErrorCode: "WORKER_UNAVAILABLE"},
+		{Status: string(llm.StatusReady)},
+	})
+	if h.Status != "degraded" {
+		t.Fatalf("expected degraded status for restart noise, got %q (%s)", h.Status, h.Summary)
 	}
 }
 
