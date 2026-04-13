@@ -399,24 +399,27 @@ type ImportResult struct {
 }
 
 type KnowledgeArtifact struct {
-	ID              string                  `json:"id"`
-	RepositoryID    string                  `json:"repositoryId"`
-	Type            KnowledgeArtifactType   `json:"type"`
-	Audience        KnowledgeAudience       `json:"audience"`
-	Depth           KnowledgeDepth          `json:"depth"`
-	Scope           *KnowledgeScope         `json:"scope"`
-	Status          KnowledgeArtifactStatus `json:"status"`
-	Progress        float64                 `json:"progress"`
-	ProgressPhase   *string                 `json:"progressPhase,omitempty"`
-	ProgressMessage *string                 `json:"progressMessage,omitempty"`
-	SourceRevision  *SourceRevision         `json:"sourceRevision"`
-	Stale           bool                    `json:"stale"`
-	GeneratedAt     *time.Time              `json:"generatedAt,omitempty"`
-	CreatedAt       time.Time               `json:"createdAt"`
-	UpdatedAt       time.Time               `json:"updatedAt"`
-	ErrorCode       *string                 `json:"errorCode,omitempty"`
-	ErrorMessage    *string                 `json:"errorMessage,omitempty"`
-	Sections        []*KnowledgeSection     `json:"sections"`
+	ID                      string                  `json:"id"`
+	RepositoryID            string                  `json:"repositoryId"`
+	Type                    KnowledgeArtifactType   `json:"type"`
+	Audience                KnowledgeAudience       `json:"audience"`
+	Depth                   KnowledgeDepth          `json:"depth"`
+	Scope                   *KnowledgeScope         `json:"scope"`
+	Status                  KnowledgeArtifactStatus `json:"status"`
+	Progress                float64                 `json:"progress"`
+	ProgressPhase           *string                 `json:"progressPhase,omitempty"`
+	ProgressMessage         *string                 `json:"progressMessage,omitempty"`
+	SourceRevision          *SourceRevision         `json:"sourceRevision"`
+	Stale                   bool                    `json:"stale"`
+	GeneratedAt             *time.Time              `json:"generatedAt,omitempty"`
+	CreatedAt               time.Time               `json:"createdAt"`
+	UpdatedAt               time.Time               `json:"updatedAt"`
+	ErrorCode               *string                 `json:"errorCode,omitempty"`
+	ErrorMessage            *string                 `json:"errorMessage,omitempty"`
+	UnderstandingID         *string                 `json:"understandingId,omitempty"`
+	UnderstandingRevisionFp *string                 `json:"understandingRevisionFp,omitempty"`
+	RefreshAvailable        bool                    `json:"refreshAvailable"`
+	Sections                []*KnowledgeSection     `json:"sections"`
 }
 
 type KnowledgeEvidence struct {
@@ -528,23 +531,43 @@ type RepoLink struct {
 }
 
 type Repository struct {
-	ID                 string              `json:"id"`
-	Name               string              `json:"name"`
-	Path               string              `json:"path"`
-	RemoteURL          *string             `json:"remoteUrl,omitempty"`
-	CommitSha          *string             `json:"commitSha,omitempty"`
-	Branch             *string             `json:"branch,omitempty"`
-	HasAuth            bool                `json:"hasAuth"`
-	Status             RepositoryStatus    `json:"status"`
-	FileCount          int                 `json:"fileCount"`
-	FunctionCount      int                 `json:"functionCount"`
-	ClassCount         int                 `json:"classCount"`
-	RequirementCount   int                 `json:"requirementCount"`
-	LastIndexedAt      *time.Time          `json:"lastIndexedAt,omitempty"`
-	CreatedAt          time.Time           `json:"createdAt"`
-	Files              *FileConnection     `json:"files"`
-	Modules            []*Module           `json:"modules"`
-	UnderstandingScore *UnderstandingScore `json:"understandingScore,omitempty"`
+	ID                      string                   `json:"id"`
+	Name                    string                   `json:"name"`
+	Path                    string                   `json:"path"`
+	RemoteURL               *string                  `json:"remoteUrl,omitempty"`
+	CommitSha               *string                  `json:"commitSha,omitempty"`
+	Branch                  *string                  `json:"branch,omitempty"`
+	HasAuth                 bool                     `json:"hasAuth"`
+	Status                  RepositoryStatus         `json:"status"`
+	FileCount               int                      `json:"fileCount"`
+	FunctionCount           int                      `json:"functionCount"`
+	ClassCount              int                      `json:"classCount"`
+	RequirementCount        int                      `json:"requirementCount"`
+	LastIndexedAt           *time.Time               `json:"lastIndexedAt,omitempty"`
+	CreatedAt               time.Time                `json:"createdAt"`
+	Files                   *FileConnection          `json:"files"`
+	Modules                 []*Module                `json:"modules"`
+	UnderstandingScore      *UnderstandingScore      `json:"understandingScore,omitempty"`
+	RepositoryUnderstanding *RepositoryUnderstanding `json:"repositoryUnderstanding,omitempty"`
+}
+
+type RepositoryUnderstanding struct {
+	ID               string                            `json:"id"`
+	RepositoryID     string                            `json:"repositoryId"`
+	Scope            *KnowledgeScope                   `json:"scope"`
+	CorpusID         *string                           `json:"corpusId,omitempty"`
+	RevisionFp       string                            `json:"revisionFp"`
+	Strategy         *string                           `json:"strategy,omitempty"`
+	Stage            RepositoryUnderstandingStage      `json:"stage"`
+	TreeStatus       RepositoryUnderstandingTreeStatus `json:"treeStatus"`
+	CachedNodes      int                               `json:"cachedNodes"`
+	TotalNodes       int                               `json:"totalNodes"`
+	ModelUsed        *string                           `json:"modelUsed,omitempty"`
+	RefreshAvailable bool                              `json:"refreshAvailable"`
+	CreatedAt        time.Time                         `json:"createdAt"`
+	UpdatedAt        time.Time                         `json:"updatedAt"`
+	ErrorCode        *string                           `json:"errorCode,omitempty"`
+	ErrorMessage     *string                           `json:"errorMessage,omitempty"`
 }
 
 type Requirement struct {
@@ -1602,6 +1625,126 @@ func (e *RepositoryStatus) UnmarshalJSON(b []byte) error {
 }
 
 func (e RepositoryStatus) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type RepositoryUnderstandingStage string
+
+const (
+	RepositoryUnderstandingStageBuildingTree   RepositoryUnderstandingStage = "BUILDING_TREE"
+	RepositoryUnderstandingStageFirstPassReady RepositoryUnderstandingStage = "FIRST_PASS_READY"
+	RepositoryUnderstandingStageNeedsRefresh   RepositoryUnderstandingStage = "NEEDS_REFRESH"
+	RepositoryUnderstandingStageDeepening      RepositoryUnderstandingStage = "DEEPENING"
+	RepositoryUnderstandingStageReady          RepositoryUnderstandingStage = "READY"
+	RepositoryUnderstandingStageFailed         RepositoryUnderstandingStage = "FAILED"
+)
+
+var AllRepositoryUnderstandingStage = []RepositoryUnderstandingStage{
+	RepositoryUnderstandingStageBuildingTree,
+	RepositoryUnderstandingStageFirstPassReady,
+	RepositoryUnderstandingStageNeedsRefresh,
+	RepositoryUnderstandingStageDeepening,
+	RepositoryUnderstandingStageReady,
+	RepositoryUnderstandingStageFailed,
+}
+
+func (e RepositoryUnderstandingStage) IsValid() bool {
+	switch e {
+	case RepositoryUnderstandingStageBuildingTree, RepositoryUnderstandingStageFirstPassReady, RepositoryUnderstandingStageNeedsRefresh, RepositoryUnderstandingStageDeepening, RepositoryUnderstandingStageReady, RepositoryUnderstandingStageFailed:
+		return true
+	}
+	return false
+}
+
+func (e RepositoryUnderstandingStage) String() string {
+	return string(e)
+}
+
+func (e *RepositoryUnderstandingStage) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = RepositoryUnderstandingStage(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid RepositoryUnderstandingStage", str)
+	}
+	return nil
+}
+
+func (e RepositoryUnderstandingStage) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *RepositoryUnderstandingStage) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e RepositoryUnderstandingStage) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type RepositoryUnderstandingTreeStatus string
+
+const (
+	RepositoryUnderstandingTreeStatusMissing  RepositoryUnderstandingTreeStatus = "MISSING"
+	RepositoryUnderstandingTreeStatusPartial  RepositoryUnderstandingTreeStatus = "PARTIAL"
+	RepositoryUnderstandingTreeStatusComplete RepositoryUnderstandingTreeStatus = "COMPLETE"
+)
+
+var AllRepositoryUnderstandingTreeStatus = []RepositoryUnderstandingTreeStatus{
+	RepositoryUnderstandingTreeStatusMissing,
+	RepositoryUnderstandingTreeStatusPartial,
+	RepositoryUnderstandingTreeStatusComplete,
+}
+
+func (e RepositoryUnderstandingTreeStatus) IsValid() bool {
+	switch e {
+	case RepositoryUnderstandingTreeStatusMissing, RepositoryUnderstandingTreeStatusPartial, RepositoryUnderstandingTreeStatusComplete:
+		return true
+	}
+	return false
+}
+
+func (e RepositoryUnderstandingTreeStatus) String() string {
+	return string(e)
+}
+
+func (e *RepositoryUnderstandingTreeStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = RepositoryUnderstandingTreeStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid RepositoryUnderstandingTreeStatus", str)
+	}
+	return nil
+}
+
+func (e RepositoryUnderstandingTreeStatus) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *RepositoryUnderstandingTreeStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e RepositoryUnderstandingTreeStatus) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

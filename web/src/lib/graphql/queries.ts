@@ -126,6 +126,30 @@ export const REPOSITORY_QUERY = gql`
         path
         fileCount
       }
+      repositoryUnderstanding {
+        id
+        repositoryId
+        corpusId
+        revisionFp
+        strategy
+        stage
+        treeStatus
+        cachedNodes
+        totalNodes
+        modelUsed
+        refreshAvailable
+        createdAt
+        updatedAt
+        errorCode
+        errorMessage
+        scope {
+          scopeType
+          scopePath
+          modulePath
+          filePath
+          symbolName
+        }
+      }
     }
   }
 `;
@@ -588,6 +612,9 @@ export const KNOWLEDGE_ARTIFACTS_QUERY = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       createdAt
       updatedAt
@@ -708,6 +735,9 @@ export const GENERATE_CLIFF_NOTES_MUTATION = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       sections {
         id
@@ -742,6 +772,9 @@ export const GENERATE_LEARNING_PATH_MUTATION = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       sections {
         id
@@ -775,6 +808,9 @@ export const GENERATE_CODE_TOUR_MUTATION = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       sections {
         id
@@ -818,6 +854,9 @@ export const GENERATE_WORKFLOW_STORY_MUTATION = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       sections {
         id
@@ -873,6 +912,9 @@ export const REFRESH_KNOWLEDGE_ARTIFACT_MUTATION = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       sections {
         id

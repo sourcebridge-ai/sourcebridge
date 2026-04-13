@@ -11,6 +11,134 @@ import (
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
 )
 
+func understandingScopeForArtifact(scope knowledgepkg.ArtifactScope) knowledgepkg.ArtifactScope {
+	return scope.Normalize()
+}
+
+func updateUnderstandingForCliffNotes(
+	store knowledgepkg.KnowledgeStore,
+	artifact *knowledgepkg.Artifact,
+	scope knowledgepkg.ArtifactScope,
+	sourceRevision knowledgepkg.SourceRevision,
+	resp *knowledgev1.GenerateCliffNotesResponse,
+	stage knowledgepkg.RepositoryUnderstandingStage,
+) (*knowledgepkg.RepositoryUnderstanding, error) {
+	if store == nil || artifact == nil || resp == nil {
+		return nil, nil
+	}
+	understanding := &knowledgepkg.RepositoryUnderstanding{
+		RepositoryID: artifact.RepositoryID,
+		Scope:        understandingScopeForArtifact(scope).NormalizePtr(),
+		RevisionFP:   knowledgepkg.RevisionFingerprint(sourceRevision),
+		Stage:        stage,
+		TreeStatus:   knowledgepkg.UnderstandingTreeMissing,
+	}
+	if resp.Diagnostics != nil {
+		understanding.CorpusID = resp.Diagnostics.CorpusId
+		if resp.Diagnostics.RevisionFp != "" {
+			understanding.RevisionFP = resp.Diagnostics.RevisionFp
+		}
+		understanding.Strategy = resp.Diagnostics.Strategy
+		understanding.CachedNodes = int(resp.Diagnostics.CachedNodes)
+		understanding.TotalNodes = int(resp.Diagnostics.TotalNodes)
+		understanding.ModelUsed = resp.Diagnostics.ModelUsed
+		switch {
+		case resp.Diagnostics.TotalNodes > 0:
+			understanding.TreeStatus = knowledgepkg.UnderstandingTreeComplete
+		case resp.Diagnostics.CachedNodes > 0:
+			understanding.TreeStatus = knowledgepkg.UnderstandingTreePartial
+		}
+	}
+	if understanding.Strategy == "" {
+		understanding.Strategy = "hierarchical"
+	}
+	if understanding.ModelUsed == "" && resp.Usage != nil {
+		understanding.ModelUsed = resp.Usage.Model
+	}
+	stored, err := store.StoreRepositoryUnderstanding(understanding)
+	if err != nil {
+		return nil, err
+	}
+	if stored != nil {
+		_ = store.AttachArtifactUnderstanding(artifact.ID, stored.ID, stored.RevisionFP)
+	}
+	return stored, nil
+}
+
+func seedRepositoryUnderstanding(
+	store knowledgepkg.KnowledgeStore,
+	artifact *knowledgepkg.Artifact,
+	scope knowledgepkg.ArtifactScope,
+	sourceRevision knowledgepkg.SourceRevision,
+	stage knowledgepkg.RepositoryUnderstandingStage,
+) (*knowledgepkg.RepositoryUnderstanding, error) {
+	if store == nil || artifact == nil {
+		return nil, nil
+	}
+	u := &knowledgepkg.RepositoryUnderstanding{
+		RepositoryID: artifact.RepositoryID,
+		Scope:        understandingScopeForArtifact(scope).NormalizePtr(),
+		RevisionFP:   knowledgepkg.RevisionFingerprint(sourceRevision),
+		Stage:        stage,
+		TreeStatus:   knowledgepkg.UnderstandingTreeMissing,
+	}
+	stored, err := store.StoreRepositoryUnderstanding(u)
+	if err != nil {
+		return nil, err
+	}
+	if stored != nil {
+		_ = store.AttachArtifactUnderstanding(artifact.ID, stored.ID, stored.RevisionFP)
+	}
+	return stored, nil
+}
+
+func markRepositoryUnderstandingFailed(
+	store knowledgepkg.KnowledgeStore,
+	artifact *knowledgepkg.Artifact,
+	scope knowledgepkg.ArtifactScope,
+	sourceRevision knowledgepkg.SourceRevision,
+	err error,
+) {
+	if store == nil || artifact == nil {
+		return
+	}
+	u := &knowledgepkg.RepositoryUnderstanding{
+		RepositoryID: artifact.RepositoryID,
+		Scope:        understandingScopeForArtifact(scope).NormalizePtr(),
+		RevisionFP:   knowledgepkg.RevisionFingerprint(sourceRevision),
+		Stage:        knowledgepkg.UnderstandingFailed,
+		TreeStatus:   knowledgepkg.UnderstandingTreePartial,
+	}
+	if err != nil {
+		u.ErrorMessage = err.Error()
+	}
+	stored, storeErr := store.StoreRepositoryUnderstanding(u)
+	if storeErr == nil && stored != nil {
+		_ = store.AttachArtifactUnderstanding(artifact.ID, stored.ID, stored.RevisionFP)
+	}
+}
+
+func attachFreshUnderstanding(
+	store knowledgepkg.KnowledgeStore,
+	artifact *knowledgepkg.Artifact,
+	scope knowledgepkg.ArtifactScope,
+	sourceRevision knowledgepkg.SourceRevision,
+) (*knowledgepkg.RepositoryUnderstanding, bool) {
+	if store == nil || artifact == nil {
+		return nil, false
+	}
+	u := store.GetRepositoryUnderstanding(artifact.RepositoryID, understandingScopeForArtifact(scope))
+	if u == nil {
+		return nil, false
+	}
+	revisionFP := knowledgepkg.RevisionFingerprint(sourceRevision)
+	if revisionFP == "" || u.RevisionFP == "" || revisionFP != u.RevisionFP {
+		return u, false
+	}
+	_ = store.AttachArtifactUnderstanding(artifact.ID, u.ID, u.RevisionFP)
+	return u, u.TreeStatus == knowledgepkg.UnderstandingTreeComplete
+}
+
 func knowledgeAudienceValue(audience *KnowledgeAudience) knowledgepkg.Audience {
 	if audience == nil {
 		return knowledgepkg.AudienceDeveloper

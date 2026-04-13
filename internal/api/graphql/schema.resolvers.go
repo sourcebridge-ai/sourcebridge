@@ -1457,6 +1457,12 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 	if !created {
 		return mapKnowledgeArtifact(artifact), nil
 	}
+	understanding, reusedUnderstanding := attachFreshUnderstanding(r.KnowledgeStore, artifact, scope, snap.SourceRevision)
+	if understanding == nil {
+		if _, err := seedRepositoryUnderstanding(r.KnowledgeStore, artifact, scope, snap.SourceRevision, knowledgepkg.UnderstandingBuildingTree); err != nil {
+			slog.Warn("failed to seed repository understanding", "artifact_id", artifact.ID, "error", err)
+		}
+	}
 
 	// Hand the work off to the LLM orchestrator. The artifact is
 	// already claimed, so the UI will see its GENERATING status
@@ -1513,10 +1519,19 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		}
 	}
 
-	err = r.enqueueKnowledgeJob(artifact, "cliff_notes", len(enrichedCliffSnapJSON), func(runCtx context.Context, rt llm.Runtime) error {
+	err = r.enqueueKnowledgeJob(artifact, "cliff_notes", len(enrichedCliffSnapJSON), func(runCtx context.Context, rt llm.Runtime) (runErr error) {
+		defer func() {
+			if runErr != nil {
+				markRepositoryUnderstandingFailed(r.KnowledgeStore, artifact, scope, snap.SourceRevision, runErr)
+			}
+		}()
 		genStart := time.Now()
 		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
+		if reusedUnderstanding {
+			rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+			_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.12, "understanding", "Using cached repository understanding")
+		}
 		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "snapshot", "snapshot_assembled", "Snapshot assembled", map[string]any{
 			"snapshot_bytes": len(enrichedCliffSnapJSON),
 			"scope_type":     string(scope.ScopeType),
@@ -1557,6 +1572,9 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 				"error", err,
 			)
 			return err
+		}
+		if _, err := updateUnderstandingForCliffNotes(r.KnowledgeStore, artifact, scope, snap.SourceRevision, resp, knowledgepkg.UnderstandingReady); err != nil {
+			slog.Warn("failed to update repository understanding", "artifact_id", artifact.ID, "error", err)
 		}
 
 		reusedSummaries := 0
@@ -1762,6 +1780,7 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 	if !created {
 		return mapKnowledgeArtifact(artifact), nil
 	}
+	_, _ = attachFreshUnderstanding(r.KnowledgeStore, artifact, knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository}, snap.SourceRevision)
 
 	// Run LLM generation async via the orchestrator.
 	store := r.getStore(ctx)
@@ -1923,6 +1942,7 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 	if !created {
 		return mapKnowledgeArtifact(artifact), nil
 	}
+	_, _ = attachFreshUnderstanding(r.KnowledgeStore, artifact, knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository}, snap.SourceRevision)
 
 	// Run LLM generation async via the orchestrator.
 	store := r.getStore(ctx)
@@ -2077,6 +2097,7 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 	if !created {
 		return mapKnowledgeArtifact(artifact), nil
 	}
+	_, _ = attachFreshUnderstanding(r.KnowledgeStore, artifact, scope, snap.SourceRevision)
 
 	anchorLabel := ""
 	if input.AnchorLabel != nil {
@@ -2399,6 +2420,16 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 
 		switch existing.Type {
 		case knowledgepkg.ArtifactCliffNotes:
+			scopeUnderstanding, reusedUnderstanding := attachFreshUnderstanding(r.KnowledgeStore, existing, scope, snap.SourceRevision)
+			if scopeUnderstanding == nil {
+				if _, err := seedRepositoryUnderstanding(r.KnowledgeStore, existing, scope, snap.SourceRevision, knowledgepkg.UnderstandingBuildingTree); err != nil {
+					slog.Warn("failed to seed repository understanding", "artifact_id", existing.ID, "error", err)
+				}
+			}
+			if reusedUnderstanding {
+				rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+				_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(existing.ID, 0.12, "understanding", "Using cached repository understanding")
+			}
 			resp, err := r.Worker.GenerateCliffNotes(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "cliff_notes"), &knowledgev1.GenerateCliffNotesRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
@@ -2410,7 +2441,11 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			})
 			if err != nil {
 				slog.Error("refresh cliff notes failed", "artifact_id", existing.ID, "error", err)
+				markRepositoryUnderstandingFailed(r.KnowledgeStore, existing, scope, snap.SourceRevision, err)
 				return err
+			}
+			if _, err := updateUnderstandingForCliffNotes(r.KnowledgeStore, existing, scope, snap.SourceRevision, resp, knowledgepkg.UnderstandingReady); err != nil {
+				slog.Warn("failed to update repository understanding", "artifact_id", existing.ID, "error", err)
 			}
 			persistUsage(resp.Usage)
 			sections := make([]knowledgepkg.Section, len(resp.Sections))
@@ -3077,6 +3112,18 @@ func (r *queryResolver) KnowledgeArtifact(ctx context.Context, id string) (*Know
 	return mapKnowledgeArtifact(a), nil
 }
 
+// RepositoryUnderstanding is the resolver for the repositoryUnderstanding field.
+func (r *queryResolver) RepositoryUnderstanding(ctx context.Context, repositoryID string, scopeType *KnowledgeScopeType, scopePath *string) (*RepositoryUnderstanding, error) {
+	if r.KnowledgeStore == nil {
+		return nil, nil
+	}
+	scope, err := artifactScopeFromInput(scopeType, scopePath)
+	if err != nil {
+		return nil, err
+	}
+	return mapRepositoryUnderstanding(r.KnowledgeStore.GetRepositoryUnderstanding(repositoryID, scope)), nil
+}
+
 // KnowledgeScopeChildren is the resolver for the knowledgeScopeChildren field.
 func (r *queryResolver) KnowledgeScopeChildren(ctx context.Context, repositoryID string, scopeType KnowledgeScopeType, scopePath string, audience *KnowledgeAudience, depth *KnowledgeDepth) ([]*ScopeChild, error) {
 	store := r.getStore(ctx)
@@ -3442,56 +3489,3 @@ func (r *Resolver) Repository() RepositoryResolver { return &repositoryResolver{
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
 type repositoryResolver struct{ *Resolver }
-
-// !!! WARNING !!!
-// The code below was going to be deleted when updating resolvers. It has been copied here so you have
-// one last chance to move it out of harms way if you want. There are two reasons this happens:
-//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
-//    it when you're done.
-//  - You have helper methods in this file. Move them out to keep these resolver files clean.
-/*
-	func classifyError(err error) string {
-	if err == nil {
-		return ""
-	}
-	if st, ok := grpcstatus.FromError(err); ok {
-		switch st.Code() {
-		case codes.DeadlineExceeded:
-			return "DEADLINE_EXCEEDED"
-		case codes.Unavailable:
-			return "WORKER_UNAVAILABLE"
-		}
-	}
-
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "llm returned empty content"):
-		return "LLM_EMPTY"
-	case strings.Contains(msg, "snapshot too large"), strings.Contains(msg, "exceeds budget"):
-		return "SNAPSHOT_TOO_LARGE"
-	case strings.Contains(msg, "deadline exceeded"):
-		return "DEADLINE_EXCEEDED"
-	case strings.Contains(msg, "connection refused"), strings.Contains(msg, "transport is closing"), strings.Contains(msg, "unavailable"):
-		return "WORKER_UNAVAILABLE"
-	default:
-		return "INTERNAL"
-	}
-}
-func persistArtifactFailure(store knowledgepkg.KnowledgeStore, artifactID string, err error) {
-	if store == nil || artifactID == "" || err == nil {
-		return
-	}
-	code := classifyError(err)
-	_ = store.SetArtifactFailed(artifactID, code, err.Error())
-}
-const staleGenerationThreshold = 60 * time.Second
-func isInFlightGeneration(existing *knowledgepkg.Artifact) bool {
-	if existing == nil {
-		return false
-	}
-	if existing.Status != knowledgepkg.StatusGenerating && existing.Status != knowledgepkg.StatusPending {
-		return false
-	}
-	return time.Since(existing.UpdatedAt) < staleGenerationThreshold
-}
-*/

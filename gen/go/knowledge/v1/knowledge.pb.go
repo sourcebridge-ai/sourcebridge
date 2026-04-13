@@ -186,6 +186,11 @@ type CliffNotesDiagnostics struct {
 	FileCacheHits         int32                  `protobuf:"varint,5,opt,name=file_cache_hits,json=fileCacheHits,proto3" json:"file_cache_hits,omitempty"`
 	PackageCacheHits      int32                  `protobuf:"varint,6,opt,name=package_cache_hits,json=packageCacheHits,proto3" json:"package_cache_hits,omitempty"`
 	RootCacheHits         int32                  `protobuf:"varint,7,opt,name=root_cache_hits,json=rootCacheHits,proto3" json:"root_cache_hits,omitempty"`
+	TotalNodes            int32                  `protobuf:"varint,8,opt,name=total_nodes,json=totalNodes,proto3" json:"total_nodes,omitempty"`
+	CorpusId              string                 `protobuf:"bytes,9,opt,name=corpus_id,json=corpusId,proto3" json:"corpus_id,omitempty"`
+	RevisionFp            string                 `protobuf:"bytes,10,opt,name=revision_fp,json=revisionFp,proto3" json:"revision_fp,omitempty"`
+	Strategy              string                 `protobuf:"bytes,11,opt,name=strategy,proto3" json:"strategy,omitempty"`
+	ModelUsed             string                 `protobuf:"bytes,12,opt,name=model_used,json=modelUsed,proto3" json:"model_used,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -267,6 +272,41 @@ func (x *CliffNotesDiagnostics) GetRootCacheHits() int32 {
 		return x.RootCacheHits
 	}
 	return 0
+}
+
+func (x *CliffNotesDiagnostics) GetTotalNodes() int32 {
+	if x != nil {
+		return x.TotalNodes
+	}
+	return 0
+}
+
+func (x *CliffNotesDiagnostics) GetCorpusId() string {
+	if x != nil {
+		return x.CorpusId
+	}
+	return ""
+}
+
+func (x *CliffNotesDiagnostics) GetRevisionFp() string {
+	if x != nil {
+		return x.RevisionFp
+	}
+	return ""
+}
+
+func (x *CliffNotesDiagnostics) GetStrategy() string {
+	if x != nil {
+		return x.Strategy
+	}
+	return ""
+}
+
+func (x *CliffNotesDiagnostics) GetModelUsed() string {
+	if x != nil {
+		return x.ModelUsed
+	}
+	return ""
 }
 
 // GenerateLearningPathRequest carries the snapshot for learning path generation.
@@ -1592,7 +1632,7 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\x1aGenerateCliffNotesResponse\x12G\n" +
 	"\bsections\x18\x01 \x03(\v2+.sourcebridge.knowledge.v1.KnowledgeSectionR\bsections\x126\n" +
 	"\x05usage\x18\x02 \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\x12R\n" +
-	"\vdiagnostics\x18\x03 \x01(\v20.sourcebridge.knowledge.v1.CliffNotesDiagnosticsR\vdiagnostics\"\xbf\x02\n" +
+	"\vdiagnostics\x18\x03 \x01(\v20.sourcebridge.knowledge.v1.CliffNotesDiagnosticsR\vdiagnostics\"\xd9\x03\n" +
 	"\x15CliffNotesDiagnostics\x12!\n" +
 	"\fcached_nodes\x18\x01 \x01(\x05R\vcachedNodes\x12%\n" +
 	"\x0efallback_count\x18\x02 \x01(\x05R\rfallbackCount\x126\n" +
@@ -1600,7 +1640,16 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\x0fleaf_cache_hits\x18\x04 \x01(\x05R\rleafCacheHits\x12&\n" +
 	"\x0ffile_cache_hits\x18\x05 \x01(\x05R\rfileCacheHits\x12,\n" +
 	"\x12package_cache_hits\x18\x06 \x01(\x05R\x10packageCacheHits\x12&\n" +
-	"\x0froot_cache_hits\x18\a \x01(\x05R\rrootCacheHits\"\xe1\x01\n" +
+	"\x0froot_cache_hits\x18\a \x01(\x05R\rrootCacheHits\x12\x1f\n" +
+	"\vtotal_nodes\x18\b \x01(\x05R\n" +
+	"totalNodes\x12\x1b\n" +
+	"\tcorpus_id\x18\t \x01(\tR\bcorpusId\x12\x1f\n" +
+	"\vrevision_fp\x18\n" +
+	" \x01(\tR\n" +
+	"revisionFp\x12\x1a\n" +
+	"\bstrategy\x18\v \x01(\tR\bstrategy\x12\x1d\n" +
+	"\n" +
+	"model_used\x18\f \x01(\tR\tmodelUsed\"\xe1\x01\n" +
 	"\x1bGenerateLearningPathRequest\x12#\n" +
 	"\rrepository_id\x18\x01 \x01(\tR\frepositoryId\x12'\n" +
 	"\x0frepository_name\x18\x02 \x01(\tR\x0erepositoryName\x12\x1a\n" +

@@ -30,4 +30,10 @@ type KnowledgeStore interface {
 
 	StoreKnowledgeEvidence(sectionID string, evidence []Evidence) error
 	GetKnowledgeEvidence(sectionID string) []Evidence
+
+	StoreRepositoryUnderstanding(u *RepositoryUnderstanding) (*RepositoryUnderstanding, error)
+	GetRepositoryUnderstanding(repoID string, scope ArtifactScope) *RepositoryUnderstanding
+	GetRepositoryUnderstandings(repoID string) []*RepositoryUnderstanding
+	MarkRepositoryUnderstandingNeedsRefresh(repoID string) error
+	AttachArtifactUnderstanding(artifactID, understandingID, revisionFP string) error
 }

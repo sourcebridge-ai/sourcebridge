@@ -227,24 +227,70 @@ type SourceRevision struct {
 
 // Artifact is a persisted knowledge artifact (Cliff Notes, learning path, code tour).
 type Artifact struct {
-	ID              string         `json:"id"`
-	RepositoryID    string         `json:"repository_id"`
-	Type            ArtifactType   `json:"type"`
-	Audience        Audience       `json:"audience"`
-	Depth           Depth          `json:"depth"`
-	Scope           *ArtifactScope `json:"scope,omitempty"`
-	Status          ArtifactStatus `json:"status"`
-	Progress        float64        `json:"progress"`
-	ProgressPhase   string         `json:"progress_phase,omitempty"`
-	ProgressMessage string         `json:"progress_message,omitempty"`
-	ErrorCode       string         `json:"error_code,omitempty"`
-	ErrorMessage    string         `json:"error_message,omitempty"`
-	SourceRevision  SourceRevision `json:"source_revision"`
-	Stale           bool           `json:"stale"`
-	GeneratedAt     time.Time      `json:"generated_at,omitempty"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-	Sections        []Section      `json:"sections,omitempty"`
+	ID                      string         `json:"id"`
+	RepositoryID            string         `json:"repository_id"`
+	Type                    ArtifactType   `json:"type"`
+	Audience                Audience       `json:"audience"`
+	Depth                   Depth          `json:"depth"`
+	Scope                   *ArtifactScope `json:"scope,omitempty"`
+	Status                  ArtifactStatus `json:"status"`
+	Progress                float64        `json:"progress"`
+	ProgressPhase           string         `json:"progress_phase,omitempty"`
+	ProgressMessage         string         `json:"progress_message,omitempty"`
+	ErrorCode               string         `json:"error_code,omitempty"`
+	ErrorMessage            string         `json:"error_message,omitempty"`
+	SourceRevision          SourceRevision `json:"source_revision"`
+	UnderstandingID         string         `json:"understanding_id,omitempty"`
+	UnderstandingRevisionFP string         `json:"understanding_revision_fp,omitempty"`
+	Stale                   bool           `json:"stale"`
+	GeneratedAt             time.Time      `json:"generated_at,omitempty"`
+	CreatedAt               time.Time      `json:"created_at"`
+	UpdatedAt               time.Time      `json:"updated_at"`
+	Sections                []Section      `json:"sections,omitempty"`
+}
+
+// RepositoryUnderstandingStage represents the lifecycle of the shared
+// repository understanding artifact.
+type RepositoryUnderstandingStage string
+
+const (
+	UnderstandingBuildingTree   RepositoryUnderstandingStage = "building_tree"
+	UnderstandingFirstPassReady RepositoryUnderstandingStage = "first_pass_ready"
+	UnderstandingNeedsRefresh   RepositoryUnderstandingStage = "needs_refresh"
+	UnderstandingDeepening      RepositoryUnderstandingStage = "deepening"
+	UnderstandingReady          RepositoryUnderstandingStage = "ready"
+	UnderstandingFailed         RepositoryUnderstandingStage = "failed"
+)
+
+// RepositoryUnderstandingTreeStatus captures whether the underlying summary
+// tree exists and how complete it is.
+type RepositoryUnderstandingTreeStatus string
+
+const (
+	UnderstandingTreeMissing  RepositoryUnderstandingTreeStatus = "missing"
+	UnderstandingTreePartial  RepositoryUnderstandingTreeStatus = "partial"
+	UnderstandingTreeComplete RepositoryUnderstandingTreeStatus = "complete"
+)
+
+// RepositoryUnderstanding is the first-class persisted understanding record
+// backing cliff notes and later downstream artifact generation.
+type RepositoryUnderstanding struct {
+	ID           string                            `json:"id"`
+	RepositoryID string                            `json:"repository_id"`
+	Scope        *ArtifactScope                    `json:"scope,omitempty"`
+	CorpusID     string                            `json:"corpus_id,omitempty"`
+	RevisionFP   string                            `json:"revision_fp,omitempty"`
+	Strategy     string                            `json:"strategy,omitempty"`
+	Stage        RepositoryUnderstandingStage      `json:"stage"`
+	TreeStatus   RepositoryUnderstandingTreeStatus `json:"tree_status"`
+	CachedNodes  int                               `json:"cached_nodes"`
+	TotalNodes   int                               `json:"total_nodes"`
+	ModelUsed    string                            `json:"model_used,omitempty"`
+	Metadata     string                            `json:"metadata,omitempty"`
+	ErrorCode    string                            `json:"error_code,omitempty"`
+	ErrorMessage string                            `json:"error_message,omitempty"`
+	CreatedAt    time.Time                         `json:"created_at"`
+	UpdatedAt    time.Time                         `json:"updated_at"`
 }
 
 // Section is an ordered component of a knowledge artifact.

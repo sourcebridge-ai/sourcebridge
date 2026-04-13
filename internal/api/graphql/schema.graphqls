@@ -35,6 +35,7 @@ type Query {
   # Knowledge engine queries
   knowledgeArtifacts(repositoryId: ID!, scopeType: KnowledgeScopeType, scopePath: String): [KnowledgeArtifact!]!
   knowledgeArtifact(id: ID!): KnowledgeArtifact
+  repositoryUnderstanding(repositoryId: ID!, scopeType: KnowledgeScopeType, scopePath: String): RepositoryUnderstanding
   knowledgeScopeChildren(
     repositoryId: ID!
     scopeType: KnowledgeScopeType!
@@ -212,6 +213,7 @@ type Repository {
   files(limit: Int, offset: Int, path: String): FileConnection!
   modules: [Module!]!
   understandingScore: UnderstandingScore
+  repositoryUnderstanding(scopeType: KnowledgeScopeType, scopePath: String): RepositoryUnderstanding
 }
 
 enum RepositoryStatus {
@@ -684,7 +686,44 @@ type KnowledgeArtifact {
   updatedAt: Time!
   errorCode: String
   errorMessage: String
+  understandingId: ID
+  understandingRevisionFp: String
+  refreshAvailable: Boolean!
   sections: [KnowledgeSection!]!
+}
+
+type RepositoryUnderstanding {
+  id: ID!
+  repositoryId: ID!
+  scope: KnowledgeScope!
+  corpusId: String
+  revisionFp: String!
+  strategy: String
+  stage: RepositoryUnderstandingStage!
+  treeStatus: RepositoryUnderstandingTreeStatus!
+  cachedNodes: Int!
+  totalNodes: Int!
+  modelUsed: String
+  refreshAvailable: Boolean!
+  createdAt: Time!
+  updatedAt: Time!
+  errorCode: String
+  errorMessage: String
+}
+
+enum RepositoryUnderstandingStage {
+  BUILDING_TREE
+  FIRST_PASS_READY
+  NEEDS_REFRESH
+  DEEPENING
+  READY
+  FAILED
+}
+
+enum RepositoryUnderstandingTreeStatus {
+  MISSING
+  PARTIAL
+  COMPLETE
 }
 
 type KnowledgeScope {

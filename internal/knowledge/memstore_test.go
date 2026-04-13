@@ -242,3 +242,72 @@ func TestUpdateKnowledgeArtifactStatusClearsErrorMetadataOnRecovery(t *testing.T
 		t.Fatal("expected generated_at to be set on recovery")
 	}
 }
+
+func TestRepositoryUnderstandingLifecycle(t *testing.T) {
+	s := NewMemStore()
+
+	u, err := s.StoreRepositoryUnderstanding(&RepositoryUnderstanding{
+		RepositoryID: "repo-1",
+		Scope:        (&ArtifactScope{ScopeType: ScopeRepository}).NormalizePtr(),
+		RevisionFP:   "rev-1",
+		Stage:        UnderstandingBuildingTree,
+		TreeStatus:   UnderstandingTreePartial,
+		CachedNodes:  8,
+		TotalNodes:   20,
+		Strategy:     "hierarchical",
+		ModelUsed:    "qwen3:14b",
+	})
+	if err != nil {
+		t.Fatalf("StoreRepositoryUnderstanding: %v", err)
+	}
+	if u.ID == "" {
+		t.Fatal("expected repository understanding ID")
+	}
+
+	updated, err := s.StoreRepositoryUnderstanding(&RepositoryUnderstanding{
+		RepositoryID: "repo-1",
+		Scope:        (&ArtifactScope{ScopeType: ScopeRepository}).NormalizePtr(),
+		RevisionFP:   "rev-2",
+		Stage:        UnderstandingReady,
+		TreeStatus:   UnderstandingTreeComplete,
+		CachedNodes:  20,
+		TotalNodes:   20,
+	})
+	if err != nil {
+		t.Fatalf("StoreRepositoryUnderstanding update: %v", err)
+	}
+	if updated.ID != u.ID {
+		t.Fatalf("expected update to preserve understanding ID, got %q vs %q", updated.ID, u.ID)
+	}
+	if updated.RevisionFP != "rev-2" {
+		t.Fatalf("expected revision rev-2, got %q", updated.RevisionFP)
+	}
+	if updated.TreeStatus != UnderstandingTreeComplete {
+		t.Fatalf("expected complete tree status, got %q", updated.TreeStatus)
+	}
+
+	artifact, err := s.StoreKnowledgeArtifact(&Artifact{
+		RepositoryID: "repo-1",
+		Type:         ArtifactCliffNotes,
+		Audience:     AudienceDeveloper,
+		Depth:        DepthDeep,
+		Status:       StatusGenerating,
+	})
+	if err != nil {
+		t.Fatalf("StoreKnowledgeArtifact: %v", err)
+	}
+	if err := s.AttachArtifactUnderstanding(artifact.ID, updated.ID, updated.RevisionFP); err != nil {
+		t.Fatalf("AttachArtifactUnderstanding: %v", err)
+	}
+
+	linked := s.GetKnowledgeArtifact(artifact.ID)
+	if linked.UnderstandingID != updated.ID {
+		t.Fatalf("expected linked understanding %q, got %q", updated.ID, linked.UnderstandingID)
+	}
+	if linked.UnderstandingRevisionFP != "rev-2" {
+		t.Fatalf("expected linked revision rev-2, got %q", linked.UnderstandingRevisionFP)
+	}
+	if !ArtifactRefreshAvailable(linked, &RepositoryUnderstanding{RevisionFP: "rev-3"}) {
+		t.Fatal("expected refresh to be available when understanding revision advances")
+	}
+}

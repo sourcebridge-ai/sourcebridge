@@ -647,6 +647,11 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             "package_cache_hits": diagnostics["package_cache_hits"],
             "root_cache_hits": diagnostics["root_cache_hits"],
             "root_fallback": diagnostics["root_fallback"],
+            "total_nodes": len(tree.nodes),
+            "corpus_id": tree.corpus_id,
+            "revision_fp": tree.revision_fp,
+            "strategy": tree.strategy,
+            "model_used": usage.model or (model_override or ""),
         }
 
     async def GenerateCliffNotes(  # noqa: N802
@@ -772,6 +777,11 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 file_cache_hits=int(diagnostics.get("file_cache_hits", 0)),
                 package_cache_hits=int(diagnostics.get("package_cache_hits", 0)),
                 root_cache_hits=int(diagnostics.get("root_cache_hits", 0)),
+                total_nodes=int(diagnostics.get("total_nodes", 0)),
+                corpus_id=str(diagnostics.get("corpus_id", "")),
+                revision_fp=str(diagnostics.get("revision_fp", "")),
+                strategy=str(diagnostics.get("strategy", selection.strategy_name)),
+                model_used=str(diagnostics.get("model_used", usage.model or model_override or "")),
             ),
         )
         if job_logger is not None:

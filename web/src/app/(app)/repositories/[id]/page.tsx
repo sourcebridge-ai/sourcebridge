@@ -137,6 +137,9 @@ interface KnowledgeArtifact {
   stale: boolean;
   errorCode: string | null;
   errorMessage: string | null;
+  understandingId?: string | null;
+  understandingRevisionFp?: string | null;
+  refreshAvailable?: boolean;
   generatedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -146,6 +149,31 @@ interface KnowledgeArtifact {
     contentFingerprint?: string | null;
   };
   sections: KnowledgeSection[];
+}
+
+interface RepositoryUnderstanding {
+  id: string;
+  repositoryId: string;
+  corpusId?: string | null;
+  revisionFp: string;
+  strategy?: string | null;
+  stage: string;
+  treeStatus: string;
+  cachedNodes: number;
+  totalNodes: number;
+  modelUsed?: string | null;
+  refreshAvailable: boolean;
+  createdAt: string;
+  updatedAt: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  scope: {
+    scopeType: string;
+    scopePath: string;
+    modulePath?: string | null;
+    filePath?: string | null;
+    symbolName?: string | null;
+  };
 }
 
 function knowledgeErrorHint(errorCode: string | null | undefined): string {
@@ -225,6 +253,38 @@ function repoJobReuseLabel(job: RepoJobView | null | undefined): string | null {
     job?.root_cache_hits ? `${job.root_cache_hits} root` : null,
   ].filter(Boolean);
   return parts.length > 0 ? `${reused} reused · ${parts.join(" · ")}` : `${reused} reused`;
+}
+
+function understandingStageLabel(understanding: RepositoryUnderstanding | null | undefined): string {
+  switch (understanding?.stage) {
+    case "BUILDING_TREE":
+      return "Building tree";
+    case "FIRST_PASS_READY":
+      return "First pass ready";
+    case "NEEDS_REFRESH":
+      return "Refresh available";
+    case "DEEPENING":
+      return "Deepening";
+    case "READY":
+      return "Ready";
+    case "FAILED":
+      return "Failed";
+    default:
+      return "Not built";
+  }
+}
+
+function understandingTreeLabel(understanding: RepositoryUnderstanding | null | undefined): string {
+  switch (understanding?.treeStatus) {
+    case "COMPLETE":
+      return "Tree complete";
+    case "PARTIAL":
+      return "Tree partial";
+    case "MISSING":
+      return "Tree missing";
+    default:
+      return "Tree unknown";
+  }
 }
 
 function renderKnowledgeProgress(artifact: KnowledgeArtifact, waitingLabel: string, job?: RepoJobView | null) {
@@ -712,6 +772,7 @@ export default function RepositoryDetailPage() {
   const currentWorkflowStory = knowledgeArtifacts.find(
     (a) => a.type === "WORKFLOW_STORY" && a.audience === knowledgeAudience && a.depth === knowledgeDepth
   );
+  const currentUnderstanding: RepositoryUnderstanding | null = repoResult.data?.repository?.repositoryUnderstanding || null;
   const repoActiveJobs = useMemo(() => repoJobs?.active ?? [], [repoJobs?.active]);
   const repoRecentJobs = useMemo(() => repoJobs?.recent ?? [], [repoJobs?.recent]);
   const artifactJobMap = useMemo(() => {
@@ -2190,6 +2251,55 @@ export default function RepositoryDetailPage() {
 
             <div className="grid gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-2">
+                <div className="rounded-[var(--control-radius)] border border-[var(--border-default)] bg-[var(--bg-base)] p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Repository Understanding</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        {currentUnderstanding
+                          ? "Shared repository understanding powers cliff notes reuse and refresh decisions."
+                          : "No shared repository understanding has been persisted yet."}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-tertiary)]">
+                      <span className={artifactStatusClass}>{understandingStageLabel(currentUnderstanding)}</span>
+                      {currentUnderstanding ? <span className={artifactStatusClass}>{understandingTreeLabel(currentUnderstanding)}</span> : null}
+                      {currentUnderstanding?.refreshAvailable ? <span className={artifactStatusClass}>Refresh available</span> : null}
+                    </div>
+                  </div>
+                  {currentUnderstanding ? (
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Nodes</p>
+                        <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
+                          {currentUnderstanding.cachedNodes}/{currentUnderstanding.totalNodes || currentUnderstanding.cachedNodes}
+                        </p>
+                      </div>
+                      <div className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Strategy</p>
+                        <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
+                          {currentUnderstanding.strategy || "hierarchical"}
+                        </p>
+                      </div>
+                      <div className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Model</p>
+                        <p className="mt-1 truncate text-sm font-medium text-[var(--text-primary)]">
+                          {currentUnderstanding.modelUsed || "Unknown"}
+                        </p>
+                      </div>
+                      <div className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Revision</p>
+                        <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
+                          {currentUnderstanding.revisionFp ? currentUnderstanding.revisionFp.slice(0, 12) : "Unknown"}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {currentUnderstanding?.errorMessage ? (
+                    <p className="mt-3 text-xs text-[var(--color-error,#ef4444)]">{currentUnderstanding.errorMessage}</p>
+                  ) : null}
+                </div>
+
                 {/* Category 1: Field Guide */}
                 <div className="rounded-[var(--control-radius)] border border-[var(--border-default)] bg-[var(--bg-base)] overflow-hidden transition-all">
                   <button
@@ -2239,6 +2349,7 @@ export default function RepositoryDetailPage() {
                                   <span className={artifactStatusClass}>{knowledgeQueueLabel(currentCliffNotes)}</span>
                                 ) : null}
                                 {currentCliffNotes.stale ? <span className={artifactStatusClass}>Stale</span> : null}
+                                {currentCliffNotes.refreshAvailable ? <span className={artifactStatusClass}>Refresh available</span> : null}
                                 {currentCliffNotes.status === "FAILED" ? <span className={artifactStatusClass}>Refresh failed</span> : null}
                               </div>
                               <p className="mt-2 text-xs text-[var(--text-tertiary)]">
@@ -2254,6 +2365,11 @@ export default function RepositoryDetailPage() {
                               ) : null}
                               {repoJobReuseLabel(currentCliffNotesJob) ? (
                                 <p className="mt-1 text-xs text-[var(--text-tertiary)]">{repoJobReuseLabel(currentCliffNotesJob)}</p>
+                              ) : null}
+                              {currentCliffNotes.understandingRevisionFp ? (
+                                <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                                  Understanding revision {currentCliffNotes.understandingRevisionFp.slice(0, 12)}
+                                </p>
                               ) : null}
                             </div>
                             <div className="flex gap-2">

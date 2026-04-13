@@ -661,14 +661,17 @@ func confidenceFromFloat(c float64) Confidence {
 
 func mapKnowledgeArtifact(a *knowledgepkg.Artifact) *KnowledgeArtifact {
 	out := &KnowledgeArtifact{
-		ID:           a.ID,
-		RepositoryID: a.RepositoryID,
-		Type:         mapArtifactType(a.Type),
-		Audience:     mapAudience(a.Audience),
-		Depth:        mapDepth(a.Depth),
-		Scope:        mapArtifactScope(a.Scope),
-		Status:       mapArtifactStatus(a.Status),
-		Progress:     a.Progress,
+		ID:                      a.ID,
+		RepositoryID:            a.RepositoryID,
+		Type:                    mapArtifactType(a.Type),
+		Audience:                mapAudience(a.Audience),
+		Depth:                   mapDepth(a.Depth),
+		Scope:                   mapArtifactScope(a.Scope),
+		Status:                  mapArtifactStatus(a.Status),
+		Progress:                a.Progress,
+		RefreshAvailable:        a.Stale,
+		UnderstandingID:         ptrString(a.UnderstandingID),
+		UnderstandingRevisionFp: ptrString(a.UnderstandingRevisionFP),
 		SourceRevision: &SourceRevision{
 			CommitSha:          ptrString(a.SourceRevision.CommitSHA),
 			Branch:             ptrString(a.SourceRevision.Branch),
@@ -701,6 +704,30 @@ func mapKnowledgeArtifact(a *knowledgepkg.Artifact) *KnowledgeArtifact {
 		out.Sections = []*KnowledgeSection{}
 	}
 	return out
+}
+
+func mapRepositoryUnderstanding(u *knowledgepkg.RepositoryUnderstanding) *RepositoryUnderstanding {
+	if u == nil {
+		return nil
+	}
+	return &RepositoryUnderstanding{
+		ID:               u.ID,
+		RepositoryID:     u.RepositoryID,
+		Scope:            mapArtifactScope(u.Scope),
+		CorpusID:         ptrString(u.CorpusID),
+		RevisionFp:       u.RevisionFP,
+		Strategy:         ptrString(u.Strategy),
+		Stage:            mapRepositoryUnderstandingStage(u.Stage),
+		TreeStatus:       mapRepositoryUnderstandingTreeStatus(u.TreeStatus),
+		CachedNodes:      u.CachedNodes,
+		TotalNodes:       u.TotalNodes,
+		ModelUsed:        ptrString(u.ModelUsed),
+		RefreshAvailable: u.Stage == knowledgepkg.UnderstandingNeedsRefresh,
+		CreatedAt:        u.CreatedAt,
+		UpdatedAt:        u.UpdatedAt,
+		ErrorCode:        ptrString(u.ErrorCode),
+		ErrorMessage:     ptrString(u.ErrorMessage),
+	}
 }
 
 func mapArtifactScope(scope *knowledgepkg.ArtifactScope) *KnowledgeScope {
@@ -841,6 +868,38 @@ func mapKnowledgeConfidence(c knowledgepkg.ConfidenceLevel) KnowledgeConfidence 
 		return KnowledgeConfidenceLow
 	default:
 		return KnowledgeConfidenceMedium
+	}
+}
+
+func mapRepositoryUnderstandingStage(stage knowledgepkg.RepositoryUnderstandingStage) RepositoryUnderstandingStage {
+	switch stage {
+	case knowledgepkg.UnderstandingBuildingTree:
+		return RepositoryUnderstandingStageBuildingTree
+	case knowledgepkg.UnderstandingFirstPassReady:
+		return RepositoryUnderstandingStageFirstPassReady
+	case knowledgepkg.UnderstandingNeedsRefresh:
+		return RepositoryUnderstandingStageNeedsRefresh
+	case knowledgepkg.UnderstandingDeepening:
+		return RepositoryUnderstandingStageDeepening
+	case knowledgepkg.UnderstandingReady:
+		return RepositoryUnderstandingStageReady
+	case knowledgepkg.UnderstandingFailed:
+		return RepositoryUnderstandingStageFailed
+	default:
+		return RepositoryUnderstandingStageBuildingTree
+	}
+}
+
+func mapRepositoryUnderstandingTreeStatus(status knowledgepkg.RepositoryUnderstandingTreeStatus) RepositoryUnderstandingTreeStatus {
+	switch status {
+	case knowledgepkg.UnderstandingTreeMissing:
+		return RepositoryUnderstandingTreeStatusMissing
+	case knowledgepkg.UnderstandingTreePartial:
+		return RepositoryUnderstandingTreeStatusPartial
+	case knowledgepkg.UnderstandingTreeComplete:
+		return RepositoryUnderstandingTreeStatusComplete
+	default:
+		return RepositoryUnderstandingTreeStatusMissing
 	}
 }
 

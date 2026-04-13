@@ -14,18 +14,20 @@ import (
 
 // MemStore is an in-memory implementation of KnowledgeStore.
 type MemStore struct {
-	mu        sync.RWMutex
-	artifacts map[string]*Artifact  // artifactID -> Artifact
-	sections  map[string][]Section  // artifactID -> []Section
-	evidence  map[string][]Evidence // sectionID -> []Evidence
+	mu             sync.RWMutex
+	artifacts      map[string]*Artifact                // artifactID -> Artifact
+	sections       map[string][]Section                // artifactID -> []Section
+	evidence       map[string][]Evidence               // sectionID -> []Evidence
+	understandings map[string]*RepositoryUnderstanding // understandingID -> RepositoryUnderstanding
 }
 
 // NewMemStore creates a new in-memory knowledge store.
 func NewMemStore() *MemStore {
 	return &MemStore{
-		artifacts: make(map[string]*Artifact),
-		sections:  make(map[string][]Section),
-		evidence:  make(map[string][]Evidence),
+		artifacts:      make(map[string]*Artifact),
+		sections:       make(map[string][]Section),
+		evidence:       make(map[string][]Evidence),
+		understandings: make(map[string]*RepositoryUnderstanding),
 	}
 }
 
@@ -49,6 +51,31 @@ func (s *MemStore) StoreKnowledgeArtifact(artifact *Artifact) (*Artifact, error)
 
 	stored := *artifact
 	s.artifacts[stored.ID] = &stored
+	return &stored, nil
+}
+
+func (s *MemStore) StoreRepositoryUnderstanding(u *RepositoryUnderstanding) (*RepositoryUnderstanding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if u.ID == "" {
+		u.ID = uuid.New().String()
+	}
+	if u.Scope != nil {
+		norm := u.Scope.Normalize()
+		u.Scope = &norm
+	}
+	now := time.Now()
+	if existing := s.findUnderstandingLocked(u.RepositoryID, u.Scope); existing != nil {
+		u.ID = existing.ID
+		u.CreatedAt = existing.CreatedAt
+	} else if u.CreatedAt.IsZero() {
+		u.CreatedAt = now
+	}
+	u.UpdatedAt = now
+
+	stored := *u
+	s.understandings[stored.ID] = &stored
 	return &stored, nil
 }
 
@@ -134,6 +161,36 @@ func (s *MemStore) GetKnowledgeArtifacts(repoID string) []*Artifact {
 	return results
 }
 
+func (s *MemStore) GetRepositoryUnderstanding(repoID string, scope ArtifactScope) *RepositoryUnderstanding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	existing := s.findUnderstandingLocked(repoID, &scope)
+	if existing == nil {
+		return nil
+	}
+	out := *existing
+	return &out
+}
+
+func (s *MemStore) GetRepositoryUnderstandings(repoID string) []*RepositoryUnderstanding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var results []*RepositoryUnderstanding
+	for _, u := range s.understandings {
+		if u.RepositoryID != repoID {
+			continue
+		}
+		out := *u
+		results = append(results, &out)
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].UpdatedAt.After(results[j].UpdatedAt)
+	})
+	return results
+}
+
 func (s *MemStore) UpdateKnowledgeArtifactStatus(id string, status ArtifactStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -202,6 +259,37 @@ func (s *MemStore) MarkKnowledgeArtifactStale(id string, stale bool) error {
 		return fmt.Errorf("artifact %s not found", id)
 	}
 	a.Stale = stale
+	a.UpdatedAt = time.Now()
+	return nil
+}
+
+func (s *MemStore) MarkRepositoryUnderstandingNeedsRefresh(repoID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	for _, u := range s.understandings {
+		if u.RepositoryID != repoID {
+			continue
+		}
+		if u.Stage == UnderstandingReady || u.Stage == UnderstandingFirstPassReady {
+			u.Stage = UnderstandingNeedsRefresh
+			u.UpdatedAt = now
+		}
+	}
+	return nil
+}
+
+func (s *MemStore) AttachArtifactUnderstanding(artifactID, understandingID, revisionFP string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	a := s.artifacts[artifactID]
+	if a == nil {
+		return fmt.Errorf("artifact %s not found", artifactID)
+	}
+	a.UnderstandingID = understandingID
+	a.UnderstandingRevisionFP = revisionFP
 	a.UpdatedAt = time.Now()
 	return nil
 }
@@ -325,6 +413,27 @@ func (s *MemStore) loadSectionsLocked(artifactID string) []Section {
 		out[i].Evidence = s.evidence[out[i].ID]
 	}
 	return out
+}
+
+func (s *MemStore) findUnderstandingLocked(repoID string, scope *ArtifactScope) *RepositoryUnderstanding {
+	target := ArtifactScope{ScopeType: ScopeRepository}
+	if scope != nil {
+		target = scope.Normalize()
+	}
+	targetKey := target.ScopeKey()
+	for _, existing := range s.understandings {
+		if existing.RepositoryID != repoID {
+			continue
+		}
+		existingScope := ArtifactScope{ScopeType: ScopeRepository}
+		if existing.Scope != nil {
+			existingScope = existing.Scope.Normalize()
+		}
+		if existingScope.ScopeKey() == targetKey {
+			return existing
+		}
+	}
+	return nil
 }
 
 func artifactScopeKey(scope *ArtifactScope) string {

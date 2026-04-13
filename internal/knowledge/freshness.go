@@ -23,4 +23,10 @@ func MarkAllStale(store KnowledgeStore, repoID string) {
 			}
 		}
 	}
+	if err := store.MarkRepositoryUnderstandingNeedsRefresh(repoID); err != nil {
+		slog.Warn("failed to mark repository understanding refresh-needed",
+			"repo_id", repoID,
+			"error", err,
+		)
+	}
 }

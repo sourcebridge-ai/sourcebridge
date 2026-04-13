@@ -54,6 +54,11 @@ message CliffNotesDiagnostics {
   int32 file_cache_hits = 5;
   int32 package_cache_hits = 6;
   int32 root_cache_hits = 7;
+  int32 total_nodes = 8;
+  string corpus_id = 9;
+  string revision_fp = 10;
+  string strategy = 11;
+  string model_used = 12;
 }
 
 // GenerateLearningPathRequest carries the snapshot for learning path generation.

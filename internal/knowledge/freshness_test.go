@@ -115,3 +115,30 @@ func TestRefreshClearsStale(t *testing.T) {
 		t.Fatalf("expected artifact to no longer be stale after refresh")
 	}
 }
+
+func TestMarkAllStaleMarksRepositoryUnderstandingNeedsRefresh(t *testing.T) {
+	s := NewMemStore()
+
+	_, err := s.StoreRepositoryUnderstanding(&RepositoryUnderstanding{
+		RepositoryID: "repo-1",
+		Scope:        (&ArtifactScope{ScopeType: ScopeRepository}).NormalizePtr(),
+		RevisionFP:   "rev-1",
+		Stage:        UnderstandingReady,
+		TreeStatus:   UnderstandingTreeComplete,
+		CachedNodes:  10,
+		TotalNodes:   10,
+	})
+	if err != nil {
+		t.Fatalf("StoreRepositoryUnderstanding: %v", err)
+	}
+
+	MarkAllStale(s, "repo-1")
+
+	u := s.GetRepositoryUnderstanding("repo-1", ArtifactScope{ScopeType: ScopeRepository})
+	if u == nil {
+		t.Fatal("expected repository understanding to remain present")
+	}
+	if u.Stage != UnderstandingNeedsRefresh {
+		t.Fatalf("expected repository understanding to be marked needs_refresh, got %q", u.Stage)
+	}
+}

@@ -43,6 +43,8 @@ type surrealKnowledgeArtifact struct {
 	SourceRevisionBranch    string           `json:"source_revision_branch"`
 	SourceRevisionContentFP string           `json:"source_revision_content_fp"`
 	SourceRevisionDocsFP    string           `json:"source_revision_docs_fp"`
+	UnderstandingID         string           `json:"understanding_id"`
+	UnderstandingRevisionFP string           `json:"understanding_revision_fp"`
 	Stale                   bool             `json:"stale"`
 	GeneratedAt             surrealTime      `json:"generated_at"`
 	CreatedAt               surrealTime      `json:"created_at"`
@@ -74,9 +76,57 @@ func (r *surrealKnowledgeArtifact) toArtifact() *knowledge.Artifact {
 			ContentFingerprint: r.SourceRevisionContentFP,
 			DocsFingerprint:    r.SourceRevisionDocsFP,
 		},
-		GeneratedAt: r.GeneratedAt.Time,
-		CreatedAt:   r.CreatedAt.Time,
-		UpdatedAt:   r.UpdatedAt.Time,
+		UnderstandingID:         r.UnderstandingID,
+		UnderstandingRevisionFP: r.UnderstandingRevisionFP,
+		GeneratedAt:             r.GeneratedAt.Time,
+		CreatedAt:               r.CreatedAt.Time,
+		UpdatedAt:               r.UpdatedAt.Time,
+	}
+}
+
+type surrealRepositoryUnderstanding struct {
+	ID           *models.RecordID `json:"id,omitempty"`
+	RepoID       string           `json:"repo_id"`
+	ScopeType    string           `json:"scope_type"`
+	ScopeKey     string           `json:"scope_key"`
+	ScopePath    string           `json:"scope_path"`
+	CorpusID     string           `json:"corpus_id"`
+	RevisionFP   string           `json:"revision_fp"`
+	Strategy     string           `json:"strategy"`
+	Stage        string           `json:"stage"`
+	TreeStatus   string           `json:"tree_status"`
+	CachedNodes  int              `json:"cached_nodes"`
+	TotalNodes   int              `json:"total_nodes"`
+	ModelUsed    string           `json:"model_used"`
+	Metadata     string           `json:"metadata"`
+	ErrorCode    string           `json:"error_code"`
+	ErrorMessage string           `json:"error_message"`
+	CreatedAt    surrealTime      `json:"created_at"`
+	UpdatedAt    surrealTime      `json:"updated_at"`
+}
+
+func (r *surrealRepositoryUnderstanding) toRepositoryUnderstanding() *knowledge.RepositoryUnderstanding {
+	scope := knowledge.ArtifactScope{
+		ScopeType: knowledge.ScopeType(r.ScopeType),
+		ScopePath: r.ScopePath,
+	}.Normalize()
+	return &knowledge.RepositoryUnderstanding{
+		ID:           recordIDString(r.ID),
+		RepositoryID: r.RepoID,
+		Scope:        &scope,
+		CorpusID:     r.CorpusID,
+		RevisionFP:   r.RevisionFP,
+		Strategy:     r.Strategy,
+		Stage:        knowledge.RepositoryUnderstandingStage(r.Stage),
+		TreeStatus:   knowledge.RepositoryUnderstandingTreeStatus(r.TreeStatus),
+		CachedNodes:  r.CachedNodes,
+		TotalNodes:   r.TotalNodes,
+		ModelUsed:    r.ModelUsed,
+		Metadata:     r.Metadata,
+		ErrorCode:    r.ErrorCode,
+		ErrorMessage: r.ErrorMessage,
+		CreatedAt:    r.CreatedAt.Time,
+		UpdatedAt:    r.UpdatedAt.Time,
 	}
 }
 
@@ -170,28 +220,32 @@ func (s *SurrealStore) StoreKnowledgeArtifact(artifact *knowledge.Artifact) (*kn
 		source_revision_branch = $src_branch,
 		source_revision_content_fp = $src_content_fp,
 		source_revision_docs_fp = $src_docs_fp,
+		understanding_id = $understanding_id,
+		understanding_revision_fp = $understanding_revision_fp,
 		stale = $stale,
 		progress = $progress,
 		created_at = time::now(),
 		updated_at = time::now()`
 
 	vars := map[string]any{
-		"id":                id,
-		"repo_id":           artifact.RepositoryID,
-		"type":              string(artifact.Type),
-		"audience":          string(artifact.Audience),
-		"depth":             string(artifact.Depth),
-		"scope_type":        string(scope.ScopeType),
-		"scope_key":         scope.ScopeKey(),
-		"scope_path":        scope.ScopePath,
-		"scope_symbol_name": scope.SymbolName,
-		"status":            string(artifact.Status),
-		"progress":          artifact.Progress,
-		"src_commit":        artifact.SourceRevision.CommitSHA,
-		"src_branch":        artifact.SourceRevision.Branch,
-		"src_content_fp":    artifact.SourceRevision.ContentFingerprint,
-		"src_docs_fp":       artifact.SourceRevision.DocsFingerprint,
-		"stale":             artifact.Stale,
+		"id":                        id,
+		"repo_id":                   artifact.RepositoryID,
+		"type":                      string(artifact.Type),
+		"audience":                  string(artifact.Audience),
+		"depth":                     string(artifact.Depth),
+		"scope_type":                string(scope.ScopeType),
+		"scope_key":                 scope.ScopeKey(),
+		"scope_path":                scope.ScopePath,
+		"scope_symbol_name":         scope.SymbolName,
+		"status":                    string(artifact.Status),
+		"progress":                  artifact.Progress,
+		"src_commit":                artifact.SourceRevision.CommitSHA,
+		"src_branch":                artifact.SourceRevision.Branch,
+		"src_content_fp":            artifact.SourceRevision.ContentFingerprint,
+		"src_docs_fp":               artifact.SourceRevision.DocsFingerprint,
+		"understanding_id":          artifact.UnderstandingID,
+		"understanding_revision_fp": artifact.UnderstandingRevisionFP,
+		"stale":                     artifact.Stale,
 	}
 
 	if !artifact.GeneratedAt.IsZero() {
@@ -240,6 +294,8 @@ func (s *SurrealStore) ClaimArtifact(key knowledge.ArtifactKey, sourceRevision k
 			source_revision_branch = $src_branch,
 			source_revision_content_fp = $src_content_fp,
 			source_revision_docs_fp = $src_docs_fp,
+			understanding_id = '',
+			understanding_revision_fp = '',
 			stale = false,
 			created_at = time::now(),
 			updated_at = time::now()`,
@@ -621,6 +677,160 @@ func (s *SurrealStore) GetKnowledgeEvidence(sectionID string) []knowledge.Eviden
 		evidence = append(evidence, r.toEvidence())
 	}
 	return evidence
+}
+
+func (s *SurrealStore) StoreRepositoryUnderstanding(u *knowledge.RepositoryUnderstanding) (*knowledge.RepositoryUnderstanding, error) {
+	db := s.client.DB()
+	if db == nil {
+		return nil, fmt.Errorf("database not connected")
+	}
+
+	id := u.ID
+	if id == "" {
+		id = uuid.New().String()
+	}
+	scope := knowledge.ArtifactScope{ScopeType: knowledge.ScopeRepository}
+	if u.Scope != nil {
+		scope = u.Scope.Normalize()
+	}
+
+	sql := `
+		LET $existing = (SELECT id, created_at FROM ca_repository_understanding WHERE repo_id = $repo_id AND scope_key = $scope_key LIMIT 1);
+		IF array::len($existing) > 0 THEN
+			(UPDATE ca_repository_understanding SET
+				scope_type = $scope_type,
+				scope_path = $scope_path,
+				corpus_id = $corpus_id,
+				revision_fp = $revision_fp,
+				strategy = $strategy,
+				stage = $stage,
+				tree_status = $tree_status,
+				cached_nodes = $cached_nodes,
+				total_nodes = $total_nodes,
+				model_used = $model_used,
+				metadata = $metadata,
+				error_code = $error_code,
+				error_message = $error_message,
+				updated_at = time::now()
+			WHERE repo_id = $repo_id AND scope_key = $scope_key)
+		ELSE
+			(CREATE ca_repository_understanding SET
+				id = type::thing('ca_repository_understanding', $id),
+				repo_id = $repo_id,
+				scope_type = $scope_type,
+				scope_key = $scope_key,
+				scope_path = $scope_path,
+				corpus_id = $corpus_id,
+				revision_fp = $revision_fp,
+				strategy = $strategy,
+				stage = $stage,
+				tree_status = $tree_status,
+				cached_nodes = $cached_nodes,
+				total_nodes = $total_nodes,
+				model_used = $model_used,
+				metadata = $metadata,
+				error_code = $error_code,
+				error_message = $error_message,
+				created_at = time::now(),
+				updated_at = time::now())
+		END;
+	`
+	vars := map[string]any{
+		"id":            id,
+		"repo_id":       u.RepositoryID,
+		"scope_type":    string(scope.ScopeType),
+		"scope_key":     scope.ScopeKey(),
+		"scope_path":    scope.ScopePath,
+		"corpus_id":     u.CorpusID,
+		"revision_fp":   u.RevisionFP,
+		"strategy":      u.Strategy,
+		"stage":         string(u.Stage),
+		"tree_status":   string(u.TreeStatus),
+		"cached_nodes":  u.CachedNodes,
+		"total_nodes":   u.TotalNodes,
+		"model_used":    u.ModelUsed,
+		"metadata":      u.Metadata,
+		"error_code":    u.ErrorCode,
+		"error_message": u.ErrorMessage,
+	}
+	if _, err := surrealdb.Query[interface{}](ctx(), db, sql, vars); err != nil {
+		return nil, fmt.Errorf("store repository understanding: %w", err)
+	}
+	return s.GetRepositoryUnderstanding(u.RepositoryID, scope), nil
+}
+
+func (s *SurrealStore) GetRepositoryUnderstanding(repoID string, scope knowledge.ArtifactScope) *knowledge.RepositoryUnderstanding {
+	db := s.client.DB()
+	if db == nil {
+		return nil
+	}
+	scope = scope.Normalize()
+	rows, err := queryOne[[]surrealRepositoryUnderstanding](ctx(), db,
+		`SELECT * FROM ca_repository_understanding
+		 WHERE repo_id = $repo_id AND scope_key = $scope_key
+		 LIMIT 1`,
+		map[string]any{
+			"repo_id":   repoID,
+			"scope_key": scope.ScopeKey(),
+		})
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	return rows[0].toRepositoryUnderstanding()
+}
+
+func (s *SurrealStore) GetRepositoryUnderstandings(repoID string) []*knowledge.RepositoryUnderstanding {
+	db := s.client.DB()
+	if db == nil {
+		return nil
+	}
+	rows, err := queryOne[[]surrealRepositoryUnderstanding](ctx(), db,
+		`SELECT * FROM ca_repository_understanding
+		 WHERE repo_id = $repo_id
+		 ORDER BY updated_at DESC`,
+		map[string]any{"repo_id": repoID})
+	if err != nil {
+		return nil
+	}
+	out := make([]*knowledge.RepositoryUnderstanding, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.toRepositoryUnderstanding())
+	}
+	return out
+}
+
+func (s *SurrealStore) MarkRepositoryUnderstandingNeedsRefresh(repoID string) error {
+	db := s.client.DB()
+	if db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	_, err := queryOne[interface{}](ctx(), db,
+		`UPDATE ca_repository_understanding
+		 SET stage = $stage, updated_at = time::now()
+		 WHERE repo_id = $repo_id AND stage INSIDE ['first_pass_ready', 'ready']`,
+		map[string]any{
+			"repo_id": repoID,
+			"stage":   string(knowledge.UnderstandingNeedsRefresh),
+		})
+	return err
+}
+
+func (s *SurrealStore) AttachArtifactUnderstanding(artifactID, understandingID, revisionFP string) error {
+	db := s.client.DB()
+	if db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	_, err := queryOne[interface{}](ctx(), db,
+		`UPDATE type::thing('ca_knowledge_artifact', $id)
+		 SET understanding_id = $understanding_id,
+		     understanding_revision_fp = $understanding_revision_fp,
+		     updated_at = time::now()`,
+		map[string]any{
+			"id":                        artifactID,
+			"understanding_id":          understandingID,
+			"understanding_revision_fp": revisionFP,
+		})
+	return err
 }
 
 // loadSections returns ordered sections with nested evidence for an artifact.
