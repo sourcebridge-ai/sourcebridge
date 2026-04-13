@@ -217,6 +217,7 @@ function knowledgeJobProgressLabel(job: RepoJobView): string {
 function renderKnowledgeProgress(artifact: KnowledgeArtifact, waitingLabel: string, job?: RepoJobView | null) {
   const liveJob = job && (job.status === "pending" || job.status === "generating") ? job : null;
   const heartbeat = liveJob ? formatHeartbeatAge(liveJob.updated_at) : null;
+  const isCliffNotes = artifact.type === "CLIFF_NOTES";
   const label = liveJob
     ? (liveJob.status === "pending"
       ? waitingLabel
@@ -228,9 +229,13 @@ function renderKnowledgeProgress(artifact: KnowledgeArtifact, waitingLabel: stri
       : knowledgeQueueLabel(artifact);
   const progress = liveJob ? liveJob.progress : artifact.progress;
   const baseProgressLabel = liveJob ? knowledgeJobProgressLabel(liveJob) : knowledgeProgressLabel(artifact);
+  const activeFallbackLabel = isCliffNotes && liveJob?.status === "generating" && progress >= 0.6 && progress < 0.96
+    ? "Building the repository summary tree. Slow leaves may fall back and continue."
+    : null;
+  const displayLabel = activeFallbackLabel || baseProgressLabel;
   const progressLabel = heartbeat && liveJob?.status === "generating"
-    ? `${baseProgressLabel} · Last heartbeat ${heartbeat}`
-    : baseProgressLabel;
+    ? `${displayLabel} · Last heartbeat ${heartbeat}`
+    : displayLabel;
   return (
     <div className="mb-5 space-y-1">
       <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
@@ -289,6 +294,12 @@ function repoJobStatusLabel(job: RepoJobView | null | undefined): string | null 
   if (job.status === "generating") {
     const heartbeat = formatHeartbeatAge(job.updated_at);
     const elapsed = formatElapsedMs(job.elapsed_ms);
+    if (job.progress >= 0.6 && job.progress < 0.96) {
+      if (heartbeat && elapsed) return `Building summary tree · alive ${heartbeat} · elapsed ${elapsed}`;
+      if (heartbeat) return `Building summary tree · alive ${heartbeat}`;
+      if (elapsed) return `Building summary tree · elapsed ${elapsed}`;
+      return "Building summary tree";
+    }
     if (heartbeat && elapsed) return `Generating now · alive ${heartbeat} · elapsed ${elapsed}`;
     if (heartbeat) return `Generating now · alive ${heartbeat}`;
     if (elapsed) return `Generating now · elapsed ${elapsed}`;
