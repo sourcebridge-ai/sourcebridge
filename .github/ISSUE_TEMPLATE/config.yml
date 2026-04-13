@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & Help
+    url: https://github.com/sourcebridge/sourcebridge/discussions
+    about: Ask questions, get help, or share ideas in GitHub Discussions
+  - name: Share Your Experience
+    url: https://github.com/sourcebridge/sourcebridge/discussions/categories/show-and-tell
+    about: Tell us what you built or analyzed with SourceBridge

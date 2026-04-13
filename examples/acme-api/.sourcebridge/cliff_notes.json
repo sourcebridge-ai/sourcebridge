@@ -1,0 +1,259 @@
+{
+  "id": "demo-cliff-notes-001",
+  "repository_id": "demo-acme-api",
+  "type": "cliff_notes",
+  "audience": "developer",
+  "depth": "medium",
+  "scope": {
+    "scope_type": "repository"
+  },
+  "status": "ready",
+  "progress": 1.0,
+  "progress_phase": "ready",
+  "source_revision": {
+    "commit_sha": "demo",
+    "branch": "main"
+  },
+  "stale": false,
+  "generated_at": "2026-04-13T00:00:00Z",
+  "created_at": "2026-04-13T00:00:00Z",
+  "updated_at": "2026-04-13T00:00:00Z",
+  "sections": [
+    {
+      "id": "sec-cn-001",
+      "artifact_id": "demo-cliff-notes-001",
+      "title": "System Purpose",
+      "content": "Acme API is an internal platform for Acme Corp providing **user management**, **team collaboration**, and **subscription billing**. It is built as a Next.js 15 API with Supabase (PostgreSQL) for persistence, Stripe for payment processing, and Resend for transactional email.\n\nThe system serves as the backend for a multi-tenant SaaS product where teams can sign up, invite members, manage roles, and subscribe to paid plans with usage-based limits.",
+      "summary": "Internal SaaS platform for user management, team collaboration, and Stripe billing",
+      "confidence": "high",
+      "inferred": false,
+      "order_index": 0,
+      "evidence": [
+        {
+          "id": "ev-cn-001",
+          "section_id": "sec-cn-001",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "README.md",
+          "line_start": 1,
+          "line_end": 10,
+          "rationale": "Project description and requirements specification"
+        },
+        {
+          "id": "ev-cn-002",
+          "section_id": "sec-cn-001",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "package.json",
+          "line_start": 1,
+          "line_end": 5,
+          "rationale": "Package name and description confirm project purpose"
+        }
+      ]
+    },
+    {
+      "id": "sec-cn-002",
+      "artifact_id": "demo-cliff-notes-001",
+      "title": "Architecture Overview",
+      "content": "The application follows a **layered architecture** with clear separation between API routing, business logic, and data access:\n\n```\nsrc/\n  api/            → HTTP middleware and route handlers\n    middleware/    → Auth, rate limiting, request validation\n    routes/        → Auth, teams, billing, health endpoints\n  auth/           → Authentication primitives (JWT, sessions, passwords, magic links)\n  services/       → Business logic orchestration\n  db/             → Data models (Zod schemas) and Supabase queries\n  lib/            → Shared utilities (env validation, error types, Supabase clients)\n```\n\n**Request flow:** Incoming requests pass through Next.js Edge Middleware (`src/middleware.ts`) which enforces rate limiting and extracts auth context. Route handlers in `src/api/routes/` validate input via Zod schemas, delegate to service functions in `src/services/`, which in turn call query functions in `src/db/queries/`.\n\n**External integrations:** Supabase for PostgreSQL + auth storage, Stripe for subscription billing and webhooks, Resend for transactional email (magic links, invitations, welcome messages).",
+      "summary": "Layered architecture: API routes → services → DB queries, with Supabase, Stripe, and Resend integrations",
+      "confidence": "high",
+      "inferred": false,
+      "order_index": 1,
+      "evidence": [
+        {
+          "id": "ev-cn-003",
+          "section_id": "sec-cn-002",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/middleware.ts",
+          "line_start": 1,
+          "line_end": 35,
+          "rationale": "Edge middleware is the entry point for all API requests"
+        },
+        {
+          "id": "ev-cn-004",
+          "section_id": "sec-cn-002",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/services/auth-service.ts",
+          "line_start": 1,
+          "line_end": 10,
+          "rationale": "Service layer imports demonstrate the layered dependency chain"
+        }
+      ]
+    },
+    {
+      "id": "sec-cn-003",
+      "artifact_id": "demo-cliff-notes-001",
+      "title": "External Dependencies",
+      "content": "**Runtime dependencies:**\n\n| Dependency | Purpose | Critical Path |\n|---|---|---|\n| `@supabase/supabase-js` + `@supabase/ssr` | PostgreSQL database, auth storage, server-side Supabase client | All data operations |\n| `jsonwebtoken` | JWT signing and verification for session tokens | Authentication |\n| `bcryptjs` | Password hashing with configurable salt rounds (12) | User registration and login |\n| `stripe` | Subscription billing, checkout sessions, webhook processing | Billing flow |\n| `resend` | Transactional email delivery (magic links, invitations) | Onboarding and team management |\n| `zod` | Runtime schema validation for request bodies and env vars | Request validation |\n\n**Infrastructure requirements:**\n- Supabase project (PostgreSQL + Auth) or self-hosted equivalent\n- Stripe account with configured products and webhook endpoint\n- Resend account for email delivery\n- Node.js 22+",
+      "summary": "Supabase (DB), Stripe (billing), Resend (email), JWT + bcrypt (auth), Zod (validation)",
+      "confidence": "high",
+      "inferred": false,
+      "order_index": 2,
+      "evidence": [
+        {
+          "id": "ev-cn-005",
+          "section_id": "sec-cn-003",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "package.json",
+          "line_start": 11,
+          "line_end": 24,
+          "rationale": "Runtime dependency list"
+        }
+      ]
+    },
+    {
+      "id": "sec-cn-004",
+      "artifact_id": "demo-cliff-notes-001",
+      "title": "Domain Model",
+      "content": "The system manages three core entities:\n\n**Users** (`src/db/models/user.ts`): Identified by UUID, with email, name, avatar, and bcrypt-hashed password. Created via sign-up or magic link redemption.\n\n**Teams** (`src/db/models/team.ts`): Multi-tenant containers with a name, unique slug, billing plan (free/pro/enterprise), Stripe customer and subscription IDs, and usage tracking (current count vs. limit). Plan limits are defined in `PLAN_LIMITS` — free: 100 uses / 3 members, pro: 10K uses / 25 members, enterprise: unlimited.\n\n**Invitations** (`src/db/models/invitation.ts`): Team invitations sent via email with a cryptographic token, assigned role (admin or member — never owner), 7-day expiration, and acceptance tracking.\n\n**Team Memberships** join users to teams with roles: `owner`, `admin`, or `member`. Permissions are enforced in the service layer — only owners and admins can update teams, invite members, or remove members.",
+      "summary": "Three entities: Users, Teams (with billing plans), and Invitations — joined by role-based memberships",
+      "confidence": "high",
+      "inferred": false,
+      "order_index": 3,
+      "evidence": [
+        {
+          "id": "ev-cn-006",
+          "section_id": "sec-cn-004",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/db/models/user.ts",
+          "line_start": 1,
+          "line_end": 35,
+          "rationale": "User model definition and validation schemas"
+        },
+        {
+          "id": "ev-cn-007",
+          "section_id": "sec-cn-004",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/db/models/team.ts",
+          "line_start": 1,
+          "line_end": 40,
+          "rationale": "Team model with plan tiers and limits"
+        },
+        {
+          "id": "ev-cn-008",
+          "section_id": "sec-cn-004",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/db/models/invitation.ts",
+          "line_start": 1,
+          "line_end": 30,
+          "rationale": "Invitation model with token and expiration"
+        }
+      ]
+    },
+    {
+      "id": "sec-cn-005",
+      "artifact_id": "demo-cliff-notes-001",
+      "title": "Core System Flows",
+      "content": "**Authentication flow (REQ-AUTH-001):**\n1. User submits email + password → `signIn()` in auth-service → verifies via bcrypt → signs JWT with 7-day TTL → sets `acme-session` httpOnly cookie\n2. Alternative: magic link → `requestMagicLink()` → generates crypto token → sends email via Resend → user clicks link → `redeemMagicLink()` consumes token → creates session\n\n**Team invitation flow (REQ-TEAM-002):**\n1. Admin calls `inviteTeamMember()` → validates plan member limit → creates invitation with 7-day expiring token → sends email via Resend\n2. Recipient clicks link → `acceptTeamInvitation()` → creates team_membership record → marks invitation accepted\n\n**Billing flow (REQ-BILL-001):**\n1. Team initiates checkout → `createCheckoutSession()` → creates/retrieves Stripe customer → creates Checkout Session with plan price → returns redirect URL\n2. Stripe fires `checkout.session.completed` webhook → `activateSubscription()` → updates team plan to 'pro' and raises usage limit\n3. On cancellation, `customer.subscription.deleted` webhook → `downgradeToPlan('free')` → preserves data but restricts limits (REQ-BILL-003)\n\n**Usage tracking (REQ-BILL-002):**\n- `trackUsage()` checks current count vs. limit before incrementing\n- Atomic increment via Supabase RPC function `increment_team_usage`",
+      "summary": "Auth (JWT + magic link), team invitations (email + token), Stripe billing (checkout → webhook → activate), usage tracking",
+      "confidence": "high",
+      "inferred": false,
+      "order_index": 4,
+      "evidence": [
+        {
+          "id": "ev-cn-009",
+          "section_id": "sec-cn-005",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/services/auth-service.ts",
+          "line_start": 1,
+          "line_end": 80,
+          "rationale": "Authentication orchestration with sign-in, sign-up, magic link flows"
+        },
+        {
+          "id": "ev-cn-010",
+          "section_id": "sec-cn-005",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/services/billing-service.ts",
+          "line_start": 30,
+          "line_end": 120,
+          "rationale": "Stripe checkout and webhook handling"
+        }
+      ]
+    },
+    {
+      "id": "sec-cn-006",
+      "artifact_id": "demo-cliff-notes-001",
+      "title": "Code Structure",
+      "content": "**Module breakdown (44 files, ~1,800 LOC):**\n\n| Module | Files | Purpose |\n|---|---|---|\n| `src/auth/` | 4 | JWT, password hashing, sessions, magic links |\n| `src/api/middleware/` | 3 | Auth extraction, rate limiting, Zod validation |\n| `src/api/routes/` | 4 | Route handlers for auth, teams, billing, health |\n| `src/db/models/` | 3 | Zod schemas for User, Team, Invitation |\n| `src/db/queries/` | 3 | Supabase CRUD operations per entity |\n| `src/services/` | 4 | Business logic: auth, teams, billing, email |\n| `src/lib/` | 4 | Env validation, error classes, Supabase client factories |\n| `tests/` | 7 | Unit tests for auth, API middleware, models, errors |\n\n**Naming conventions:** Files use kebab-case. Exports are named (no default exports). Validation schemas share names with their TypeScript types via Zod's `z.infer`.",
+      "summary": "44 files across 8 modules: auth, middleware, routes, models, queries, services, lib, tests",
+      "confidence": "high",
+      "inferred": false,
+      "order_index": 5,
+      "evidence": [
+        {
+          "id": "ev-cn-011",
+          "section_id": "sec-cn-006",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/api/routes/auth.ts",
+          "line_start": 1,
+          "line_end": 5,
+          "rationale": "Representative route handler showing naming and import conventions"
+        }
+      ]
+    },
+    {
+      "id": "sec-cn-007",
+      "artifact_id": "demo-cliff-notes-001",
+      "title": "Complexity & Risk Areas",
+      "content": "**High complexity:**\n- `src/services/billing-service.ts` — Stripe integration with checkout, webhook handling, subscription lifecycle, and plan transitions. Webhook processing must be idempotent. The `handleWebhook` function processes three event types; missing events (e.g. `invoice.paid`) could cause state drift.\n- `src/services/team-service.ts` — Permission checks are inline in each function rather than centralized. Adding new roles or permission changes requires updating multiple functions.\n\n**Security considerations:**\n- JWT secret in env var (`JWT_SECRET`) — must be rotated carefully since active sessions will invalidate\n- Magic link tokens are single-use and time-limited (15 minutes) — good practice\n- Rate limiter is in-memory and resets on server restart — not suitable for multi-instance deployments\n- Session cookies use `httpOnly`, `secure` (in production), `sameSite: lax` — solid defaults\n\n**Potential issues:**\n- No transaction boundaries around team creation + membership insertion — partial failure could leave orphaned teams\n- Usage tracking increment is atomic but the check-then-increment in `trackUsage()` has a TOCTOU race under concurrent requests",
+      "summary": "Billing webhook complexity, inline permission checks, in-memory rate limiter not multi-instance safe, TOCTOU in usage tracking",
+      "confidence": "high",
+      "inferred": false,
+      "order_index": 6,
+      "evidence": [
+        {
+          "id": "ev-cn-012",
+          "section_id": "sec-cn-007",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/services/billing-service.ts",
+          "line_start": 60,
+          "line_end": 95,
+          "rationale": "Webhook handler with multiple event types and state transitions"
+        },
+        {
+          "id": "ev-cn-013",
+          "section_id": "sec-cn-007",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/api/middleware/rate-limit.ts",
+          "line_start": 1,
+          "line_end": 35,
+          "rationale": "In-memory Map-based rate limiter"
+        }
+      ]
+    },
+    {
+      "id": "sec-cn-008",
+      "artifact_id": "demo-cliff-notes-001",
+      "title": "Suggested Starting Points",
+      "content": "**To understand the request lifecycle:** Start at `src/middleware.ts` (edge middleware) → follow into `src/api/middleware/auth.ts` (JWT extraction) → then any route handler in `src/api/routes/`.\n\n**To understand the data model:** Read `src/db/models/user.ts`, `team.ts`, and `invitation.ts` in that order — they define all entities and validation schemas.\n\n**To understand the auth system:** Start at `src/auth/jwt.ts` (token signing) → `src/auth/session.ts` (cookie management) → `src/services/auth-service.ts` (orchestration).\n\n**To understand billing:** Read `src/db/models/team.ts` for plan definitions → `src/services/billing-service.ts` for Stripe integration → `src/api/routes/billing.ts` for the API surface.\n\n**To run tests:** Execute `npm test` — tests cover JWT operations, password hashing, rate limiting, request validation, data model schemas, and error handling.",
+      "summary": "Start with middleware.ts for request flow, db/models/ for data model, auth/ for authentication, billing-service.ts for payments",
+      "confidence": "high",
+      "inferred": false,
+      "order_index": 7,
+      "evidence": [
+        {
+          "id": "ev-cn-014",
+          "section_id": "sec-cn-008",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/middleware.ts",
+          "line_start": 1,
+          "line_end": 35,
+          "rationale": "Entry point for understanding the request lifecycle"
+        }
+      ]
+    }
+  ]
+}

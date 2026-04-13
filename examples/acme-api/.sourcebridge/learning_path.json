@@ -1,0 +1,215 @@
+{
+  "id": "demo-learning-path-001",
+  "repository_id": "demo-acme-api",
+  "type": "learning_path",
+  "audience": "developer",
+  "depth": "medium",
+  "scope": {
+    "scope_type": "repository"
+  },
+  "status": "ready",
+  "progress": 1.0,
+  "progress_phase": "ready",
+  "source_revision": {
+    "commit_sha": "demo",
+    "branch": "main"
+  },
+  "stale": false,
+  "generated_at": "2026-04-13T00:00:00Z",
+  "created_at": "2026-04-13T00:00:00Z",
+  "updated_at": "2026-04-13T00:00:00Z",
+  "sections": [
+    {
+      "id": "sec-lp-001",
+      "artifact_id": "demo-learning-path-001",
+      "title": "Step 1: Understand the Data Model",
+      "content": "Start by reading the three core entity definitions in `src/db/models/`. These Zod schemas are the source of truth for what the system manages.\n\n**Read these files in order:**\n1. `src/db/models/user.ts` — User entity with email, name, password hash. Note the `CreateUserInput` and `UpdateUserInput` validation schemas.\n2. `src/db/models/team.ts` — Team entity with billing plan, usage tracking, and the `PLAN_LIMITS` constant that defines caps per tier.\n3. `src/db/models/invitation.ts` — Invitation entity with token-based acceptance and 7-day expiry.\n\n**Key concept:** Zod schemas serve as both TypeScript types (via `z.infer`) and runtime validators. This pattern eliminates the usual type/validation drift.",
+      "summary": "Learn the core data model: User, Team, and Invitation entities defined as Zod schemas",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 0,
+      "evidence": [
+        {
+          "id": "ev-lp-001",
+          "section_id": "sec-lp-001",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/db/models/user.ts",
+          "line_start": 1,
+          "line_end": 35,
+          "rationale": "Referenced in learning step"
+        },
+        {
+          "id": "ev-lp-002",
+          "section_id": "sec-lp-001",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/db/models/team.ts",
+          "line_start": 1,
+          "line_end": 40,
+          "rationale": "Referenced in learning step"
+        },
+        {
+          "id": "ev-lp-003",
+          "section_id": "sec-lp-001",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/db/models/invitation.ts",
+          "line_start": 1,
+          "line_end": 30,
+          "rationale": "Referenced in learning step"
+        }
+      ]
+    },
+    {
+      "id": "sec-lp-002",
+      "artifact_id": "demo-learning-path-001",
+      "title": "Step 2: Trace the Authentication Flow",
+      "content": "Authentication is the most cross-cutting concern in the system. Follow the token lifecycle from creation to consumption.\n\n**Read these files:**\n1. `src/auth/jwt.ts` — Token signing and verification. Notice the 7-day TTL and the `TokenPayload` interface.\n2. `src/auth/password.ts` — bcrypt hashing with 12 salt rounds.\n3. `src/auth/session.ts` — Cookie-based session management. `getSession()` is called on nearly every authenticated request.\n4. `src/auth/magic-link.ts` — Alternative passwordless auth via time-limited tokens.\n\n**Exercise:** Trace how `signIn()` in `src/services/auth-service.ts` uses these primitives to create a complete auth flow.",
+      "summary": "Trace the JWT and session lifecycle through the auth module",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 1,
+      "evidence": [
+        {
+          "id": "ev-lp-004",
+          "section_id": "sec-lp-002",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/auth/jwt.ts",
+          "line_start": 1,
+          "line_end": 30,
+          "rationale": "Referenced in learning step"
+        },
+        {
+          "id": "ev-lp-005",
+          "section_id": "sec-lp-002",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/auth/session.ts",
+          "line_start": 1,
+          "line_end": 45,
+          "rationale": "Referenced in learning step"
+        }
+      ]
+    },
+    {
+      "id": "sec-lp-003",
+      "artifact_id": "demo-learning-path-001",
+      "title": "Step 3: Follow a Request Through the Middleware Stack",
+      "content": "Now that you understand auth, see how it's applied to every incoming request.\n\n**Read these files:**\n1. `src/middleware.ts` — The Next.js Edge Middleware entry point. Runs auth extraction and rate limiting on every `/api/*` request.\n2. `src/api/middleware/auth.ts` — `authenticate()` extracts the JWT from the Authorization header or session cookie. `requireAuth()` throws if no valid session.\n3. `src/api/middleware/rate-limit.ts` — In-memory sliding-window rate limiter at 100 req/min per user.\n4. `src/api/middleware/validate.ts` — `validateBody()` parses request JSON against a Zod schema.\n\n**Key insight:** The middleware stack is layered: rate limit → auth → validation → handler. Each layer can short-circuit the request with a typed error response.",
+      "summary": "Understand the middleware stack: rate limiting, auth, and validation",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 2,
+      "evidence": [
+        {
+          "id": "ev-lp-006",
+          "section_id": "sec-lp-003",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/middleware.ts",
+          "line_start": 1,
+          "line_end": 35,
+          "rationale": "Referenced in learning step"
+        },
+        {
+          "id": "ev-lp-007",
+          "section_id": "sec-lp-003",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/api/middleware/auth.ts",
+          "line_start": 1,
+          "line_end": 45,
+          "rationale": "Referenced in learning step"
+        }
+      ]
+    },
+    {
+      "id": "sec-lp-004",
+      "artifact_id": "demo-learning-path-001",
+      "title": "Step 4: Understand the Service Layer Pattern",
+      "content": "The service layer is where business rules live, sitting between API routes and database queries.\n\n**Read these files:**\n1. `src/services/auth-service.ts` — Orchestrates sign-up, sign-in, and magic link flows by composing auth primitives and query functions.\n2. `src/services/team-service.ts` — Team CRUD with inline permission checks (role-based: owner, admin, member).\n3. `src/services/email-service.ts` — Resend-powered transactional email for magic links, invitations, and welcome messages.\n\n**Pattern:** Services import from `@/db/queries/*` (data access) and `@/auth/*` (security primitives) but never directly from the API layer. This keeps business logic testable and reusable.",
+      "summary": "Learn the service layer pattern: auth, team, and email services",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 3,
+      "evidence": [
+        {
+          "id": "ev-lp-008",
+          "section_id": "sec-lp-004",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/services/auth-service.ts",
+          "line_start": 1,
+          "line_end": 80,
+          "rationale": "Referenced in learning step"
+        },
+        {
+          "id": "ev-lp-009",
+          "section_id": "sec-lp-004",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/services/team-service.ts",
+          "line_start": 1,
+          "line_end": 100,
+          "rationale": "Referenced in learning step"
+        }
+      ]
+    },
+    {
+      "id": "sec-lp-005",
+      "artifact_id": "demo-learning-path-001",
+      "title": "Step 5: Deep Dive into Stripe Billing",
+      "content": "Billing is the most complex integration. It uses Stripe's Checkout + Webhooks pattern for subscription management.\n\n**Read:** `src/services/billing-service.ts`\n\n**Flow to trace:**\n1. `createCheckoutSession()` — Creates a Stripe customer (if needed), opens a Checkout Session with the plan price\n2. `handleWebhook()` — Receives Stripe events, verifies signature, dispatches to handlers\n3. `activateSubscription()` — Called on `checkout.session.completed`, upgrades the team plan\n4. `downgradeToPlan()` — Called on `customer.subscription.deleted`, preserves data but restricts limits\n5. `getSubscriptionStatus()` — Queries Stripe for current subscription state\n\n**Critical detail:** The webhook handler must be idempotent — Stripe may retry failed deliveries. The current implementation is safe because it uses `UPDATE` (not `INSERT`) operations.",
+      "summary": "Deep dive into Stripe integration: checkout sessions, webhooks, and subscription lifecycle",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 4,
+      "evidence": [
+        {
+          "id": "ev-lp-010",
+          "section_id": "sec-lp-005",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/services/billing-service.ts",
+          "line_start": 1,
+          "line_end": 140,
+          "rationale": "Referenced in learning step"
+        }
+      ]
+    },
+    {
+      "id": "sec-lp-006",
+      "artifact_id": "demo-learning-path-001",
+      "title": "Step 6: Review the Error Handling Strategy",
+      "content": "The error system provides structured, typed errors throughout the application.\n\n**Read:** `src/lib/errors.ts`\n\n**Hierarchy:** `AppError` (base) → `AuthenticationError` (401), `AuthorizationError` (403), `NotFoundError` (404), `RateLimitError` (429), `ValidationError` (422 + field details).\n\n**Key function:** `errorResponse()` converts any error into a consistent JSON response. Known `AppError` types get their specific status code; unknown errors get a generic 500 to prevent information leakage.\n\n**Usage pattern:** Every route handler wraps its body in a try/catch that calls `errorResponse(error)`. This is consistent across all routes in `src/api/routes/`.\n\n**Exercise:** Run `npm test` and look at `tests/lib/errors.test.ts` to see how each error type is verified.",
+      "summary": "Review the typed error hierarchy and structured error response pattern",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 5,
+      "evidence": [
+        {
+          "id": "ev-lp-011",
+          "section_id": "sec-lp-006",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/lib/errors.ts",
+          "line_start": 1,
+          "line_end": 65,
+          "rationale": "Referenced in learning step"
+        },
+        {
+          "id": "ev-lp-012",
+          "section_id": "sec-lp-006",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "tests/lib/errors.test.ts",
+          "line_start": 1,
+          "line_end": 60,
+          "rationale": "Referenced in learning step"
+        }
+      ]
+    }
+  ]
+}

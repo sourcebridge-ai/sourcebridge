@@ -1,0 +1,10 @@
+{
+  "overall": 72,
+  "traceabilityCoverage": 85,
+  "documentationCoverage": 60,
+  "reviewCoverage": 65,
+  "testCoverage": 70,
+  "knowledgeFreshness": 95,
+  "aiCodeRatio": 0,
+  "computedAt": "2026-04-13T00:00:00Z"
+}

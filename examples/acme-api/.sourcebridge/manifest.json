@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "repository": "acme-api",
+  "description": "Pre-generated SourceBridge demo artifacts for the acme-api sample repository",
+  "generated_at": "2026-04-13T00:00:00Z",
+  "artifacts": [
+    {
+      "type": "cliff_notes",
+      "file": "cliff_notes.json",
+      "scope": "repository"
+    },
+    {
+      "type": "code_tour",
+      "file": "code_tour.json",
+      "scope": "repository"
+    },
+    {
+      "type": "learning_path",
+      "file": "learning_path.json",
+      "scope": "repository"
+    },
+    {
+      "type": "understanding_score",
+      "file": "understanding_score.json",
+      "scope": "repository"
+    }
+  ]
+}

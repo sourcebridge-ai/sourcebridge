@@ -1,0 +1,63 @@
+title: "Share your first-run experience"
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We'd love to hear about your experience trying SourceBridge for the first time.
+        Your feedback helps us make the onboarding better for everyone.
+  - type: textarea
+    id: repo
+    attributes:
+      label: What repo did you try it on?
+      description: A general description is fine — you don't need to share the actual repo.
+      placeholder: "e.g., a 200-file Go microservice, a React dashboard, our internal monorepo"
+    validations:
+      required: false
+  - type: textarea
+    id: worked
+    attributes:
+      label: What worked well?
+      description: What parts of the experience were smooth or useful?
+    validations:
+      required: false
+  - type: textarea
+    id: confusing
+    attributes:
+      label: What was confusing?
+      description: Where did you get stuck or have to guess?
+    validations:
+      required: false
+  - type: dropdown
+    id: setup-method
+    attributes:
+      label: How did you run SourceBridge?
+      options:
+        - ./demo.sh
+        - docker compose up
+        - ./setup.sh
+        - Homebrew
+        - Helm / Kubernetes
+        - Built from source
+    validations:
+      required: false
+  - type: dropdown
+    id: llm
+    attributes:
+      label: Which LLM did you use?
+      options:
+        - No LLM (zero-config demo)
+        - Ollama (local)
+        - Anthropic (Claude)
+        - OpenAI (GPT)
+        - Google Gemini
+        - Other
+    validations:
+      required: false
+  - type: input
+    id: time
+    attributes:
+      label: How long from start to first useful output?
+      placeholder: "e.g., 2 minutes, 10 minutes, didn't get there"
+    validations:
+      required: false

@@ -1,0 +1,221 @@
+{
+  "id": "demo-code-tour-001",
+  "repository_id": "demo-acme-api",
+  "type": "code_tour",
+  "audience": "developer",
+  "depth": "medium",
+  "scope": {
+    "scope_type": "repository"
+  },
+  "status": "ready",
+  "progress": 1.0,
+  "progress_phase": "ready",
+  "source_revision": {
+    "commit_sha": "demo",
+    "branch": "main"
+  },
+  "stale": false,
+  "generated_at": "2026-04-13T00:00:00Z",
+  "created_at": "2026-04-13T00:00:00Z",
+  "updated_at": "2026-04-13T00:00:00Z",
+  "sections": [
+    {
+      "id": "sec-ct-001",
+      "artifact_id": "demo-code-tour-001",
+      "title": "Edge Middleware — The Front Door",
+      "content": "Every API request enters through Next.js Edge Middleware. This is the first code that runs — before any route handler. It extracts the JWT session (if present), runs the rate limiter keyed by user ID or IP, and forwards the request with `x-user-id` and `x-team-id` headers injected for downstream handlers.\n\nNote that public paths (sign-in, sign-up, magic link, Stripe webhooks, health check) are explicitly exempted from authentication in `src/api/middleware/auth.ts`.",
+      "summary": "src/middleware.ts",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 0,
+      "evidence": [
+        {
+          "id": "ev-ct-001",
+          "section_id": "sec-ct-001",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/middleware.ts",
+          "line_start": 1,
+          "line_end": 35,
+          "rationale": "Code tour stop location"
+        }
+      ]
+    },
+    {
+      "id": "sec-ct-002",
+      "artifact_id": "demo-code-tour-001",
+      "title": "JWT Authentication — Signing and Verifying Tokens",
+      "content": "The JWT module is the core of the auth system. `signToken()` creates a token with the user's ID, email, team ID, and role, signed with the `JWT_SECRET` env var and a 7-day expiry. `verifyToken()` validates incoming tokens on every request.\n\nThe `TokenPayload` interface defines the shape of the JWT claims — this is the session context available throughout the request lifecycle.",
+      "summary": "src/auth/jwt.ts",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 1,
+      "evidence": [
+        {
+          "id": "ev-ct-002",
+          "section_id": "sec-ct-002",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/auth/jwt.ts",
+          "line_start": 1,
+          "line_end": 30,
+          "rationale": "Code tour stop location"
+        }
+      ]
+    },
+    {
+      "id": "sec-ct-003",
+      "artifact_id": "demo-code-tour-001",
+      "title": "Session Management — Cookies and Token Lifecycle",
+      "content": "Sessions are managed via an `acme-session` httpOnly cookie with a 7-day max age (matching the JWT TTL — REQ-AUTH-002). The `getSession()` function extracts and verifies the cookie on each request, while `setSession()` writes it after successful login.\n\n`optionalSession()` provides a non-throwing variant for routes that work with or without authentication.",
+      "summary": "src/auth/session.ts",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 2,
+      "evidence": [
+        {
+          "id": "ev-ct-003",
+          "section_id": "sec-ct-003",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/auth/session.ts",
+          "line_start": 1,
+          "line_end": 45,
+          "rationale": "Code tour stop location"
+        }
+      ]
+    },
+    {
+      "id": "sec-ct-004",
+      "artifact_id": "demo-code-tour-001",
+      "title": "Data Models — Zod Schemas as Source of Truth",
+      "content": "All entity types are defined using Zod schemas that serve double duty: they are TypeScript types at compile time and runtime validators for API input. The `User`, `Team`, and `Invitation` models live in `src/db/models/`.\n\nNotice the `PLAN_LIMITS` constant in `team.ts` — it defines the usage and member caps per plan tier, used by both the team service (member limit enforcement) and the billing service (plan activation).",
+      "summary": "src/db/models/team.ts",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 3,
+      "evidence": [
+        {
+          "id": "ev-ct-004",
+          "section_id": "sec-ct-004",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/db/models/team.ts",
+          "line_start": 1,
+          "line_end": 40,
+          "rationale": "Code tour stop location"
+        }
+      ]
+    },
+    {
+      "id": "sec-ct-005",
+      "artifact_id": "demo-code-tour-001",
+      "title": "Database Queries — Supabase CRUD Layer",
+      "content": "Each entity has a dedicated query module in `src/db/queries/`. These functions create a Supabase admin client (using the service role key for unrestricted access) and perform typed queries.\n\nThe `createTeam()` function is noteworthy — it inserts the team AND creates the owner's membership in sequence. This is a potential failure point since there's no transaction wrapper, but Supabase's RLS is bypassed via the service role key.",
+      "summary": "src/db/queries/teams.ts",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 4,
+      "evidence": [
+        {
+          "id": "ev-ct-005",
+          "section_id": "sec-ct-005",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/db/queries/teams.ts",
+          "line_start": 25,
+          "line_end": 55,
+          "rationale": "Code tour stop location"
+        }
+      ]
+    },
+    {
+      "id": "sec-ct-006",
+      "artifact_id": "demo-code-tour-001",
+      "title": "Auth Service — Orchestrating Sign-In Flows",
+      "content": "The auth service sits between API routes and the data layer, orchestrating the full sign-in lifecycle. `signIn()` looks up the user by email, verifies the password via bcrypt, finds their teams, signs a JWT, and sets the session cookie.\n\nThe magic link flow is split across `requestMagicLink()` (generates token + sends email) and `redeemMagicLink()` (consumes token + creates session). If the magic link email doesn't match an existing user, a new account is auto-created.",
+      "summary": "src/services/auth-service.ts",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 5,
+      "evidence": [
+        {
+          "id": "ev-ct-006",
+          "section_id": "sec-ct-006",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/services/auth-service.ts",
+          "line_start": 1,
+          "line_end": 80,
+          "rationale": "Code tour stop location"
+        }
+      ]
+    },
+    {
+      "id": "sec-ct-007",
+      "artifact_id": "demo-code-tour-001",
+      "title": "Billing Service — Stripe Integration",
+      "content": "Billing is handled through Stripe's Checkout Sessions and Webhooks pattern. `createCheckoutSession()` creates or retrieves a Stripe customer, then opens a checkout session with the selected plan price.\n\nThe webhook handler (`handleWebhook`) processes three critical events: `checkout.session.completed` (activate subscription), `customer.subscription.deleted` (downgrade to free), and `invoice.payment_failed` (logging only). The webhook signature is verified using Stripe's SDK to prevent spoofing.",
+      "summary": "src/services/billing-service.ts",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 6,
+      "evidence": [
+        {
+          "id": "ev-ct-007",
+          "section_id": "sec-ct-007",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/services/billing-service.ts",
+          "line_start": 25,
+          "line_end": 100,
+          "rationale": "Code tour stop location"
+        }
+      ]
+    },
+    {
+      "id": "sec-ct-008",
+      "artifact_id": "demo-code-tour-001",
+      "title": "Rate Limiter — In-Memory Sliding Window",
+      "content": "The rate limiter implements a simple sliding-window algorithm using an in-memory `Map`. Each key (user ID or IP) gets 100 requests per 60-second window (REQ-API-002). Expired entries are cleaned up every 5 minutes.\n\nThis design is intentionally simple — it works for single-instance deployments. For multi-instance production, you'd swap this for a Redis-backed implementation. The `cleanupExpiredEntries()` function prevents memory leaks from abandoned keys.",
+      "summary": "src/api/middleware/rate-limit.ts",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 7,
+      "evidence": [
+        {
+          "id": "ev-ct-008",
+          "section_id": "sec-ct-008",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/api/middleware/rate-limit.ts",
+          "line_start": 1,
+          "line_end": 40,
+          "rationale": "Code tour stop location"
+        }
+      ]
+    },
+    {
+      "id": "sec-ct-009",
+      "artifact_id": "demo-code-tour-001",
+      "title": "Error Handling — Typed Error Hierarchy",
+      "content": "All application errors extend `AppError` which carries a machine-readable `code`, human-readable `message`, and HTTP `status`. Specialized subclasses (`AuthenticationError`, `AuthorizationError`, `NotFoundError`, `RateLimitError`, `ValidationError`) set appropriate defaults.\n\nThe `errorResponse()` function converts any error into a structured JSON response. Known `AppError` types return their specific status; unknown errors return a generic 500 to avoid leaking internal details.",
+      "summary": "src/lib/errors.ts",
+      "confidence": "medium",
+      "inferred": false,
+      "order_index": 8,
+      "evidence": [
+        {
+          "id": "ev-ct-009",
+          "section_id": "sec-ct-009",
+          "source_type": "file",
+          "source_id": "",
+          "file_path": "src/lib/errors.ts",
+          "line_start": 1,
+          "line_end": 60,
+          "rationale": "Code tour stop location"
+        }
+      ]
+    }
+  ]
+}
