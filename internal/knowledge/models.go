@@ -232,6 +232,7 @@ type Artifact struct {
 	Type                    ArtifactType   `json:"type"`
 	Audience                Audience       `json:"audience"`
 	Depth                   Depth          `json:"depth"`
+	GenerationMode          GenerationMode `json:"generation_mode,omitempty"`
 	Scope                   *ArtifactScope `json:"scope,omitempty"`
 	Status                  ArtifactStatus `json:"status"`
 	Progress                float64        `json:"progress"`
@@ -242,12 +243,22 @@ type Artifact struct {
 	SourceRevision          SourceRevision `json:"source_revision"`
 	UnderstandingID         string         `json:"understanding_id,omitempty"`
 	UnderstandingRevisionFP string         `json:"understanding_revision_fp,omitempty"`
+	RendererVersion         string         `json:"renderer_version,omitempty"`
 	Stale                   bool           `json:"stale"`
 	GeneratedAt             time.Time      `json:"generated_at,omitempty"`
 	CreatedAt               time.Time      `json:"created_at"`
 	UpdatedAt               time.Time      `json:"updated_at"`
 	Sections                []Section      `json:"sections,omitempty"`
 }
+
+// GenerationMode determines which orchestration path should be used to
+// generate or refresh a knowledge artifact.
+type GenerationMode string
+
+const (
+	GenerationModeClassic            GenerationMode = "classic"
+	GenerationModeUnderstandingFirst GenerationMode = "understanding_first"
+)
 
 // RepositoryUnderstandingStage represents the lifecycle of the shared
 // repository understanding artifact.
@@ -295,15 +306,17 @@ type RepositoryUnderstanding struct {
 
 // Section is an ordered component of a knowledge artifact.
 type Section struct {
-	ID         string          `json:"id"`
-	ArtifactID string          `json:"artifact_id"`
-	Title      string          `json:"title"`
-	Content    string          `json:"content"`
-	Summary    string          `json:"summary,omitempty"`
-	Confidence ConfidenceLevel `json:"confidence"`
-	Inferred   bool            `json:"inferred"`
-	OrderIndex int             `json:"order_index"`
-	Evidence   []Evidence      `json:"evidence,omitempty"`
+	ID               string          `json:"id"`
+	ArtifactID       string          `json:"artifact_id"`
+	SectionKey       string          `json:"section_key,omitempty"`
+	Title            string          `json:"title"`
+	Content          string          `json:"content"`
+	Summary          string          `json:"summary,omitempty"`
+	Confidence       ConfidenceLevel `json:"confidence"`
+	Inferred         bool            `json:"inferred"`
+	OrderIndex       int             `json:"order_index"`
+	RefinementStatus string          `json:"refinement_status,omitempty"`
+	Evidence         []Evidence      `json:"evidence,omitempty"`
 }
 
 // Evidence is a traceable reference from a section back to a source artifact.
@@ -317,6 +330,26 @@ type Evidence struct {
 	LineEnd    int                `json:"line_end,omitempty"`
 	Rationale  string             `json:"rationale,omitempty"`
 	Metadata   map[string]string  `json:"metadata,omitempty"`
+}
+
+// ArtifactDependencyType describes the relationship between an artifact and
+// one of the durable assets it depends on.
+type ArtifactDependencyType string
+
+const (
+	DependencyRepositoryUnderstanding ArtifactDependencyType = "repository_understanding"
+)
+
+// ArtifactDependency links an artifact to a prerequisite artifact/state that
+// it was derived from.
+type ArtifactDependency struct {
+	ID               string                 `json:"id"`
+	ArtifactID       string                 `json:"artifact_id"`
+	DependencyType   ArtifactDependencyType `json:"dependency_type"`
+	TargetID         string                 `json:"target_id"`
+	TargetRevisionFP string                 `json:"target_revision_fp,omitempty"`
+	Metadata         string                 `json:"metadata,omitempty"`
+	CreatedAt        time.Time              `json:"created_at"`
 }
 
 func normalizeScopePath(scopeType ScopeType, scopePath string) string {

@@ -29,6 +29,8 @@ type surrealLLMJob struct {
 	TargetKey        string           `json:"target_key"`
 	Strategy         string           `json:"strategy"`
 	Model            string           `json:"model"`
+	Priority         string           `json:"priority"`
+	GenerationMode   string           `json:"generation_mode"`
 	Status           string           `json:"status"`
 	Progress         float64          `json:"progress"`
 	ProgressPhase    string           `json:"progress_phase"`
@@ -79,6 +81,8 @@ func (r *surrealLLMJob) toJob() *llm.Job {
 		TargetKey:        r.TargetKey,
 		Strategy:         r.Strategy,
 		Model:            r.Model,
+		Priority:         llm.JobPriority(r.Priority),
+		GenerationMode:   r.GenerationMode,
 		Status:           llm.JobStatus(r.Status),
 		Progress:         r.Progress,
 		ProgressPhase:    r.ProgressPhase,
@@ -160,6 +164,8 @@ func (s *SurrealStore) Create(job *llm.Job) (*llm.Job, error) {
 		target_key = $target_key,
 		strategy = $strategy,
 		model = $model,
+		priority = $priority,
+		generation_mode = $generation_mode,
 		status = $status,
 		progress = $progress,
 		progress_phase = $progress_phase,
@@ -190,6 +196,8 @@ func (s *SurrealStore) Create(job *llm.Job) (*llm.Job, error) {
 		"target_key":         job.TargetKey,
 		"strategy":           job.Strategy,
 		"model":              job.Model,
+		"priority":           string(job.Priority),
+		"generation_mode":    job.GenerationMode,
 		"status":             string(status),
 		"progress":           job.Progress,
 		"progress_phase":     job.ProgressPhase,
@@ -235,6 +243,8 @@ func (s *SurrealStore) Update(job *llm.Job) error {
 		target_key = $target_key,
 		strategy = $strategy,
 		model = $model,
+		priority = $priority,
+		generation_mode = $generation_mode,
 		status = $status,
 		progress = $progress,
 		progress_phase = $progress_phase,
@@ -263,6 +273,8 @@ func (s *SurrealStore) Update(job *llm.Job) error {
 		"target_key":         job.TargetKey,
 		"strategy":           job.Strategy,
 		"model":              job.Model,
+		"priority":           string(job.Priority),
+		"generation_mode":    job.GenerationMode,
 		"status":             string(job.Status),
 		"progress":           job.Progress,
 		"progress_phase":     job.ProgressPhase,

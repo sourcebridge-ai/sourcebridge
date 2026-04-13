@@ -45,6 +45,8 @@ type surrealKnowledgeArtifact struct {
 	SourceRevisionDocsFP    string           `json:"source_revision_docs_fp"`
 	UnderstandingID         string           `json:"understanding_id"`
 	UnderstandingRevisionFP string           `json:"understanding_revision_fp"`
+	RendererVersion         string           `json:"renderer_version"`
+	GenerationMode          string           `json:"generation_mode"`
 	Stale                   bool             `json:"stale"`
 	GeneratedAt             surrealTime      `json:"generated_at"`
 	CreatedAt               surrealTime      `json:"created_at"`
@@ -78,6 +80,8 @@ func (r *surrealKnowledgeArtifact) toArtifact() *knowledge.Artifact {
 		},
 		UnderstandingID:         r.UnderstandingID,
 		UnderstandingRevisionFP: r.UnderstandingRevisionFP,
+		RendererVersion:         r.RendererVersion,
+		GenerationMode:          knowledge.GenerationMode(r.GenerationMode),
 		GeneratedAt:             r.GeneratedAt.Time,
 		CreatedAt:               r.CreatedAt.Time,
 		UpdatedAt:               r.UpdatedAt.Time,
@@ -131,26 +135,52 @@ func (r *surrealRepositoryUnderstanding) toRepositoryUnderstanding() *knowledge.
 }
 
 type surrealKnowledgeSection struct {
-	ID         *models.RecordID `json:"id,omitempty"`
-	ArtifactID string           `json:"artifact_id"`
-	Title      string           `json:"title"`
-	Content    string           `json:"content"`
-	Summary    string           `json:"summary"`
-	Confidence string           `json:"confidence"`
-	Inferred   bool             `json:"inferred"`
-	OrderIndex int              `json:"order_index"`
+	ID               *models.RecordID `json:"id,omitempty"`
+	ArtifactID       string           `json:"artifact_id"`
+	SectionKey       string           `json:"section_key"`
+	Title            string           `json:"title"`
+	Content          string           `json:"content"`
+	Summary          string           `json:"summary"`
+	Confidence       string           `json:"confidence"`
+	Inferred         bool             `json:"inferred"`
+	OrderIndex       int              `json:"order_index"`
+	RefinementStatus string           `json:"refinement_status"`
 }
 
 func (r *surrealKnowledgeSection) toSection() knowledge.Section {
 	return knowledge.Section{
-		ID:         recordIDString(r.ID),
-		ArtifactID: r.ArtifactID,
-		Title:      r.Title,
-		Content:    r.Content,
-		Summary:    r.Summary,
-		Confidence: knowledge.ConfidenceLevel(r.Confidence),
-		Inferred:   r.Inferred,
-		OrderIndex: r.OrderIndex,
+		ID:               recordIDString(r.ID),
+		ArtifactID:       r.ArtifactID,
+		SectionKey:       r.SectionKey,
+		Title:            r.Title,
+		Content:          r.Content,
+		Summary:          r.Summary,
+		Confidence:       knowledge.ConfidenceLevel(r.Confidence),
+		Inferred:         r.Inferred,
+		OrderIndex:       r.OrderIndex,
+		RefinementStatus: r.RefinementStatus,
+	}
+}
+
+type surrealArtifactDependency struct {
+	ID               *models.RecordID `json:"id,omitempty"`
+	ArtifactID       string           `json:"artifact_id"`
+	DependencyType   string           `json:"dependency_type"`
+	TargetID         string           `json:"target_id"`
+	TargetRevisionFP string           `json:"target_revision_fp"`
+	Metadata         string           `json:"metadata"`
+	CreatedAt        surrealTime      `json:"created_at"`
+}
+
+func (r *surrealArtifactDependency) toDependency() knowledge.ArtifactDependency {
+	return knowledge.ArtifactDependency{
+		ID:               recordIDString(r.ID),
+		ArtifactID:       r.ArtifactID,
+		DependencyType:   knowledge.ArtifactDependencyType(r.DependencyType),
+		TargetID:         r.TargetID,
+		TargetRevisionFP: r.TargetRevisionFP,
+		Metadata:         r.Metadata,
+		CreatedAt:        r.CreatedAt.Time,
 	}
 }
 
@@ -222,6 +252,8 @@ func (s *SurrealStore) StoreKnowledgeArtifact(artifact *knowledge.Artifact) (*kn
 		source_revision_docs_fp = $src_docs_fp,
 		understanding_id = $understanding_id,
 		understanding_revision_fp = $understanding_revision_fp,
+		renderer_version = $renderer_version,
+		generation_mode = $generation_mode,
 		stale = $stale,
 		progress = $progress,
 		created_at = time::now(),
@@ -245,6 +277,8 @@ func (s *SurrealStore) StoreKnowledgeArtifact(artifact *knowledge.Artifact) (*kn
 		"src_docs_fp":               artifact.SourceRevision.DocsFingerprint,
 		"understanding_id":          artifact.UnderstandingID,
 		"understanding_revision_fp": artifact.UnderstandingRevisionFP,
+		"renderer_version":          artifact.RendererVersion,
+		"generation_mode":           string(artifact.GenerationMode),
 		"stale":                     artifact.Stale,
 	}
 
@@ -296,6 +330,8 @@ func (s *SurrealStore) ClaimArtifact(key knowledge.ArtifactKey, sourceRevision k
 			source_revision_docs_fp = $src_docs_fp,
 			understanding_id = '',
 			understanding_revision_fp = '',
+			renderer_version = $renderer_version,
+			generation_mode = $generation_mode,
 			stale = false,
 			created_at = time::now(),
 			updated_at = time::now()`,
@@ -313,6 +349,8 @@ func (s *SurrealStore) ClaimArtifact(key knowledge.ArtifactKey, sourceRevision k
 			"src_branch":        sourceRevision.Branch,
 			"src_content_fp":    sourceRevision.ContentFingerprint,
 			"src_docs_fp":       sourceRevision.DocsFingerprint,
+			"renderer_version":  knowledge.RendererVersionForArtifact(key.Type),
+			"generation_mode":   string(knowledge.GenerationModeUnderstandingFirst),
 		})
 	if err != nil {
 		existing := s.GetArtifactByKey(key)
@@ -553,26 +591,36 @@ func (s *SurrealStore) StoreKnowledgeSections(artifactID string, sections []know
 		if secID == "" {
 			secID = uuid.New().String()
 		}
+		if sec.SectionKey == "" {
+			sec.SectionKey = knowledge.SectionKeyForTitle(sec.Title)
+		}
+		if sec.RefinementStatus == "" {
+			sec.RefinementStatus = "light"
+		}
 
 		_, err := surrealdb.Query[interface{}](ctx(), db,
 			`CREATE ca_knowledge_section SET
 				id = type::thing('ca_knowledge_section', $id),
 				artifact_id = $artifact_id,
+				section_key = $section_key,
 				title = $title,
 				content = $content,
 				summary = $summary,
 				confidence = $confidence,
 				inferred = $inferred,
-				order_index = $order_index`,
+				order_index = $order_index,
+				refinement_status = $refinement_status`,
 			map[string]any{
-				"id":          secID,
-				"artifact_id": artifactID,
-				"title":       sec.Title,
-				"content":     sec.Content,
-				"summary":     sec.Summary,
-				"confidence":  string(sec.Confidence),
-				"inferred":    sec.Inferred,
-				"order_index": i,
+				"id":                secID,
+				"artifact_id":       artifactID,
+				"section_key":       sec.SectionKey,
+				"title":             sec.Title,
+				"content":           sec.Content,
+				"summary":           sec.Summary,
+				"confidence":        string(sec.Confidence),
+				"inferred":          sec.Inferred,
+				"order_index":       i,
+				"refinement_status": sec.RefinementStatus,
 			})
 		if err != nil {
 			return fmt.Errorf("store knowledge section %d: %w", i, err)
@@ -601,6 +649,63 @@ func (s *SurrealStore) GetKnowledgeSections(artifactID string) []knowledge.Secti
 		sections = append(sections, sec)
 	}
 	return sections
+}
+
+func (s *SurrealStore) StoreArtifactDependencies(artifactID string, dependencies []knowledge.ArtifactDependency) error {
+	db := s.client.DB()
+	if db == nil {
+		return fmt.Errorf("database not connected")
+	}
+
+	_, _ = queryOne[interface{}](ctx(), db,
+		"DELETE ca_knowledge_dependency WHERE artifact_id = $artifact_id",
+		map[string]any{"artifact_id": artifactID})
+
+	for i, dep := range dependencies {
+		depID := dep.ID
+		if depID == "" {
+			depID = uuid.New().String()
+		}
+		_, err := surrealdb.Query[interface{}](ctx(), db,
+			`CREATE ca_knowledge_dependency SET
+				id = type::thing('ca_knowledge_dependency', $id),
+				artifact_id = $artifact_id,
+				dependency_type = $dependency_type,
+				target_id = $target_id,
+				target_revision_fp = $target_revision_fp,
+				metadata = $metadata,
+				created_at = time::now()`,
+			map[string]any{
+				"id":                 depID,
+				"artifact_id":        artifactID,
+				"dependency_type":    string(dep.DependencyType),
+				"target_id":          dep.TargetID,
+				"target_revision_fp": dep.TargetRevisionFP,
+				"metadata":           dep.Metadata,
+			})
+		if err != nil {
+			return fmt.Errorf("store artifact dependency %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func (s *SurrealStore) GetArtifactDependencies(artifactID string) []knowledge.ArtifactDependency {
+	db := s.client.DB()
+	if db == nil {
+		return nil
+	}
+	rows, err := queryOne[[]surrealArtifactDependency](ctx(), db,
+		"SELECT * FROM ca_knowledge_dependency WHERE artifact_id = $artifact_id ORDER BY created_at ASC",
+		map[string]any{"artifact_id": artifactID})
+	if err != nil {
+		return nil
+	}
+	deps := make([]knowledge.ArtifactDependency, 0, len(rows))
+	for _, row := range rows {
+		deps = append(deps, row.toDependency())
+	}
+	return deps
 }
 
 // ---------------------------------------------------------------------------

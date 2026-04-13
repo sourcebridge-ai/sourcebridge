@@ -16,6 +16,7 @@ from knowledge.v1 import knowledge_pb2, knowledge_pb2_grpc
 from workers.common.config import WorkerConfig
 from workers.common.embedding.provider import EmbeddingProvider
 from workers.common.grpc_metadata import (
+    resolve_cliff_notes_render_metadata,
     resolve_job_log_metadata,
     resolve_llm_override,
     resolve_model_override,
@@ -286,6 +287,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         scope_type: str,
         model_override: str | None,
         job_logger: SurrealJobLogger | None = None,
+        render_meta=None,
     ) -> tuple[CliffNotesResult, LLMUsageRecord, SelectionResult, dict[str, int | bool]]:
         """Walk the preference chain and run the first viable strategy.
 
@@ -362,6 +364,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     model_override=model_override,
                     snapshot_json=snapshot,
                     job_logger=job_logger,
+                    render_meta=render_meta,
                 )
                 return result, usage, selection, diagnostics
             except SnapshotTooLargeError as exc:
@@ -395,6 +398,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         model_override: str | None,
         snapshot_json: str,
         job_logger: SurrealJobLogger | None = None,
+        render_meta=None,
     ) -> tuple[CliffNotesResult, LLMUsageRecord, dict[str, int | bool]]:
         """Actually run a single strategy and produce the final cliff
         notes result. Kept separate from the chain walker so the logic
@@ -411,6 +415,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 model_override=model_override,
                 snapshot_json=snapshot_json,
                 job_logger=job_logger,
+                render_meta=render_meta,
             )
 
         # Single-shot and long-context strategies both produce the
@@ -437,6 +442,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         model_override: str | None,
         snapshot_json: str | None = None,
         job_logger: SurrealJobLogger | None = None,
+        render_meta=None,
     ) -> tuple[CliffNotesResult, LLMUsageRecord, dict[str, int | bool]]:
         """Run the Phase 3 hierarchical pipeline for cliff notes.
 
@@ -532,6 +538,9 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             config=cfg,
         )
 
+        render_only = bool(getattr(render_meta, "render_only", False))
+        selected_section_titles = list(getattr(render_meta, "selected_section_titles", None) or [])
+
         log.info(
             "cliff_notes_hierarchical_started",
             repository_id=request.repository_id,
@@ -549,8 +558,29 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             },
         )
 
-        tree = await strategy.build_tree(corpus)
-        diagnostics = strategy.diagnostics()
+        if render_only and cached_tree is not None and cached_tree.root() is not None:
+            tree = cached_tree
+            diagnostics = {
+                "fallback_count": 0,
+                "provider_compute_errors": 0,
+                "root_fallback": False,
+                "leaf_cache_hits": 0,
+                "file_cache_hits": 0,
+                "package_cache_hits": 0,
+                "root_cache_hits": 1,
+            }
+            await emit_job_log(
+                "rerender",
+                "cliff_notes_render_only_reused_tree",
+                "Reused cached summary tree for cliff notes render",
+                {
+                    "cached_nodes": len(cached_tree.nodes),
+                    "selected_sections": selected_section_titles,
+                },
+            )
+        else:
+            tree = await strategy.build_tree(corpus)
+            diagnostics = strategy.diagnostics()
 
         log.info(
             "cliff_notes_hierarchical_tree_built",
@@ -606,6 +636,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             scope_type=scope_type,
             scope_path=request.scope_path,
             pre_analysis=pre_analysis,
+            required_section_titles=selected_section_titles or None,
         )
 
         if usage.operation == "cliff_notes_render_fallback":
@@ -681,6 +712,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         scope_type = request.scope_type or "repository"
         provider, model_override = self._resolve_request_provider(context)
         job_logger = self._resolve_job_logger(context)
+        render_meta = resolve_cliff_notes_render_metadata(context)
         if job_logger is not None:
             await job_logger.info(
                 phase="snapshot",
@@ -693,6 +725,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     "depth": depth,
                     "scope_type": scope_type,
                     "scope_path": request.scope_path,
+                    "render_only": bool(render_meta and render_meta.render_only),
                 },
             )
 
@@ -709,6 +742,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 scope_type=scope_type,
                 model_override=model_override,
                 job_logger=job_logger,
+                render_meta=render_meta,
             )
         except Exception as exc:
             if job_logger is not None:

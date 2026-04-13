@@ -19,6 +19,11 @@ type repositoryUnderstandingMetadata struct {
 	FirstPassSections []map[string]string `json:"first_pass_sections,omitempty"`
 }
 
+type cliffNotesRenderPlan struct {
+	RenderOnly            bool
+	SelectedSectionTitles []string
+}
+
 func understandingScopeForArtifact(scope knowledgepkg.ArtifactScope) knowledgepkg.ArtifactScope {
 	return scope.Normalize()
 }
@@ -75,6 +80,13 @@ func updateUnderstandingForCliffNotes(
 	}
 	if stored != nil && artifact.ID != "" {
 		_ = store.AttachArtifactUnderstanding(artifact.ID, stored.ID, stored.RevisionFP)
+		_ = store.StoreArtifactDependencies(artifact.ID, []knowledgepkg.ArtifactDependency{{
+			ArtifactID:       artifact.ID,
+			DependencyType:   knowledgepkg.DependencyRepositoryUnderstanding,
+			TargetID:         stored.ID,
+			TargetRevisionFP: stored.RevisionFP,
+			Metadata:         `{"source":"cliff_notes"}`,
+		}})
 	}
 	return stored, nil
 }
@@ -132,6 +144,13 @@ func seedRepositoryUnderstanding(
 	}
 	if stored != nil {
 		_ = store.AttachArtifactUnderstanding(artifact.ID, stored.ID, stored.RevisionFP)
+		_ = store.StoreArtifactDependencies(artifact.ID, []knowledgepkg.ArtifactDependency{{
+			ArtifactID:       artifact.ID,
+			DependencyType:   knowledgepkg.DependencyRepositoryUnderstanding,
+			TargetID:         stored.ID,
+			TargetRevisionFP: stored.RevisionFP,
+			Metadata:         `{"source":"seed"}`,
+		}})
 	}
 	return stored, nil
 }
@@ -159,6 +178,13 @@ func markRepositoryUnderstandingFailed(
 	stored, storeErr := store.StoreRepositoryUnderstanding(u)
 	if storeErr == nil && stored != nil {
 		_ = store.AttachArtifactUnderstanding(artifact.ID, stored.ID, stored.RevisionFP)
+		_ = store.StoreArtifactDependencies(artifact.ID, []knowledgepkg.ArtifactDependency{{
+			ArtifactID:       artifact.ID,
+			DependencyType:   knowledgepkg.DependencyRepositoryUnderstanding,
+			TargetID:         stored.ID,
+			TargetRevisionFP: stored.RevisionFP,
+			Metadata:         `{"source":"failure"}`,
+		}})
 	}
 }
 
@@ -180,6 +206,13 @@ func attachFreshUnderstanding(
 		return u, false
 	}
 	_ = store.AttachArtifactUnderstanding(artifact.ID, u.ID, u.RevisionFP)
+	_ = store.StoreArtifactDependencies(artifact.ID, []knowledgepkg.ArtifactDependency{{
+		ArtifactID:       artifact.ID,
+		DependencyType:   knowledgepkg.DependencyRepositoryUnderstanding,
+		TargetID:         u.ID,
+		TargetRevisionFP: u.RevisionFP,
+		Metadata:         `{"source":"reuse"}`,
+	}})
 	return u, u.TreeStatus == knowledgepkg.UnderstandingTreeComplete
 }
 
@@ -269,6 +302,73 @@ func knowledgeDepthValue(depth *KnowledgeDepth) knowledgepkg.Depth {
 		return knowledgepkg.DepthMedium
 	}
 	return knowledgepkg.Depth(strings.ToLower(string(*depth)))
+}
+
+func knowledgeGenerationModeValue(mode *KnowledgeGenerationMode) knowledgepkg.GenerationMode {
+	if mode == nil {
+		return knowledgepkg.GenerationModeUnderstandingFirst
+	}
+	switch *mode {
+	case KnowledgeGenerationModeClassic:
+		return knowledgepkg.GenerationModeClassic
+	default:
+		return knowledgepkg.GenerationModeUnderstandingFirst
+	}
+}
+
+func artifactUsesUnderstanding(mode knowledgepkg.GenerationMode) bool {
+	return mode != knowledgepkg.GenerationModeClassic
+}
+
+func syncArtifactExecutionMetadata(store knowledgepkg.KnowledgeStore, artifact *knowledgepkg.Artifact) {
+	if store == nil || artifact == nil {
+		return
+	}
+	artifact.RendererVersion = knowledgepkg.RendererVersionForArtifact(artifact.Type)
+	if artifact.GenerationMode == "" {
+		artifact.GenerationMode = knowledgepkg.GenerationModeUnderstandingFirst
+	}
+	_, _ = store.StoreKnowledgeArtifact(artifact)
+}
+
+func cliffNotesRenderPlanForArtifact(
+	store knowledgepkg.KnowledgeStore,
+	artifact *knowledgepkg.Artifact,
+	sourceRevision knowledgepkg.SourceRevision,
+	understanding *knowledgepkg.RepositoryUnderstanding,
+) cliffNotesRenderPlan {
+	if store == nil || artifact == nil {
+		return cliffNotesRenderPlan{}
+	}
+	if artifact.Type != knowledgepkg.ArtifactCliffNotes {
+		return cliffNotesRenderPlan{}
+	}
+	if understanding == nil || artifact.UnderstandingRevisionFP == "" || understanding.RevisionFP == "" {
+		return cliffNotesRenderPlan{}
+	}
+	if artifact.UnderstandingRevisionFP != understanding.RevisionFP {
+		return cliffNotesRenderPlan{}
+	}
+	if rev := knowledgepkg.RevisionFingerprint(sourceRevision); rev != "" && understanding.RevisionFP != rev {
+		return cliffNotesRenderPlan{}
+	}
+	scopeType := knowledgepkg.ScopeRepository
+	if artifact.Scope != nil {
+		scopeType = artifact.Scope.Normalize().ScopeType
+	}
+	required := knowledgepkg.RequiredCliffNotesSections(scopeType)
+	existingSections := store.GetKnowledgeSections(artifact.ID)
+	missing := knowledgepkg.MissingSectionTitles(existingSections, required)
+	if artifact.RendererVersion != knowledgepkg.RendererVersionForArtifact(artifact.Type) {
+		return cliffNotesRenderPlan{RenderOnly: true}
+	}
+	if len(missing) > 0 {
+		return cliffNotesRenderPlan{
+			RenderOnly:            true,
+			SelectedSectionTitles: missing,
+		}
+	}
+	return cliffNotesRenderPlan{}
 }
 
 func artifactScopeFromInput(scopeType *KnowledgeScopeType, scopePath *string) (knowledgepkg.ArtifactScope, error) {

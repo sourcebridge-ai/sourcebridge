@@ -291,6 +291,8 @@ func (o *Orchestrator) Enqueue(req *llm.EnqueueRequest) (*llm.Job, error) {
 		Model:            req.Model,
 		ArtifactID:       req.ArtifactID,
 		RepoID:           req.RepoID,
+		Priority:         req.Priority,
+		GenerationMode:   req.GenerationMode,
 		Status:           llm.StatusPending,
 		MaxAttempts:      req.MaxAttempts,
 		TimeoutSec:       req.TimeoutSec,

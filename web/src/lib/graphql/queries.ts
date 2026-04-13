@@ -138,6 +138,10 @@ export const REPOSITORY_QUERY = gql`
         totalNodes
         modelUsed
         refreshAvailable
+        firstPassSections {
+          title
+          summary
+        }
         createdAt
         updatedAt
         errorCode
@@ -384,6 +388,10 @@ export const BUILD_REPOSITORY_UNDERSTANDING_MUTATION = gql`
       totalNodes
       modelUsed
       refreshAvailable
+      firstPassSections {
+        title
+        summary
+      }
       createdAt
       updatedAt
       errorCode
@@ -643,6 +651,13 @@ export const KNOWLEDGE_ARTIFACTS_QUERY = gql`
       errorMessage
       understandingId
       understandingRevisionFp
+      generationMode
+      rendererVersion
+      dependencies {
+        dependencyType
+        targetId
+        targetRevisionFp
+      }
       refreshAvailable
       generatedAt
       createdAt
@@ -658,6 +673,8 @@ export const KNOWLEDGE_ARTIFACTS_QUERY = gql`
         title
         content
         summary
+        sectionKey
+        refinementStatus
         confidence
         inferred
         orderIndex

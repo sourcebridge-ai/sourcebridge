@@ -5,6 +5,7 @@ package graphql
 
 import (
 	"context"
+	"encoding/json"
 
 	"google.golang.org/grpc/metadata"
 
@@ -54,5 +55,29 @@ func (r *Resolver) withJobMetadata(
 	}
 	pairs = append(pairs, "x-sb-subsystem", "knowledge")
 	md := metadata.Pairs(pairs...)
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
+func withCliffNotesRenderMetadata(ctx context.Context, renderOnly bool, selectedSectionTitles []string) context.Context {
+	if !renderOnly && len(selectedSectionTitles) == 0 {
+		return ctx
+	}
+	pairs := []string{}
+	if renderOnly {
+		pairs = append(pairs, "x-sb-cliff-render-only", "true")
+	}
+	if len(selectedSectionTitles) > 0 {
+		if raw, err := json.Marshal(selectedSectionTitles); err == nil {
+			pairs = append(pairs, "x-sb-cliff-selected-sections", string(raw))
+		}
+	}
+	if len(pairs) == 0 {
+		return ctx
+	}
+	md, _ := metadata.FromOutgoingContext(ctx)
+	md = md.Copy()
+	for i := 0; i < len(pairs); i += 2 {
+		md.Set(pairs[i], pairs[i+1])
+	}
 	return metadata.NewOutgoingContext(ctx, md)
 }

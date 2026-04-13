@@ -218,13 +218,15 @@ func (r *Resolver) enqueueKnowledgeJob(
 	}
 
 	req := &llm.EnqueueRequest{
-		Subsystem:   llm.SubsystemKnowledge,
-		JobType:     jobType,
-		TargetKey:   knowledgeJobTargetKey(key),
-		Strategy:    "knowledge_artifact_queue",
-		ArtifactID:  artifact.ID,
-		RepoID:      artifact.RepositoryID,
-		MaxAttempts: knowledgeJobMaxAttempts(artifact, scope),
+		Subsystem:      llm.SubsystemKnowledge,
+		JobType:        jobType,
+		TargetKey:      knowledgeJobTargetKey(key),
+		Strategy:       "knowledge_artifact_queue",
+		ArtifactID:     artifact.ID,
+		RepoID:         artifact.RepositoryID,
+		Priority:       llm.PriorityInteractive,
+		GenerationMode: string(artifact.GenerationMode),
+		MaxAttempts:    knowledgeJobMaxAttempts(artifact, scope),
 		RunWithContext: func(runCtx context.Context, rt llm.Runtime) error {
 			rt.ReportProgress(0.02, "queued", "Waiting for knowledge generation slot")
 			_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.02, "queued", "Waiting for knowledge generation slot")
@@ -310,13 +312,15 @@ func enqueueRepositoryUnderstandingJob(
 		return fmt.Errorf("repository understanding is required")
 	}
 	req := &llm.EnqueueRequest{
-		Subsystem:   llm.SubsystemKnowledge,
-		JobType:     "build_repository_understanding",
-		TargetKey:   fmt.Sprintf("understanding:%s:%s", repo.ID, scope.Normalize().ScopeKey()),
-		Strategy:    "repository_understanding_queue",
-		ArtifactID:  understanding.ID,
-		RepoID:      repo.ID,
-		MaxAttempts: 1,
+		Subsystem:      llm.SubsystemKnowledge,
+		JobType:        "build_repository_understanding",
+		TargetKey:      fmt.Sprintf("understanding:%s:%s", repo.ID, scope.Normalize().ScopeKey()),
+		Strategy:       "repository_understanding_queue",
+		ArtifactID:     understanding.ID,
+		RepoID:         repo.ID,
+		Priority:       llm.PriorityPrewarm,
+		GenerationMode: string(knowledgepkg.GenerationModeUnderstandingFirst),
+		MaxAttempts:    1,
 		RunWithContext: func(runCtx context.Context, rt llm.Runtime) error {
 			rt.ReportProgress(0.02, "queued", "Waiting for knowledge generation slot")
 			appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "queued", "knowledge_slot_wait_started", "Waiting for knowledge generation slot", map[string]any{

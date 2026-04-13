@@ -19,6 +19,7 @@ type MemStore struct {
 	sections       map[string][]Section                // artifactID -> []Section
 	evidence       map[string][]Evidence               // sectionID -> []Evidence
 	understandings map[string]*RepositoryUnderstanding // understandingID -> RepositoryUnderstanding
+	dependencies   map[string][]ArtifactDependency     // artifactID -> []ArtifactDependency
 }
 
 // NewMemStore creates a new in-memory knowledge store.
@@ -28,6 +29,7 @@ func NewMemStore() *MemStore {
 		sections:       make(map[string][]Section),
 		evidence:       make(map[string][]Evidence),
 		understandings: make(map[string]*RepositoryUnderstanding),
+		dependencies:   make(map[string][]ArtifactDependency),
 	}
 }
 
@@ -367,6 +369,12 @@ func (s *MemStore) StoreKnowledgeSections(artifactID string, sections []Section)
 		}
 		sec.ArtifactID = artifactID
 		sec.OrderIndex = i
+		if sec.SectionKey == "" {
+			sec.SectionKey = SectionKeyForTitle(sec.Title)
+		}
+		if sec.RefinementStatus == "" {
+			sec.RefinementStatus = "light"
+		}
 		stored[i] = sec
 	}
 	s.sections[artifactID] = stored
@@ -399,6 +407,42 @@ func (s *MemStore) GetKnowledgeEvidence(sectionID string) []Evidence {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.evidence[sectionID]
+}
+
+func (s *MemStore) StoreArtifactDependencies(artifactID string, dependencies []ArtifactDependency) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.artifacts[artifactID]; !ok {
+		return fmt.Errorf("artifact %s not found", artifactID)
+	}
+	now := time.Now()
+	stored := make([]ArtifactDependency, len(dependencies))
+	for i, dep := range dependencies {
+		if dep.ID == "" {
+			dep.ID = uuid.New().String()
+		}
+		dep.ArtifactID = artifactID
+		if dep.CreatedAt.IsZero() {
+			dep.CreatedAt = now
+		}
+		stored[i] = dep
+	}
+	s.dependencies[artifactID] = stored
+	return nil
+}
+
+func (s *MemStore) GetArtifactDependencies(artifactID string) []ArtifactDependency {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	raw := s.dependencies[artifactID]
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make([]ArtifactDependency, len(raw))
+	copy(out, raw)
+	return out
 }
 
 func (s *MemStore) loadSectionsLocked(artifactID string) []Section {

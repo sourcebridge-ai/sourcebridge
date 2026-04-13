@@ -389,6 +389,7 @@ input GenerateCliffNotesInput {
   repositoryId: ID!
   audience: KnowledgeAudience
   depth: KnowledgeDepth
+  generationMode: KnowledgeGenerationMode
   scopeType: KnowledgeScopeType
   scopePath: String
 }
@@ -403,6 +404,7 @@ input GenerateLearningPathInput {
   repositoryId: ID!
   audience: KnowledgeAudience
   depth: KnowledgeDepth
+  generationMode: KnowledgeGenerationMode
   focusArea: String
 }
 
@@ -410,6 +412,7 @@ input GenerateCodeTourInput {
   repositoryId: ID!
   audience: KnowledgeAudience
   depth: KnowledgeDepth
+  generationMode: KnowledgeGenerationMode
   theme: String
 }
 
@@ -417,6 +420,7 @@ input GenerateWorkflowStoryInput {
   repositoryId: ID!
   audience: KnowledgeAudience
   depth: KnowledgeDepth
+  generationMode: KnowledgeGenerationMode
   scopeType: KnowledgeScopeType
   scopePath: String
   anchorLabel: String
@@ -427,6 +431,7 @@ input ExplainSystemInput {
   repositoryId: ID!
   audience: KnowledgeAudience
   depth: KnowledgeDepth
+  generationMode: KnowledgeGenerationMode
   question: String
   scopeType: KnowledgeScopeType
   scopePath: String
@@ -643,6 +648,11 @@ enum KnowledgeDepth {
   DEEP
 }
 
+enum KnowledgeGenerationMode {
+  CLASSIC
+  UNDERSTANDING_FIRST
+}
+
 enum KnowledgeScopeType {
   REPOSITORY
   MODULE
@@ -693,10 +703,22 @@ type KnowledgeArtifact {
   updatedAt: Time!
   errorCode: String
   errorMessage: String
+  generationMode: KnowledgeGenerationMode!
+  rendererVersion: String
   understandingId: ID
   understandingRevisionFp: String
   refreshAvailable: Boolean!
+  dependencies: [ArtifactDependency!]!
   sections: [KnowledgeSection!]!
+}
+
+type ArtifactDependency {
+  id: ID!
+  dependencyType: String!
+  targetId: ID!
+  targetRevisionFp: String
+  metadata: String
+  createdAt: Time!
 }
 
 type RepositoryUnderstanding {
@@ -711,11 +733,17 @@ type RepositoryUnderstanding {
   cachedNodes: Int!
   totalNodes: Int!
   modelUsed: String
+  firstPassSections: [UnderstandingSection!]!
   refreshAvailable: Boolean!
   createdAt: Time!
   updatedAt: Time!
   errorCode: String
   errorMessage: String
+}
+
+type UnderstandingSection {
+  title: String!
+  summary: String!
 }
 
 enum RepositoryUnderstandingStage {
@@ -752,12 +780,14 @@ type ScopeChild {
 type KnowledgeSection {
   id: ID!
   artifactId: ID!
+  sectionKey: String
   title: String!
   content: String!
   summary: String
   confidence: KnowledgeConfidence!
   inferred: Boolean!
   orderIndex: Int!
+  refinementStatus: String
   evidence: [KnowledgeEvidence!]!
 }
 

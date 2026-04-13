@@ -36,4 +36,6 @@ type KnowledgeStore interface {
 	GetRepositoryUnderstandings(repoID string) []*RepositoryUnderstanding
 	MarkRepositoryUnderstandingNeedsRefresh(repoID string) error
 	AttachArtifactUnderstanding(artifactID, understandingID, revisionFP string) error
+	StoreArtifactDependencies(artifactID string, dependencies []ArtifactDependency) error
+	GetArtifactDependencies(artifactID string) []ArtifactDependency
 }

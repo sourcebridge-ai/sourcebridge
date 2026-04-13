@@ -3,6 +3,7 @@ package graphql
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/auth"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 )
 
 // clientTypeFromContext returns the client type for the current request.
@@ -672,6 +674,8 @@ func mapKnowledgeArtifact(a *knowledgepkg.Artifact) *KnowledgeArtifact {
 		RefreshAvailable:        a.Stale,
 		UnderstandingID:         ptrString(a.UnderstandingID),
 		UnderstandingRevisionFp: ptrString(a.UnderstandingRevisionFP),
+		GenerationMode:          mapGenerationMode(a.GenerationMode),
+		RendererVersion:         ptrString(a.RendererVersion),
 		SourceRevision: &SourceRevision{
 			CommitSha:          ptrString(a.SourceRevision.CommitSHA),
 			Branch:             ptrString(a.SourceRevision.Branch),
@@ -706,10 +710,136 @@ func mapKnowledgeArtifact(a *knowledgepkg.Artifact) *KnowledgeArtifact {
 	return out
 }
 
+func mapGenerationMode(mode knowledgepkg.GenerationMode) KnowledgeGenerationMode {
+	switch mode {
+	case knowledgepkg.GenerationModeClassic:
+		return KnowledgeGenerationModeClassic
+	default:
+		return KnowledgeGenerationModeUnderstandingFirst
+	}
+}
+
+func mapSettings(s *comprehension.Settings) *ComprehensionSettings {
+	cs := &ComprehensionSettings{
+		ScopeType:               string(s.ScopeType),
+		ScopeKey:                s.ScopeKey,
+		StrategyPreferenceChain: s.StrategyPreferenceChain,
+		RefinePassEnabled:       s.RefinePassEnabled,
+		CacheEnabled:            s.CacheEnabled,
+		AllowUnsafeCombinations: s.AllowUnsafeCombinations,
+	}
+	if s.ID != "" {
+		cs.ID = &s.ID
+	}
+	if s.ModelID != "" {
+		cs.ModelID = &s.ModelID
+	}
+	if s.MaxConcurrency > 0 {
+		v := s.MaxConcurrency
+		cs.MaxConcurrency = &v
+	}
+	if s.MaxPromptTokens > 0 {
+		v := s.MaxPromptTokens
+		cs.MaxPromptTokens = &v
+	}
+	if s.LeafBudgetTokens > 0 {
+		v := s.LeafBudgetTokens
+		cs.LeafBudgetTokens = &v
+	}
+	if s.LongContextMaxTokens > 0 {
+		v := s.LongContextMaxTokens
+		cs.LongContextMaxTokens = &v
+	}
+	if len(s.GraphRAGEntityTypes) > 0 {
+		cs.GraphragEntityTypes = s.GraphRAGEntityTypes
+	}
+	if !s.UpdatedAt.IsZero() {
+		cs.UpdatedAt = &s.UpdatedAt
+	}
+	if s.UpdatedBy != "" {
+		cs.UpdatedBy = &s.UpdatedBy
+	}
+	return cs
+}
+
+func mapEffectiveSettings(eff *comprehension.EffectiveSettings) *EffectiveComprehensionSettings {
+	refine := false
+	if eff.RefinePassEnabled != nil {
+		refine = *eff.RefinePassEnabled
+	}
+	cache := false
+	if eff.CacheEnabled != nil {
+		cache = *eff.CacheEnabled
+	}
+	unsafe := false
+	if eff.AllowUnsafeCombinations != nil {
+		unsafe = *eff.AllowUnsafeCombinations
+	}
+
+	result := &EffectiveComprehensionSettings{
+		ScopeType:               string(eff.ScopeType),
+		ScopeKey:                eff.ScopeKey,
+		StrategyPreferenceChain: eff.StrategyPreferenceChain,
+		ModelID:                 eff.ModelID,
+		MaxConcurrency:          eff.MaxConcurrency,
+		MaxPromptTokens:         eff.MaxPromptTokens,
+		LeafBudgetTokens:        eff.LeafBudgetTokens,
+		RefinePassEnabled:       refine,
+		LongContextMaxTokens:    eff.LongContextMaxTokens,
+		GraphragEntityTypes:     eff.GraphRAGEntityTypes,
+		CacheEnabled:            cache,
+		AllowUnsafeCombinations: unsafe,
+	}
+
+	for field, scope := range eff.InheritedFrom {
+		result.InheritedFrom = append(result.InheritedFrom, &FieldOrigin{
+			Field:     field,
+			ScopeType: string(scope.Type),
+			ScopeKey:  scope.Key,
+		})
+	}
+	return result
+}
+
+func mapModelCapability(mc *comprehension.ModelCapabilities) *ModelCapabilityProfile {
+	p := &ModelCapabilityProfile{
+		ModelID:                mc.ModelID,
+		Provider:               mc.Provider,
+		DeclaredContextTokens:  mc.DeclaredContextTokens,
+		EffectiveContextTokens: mc.EffectiveContextTokens,
+		InstructionFollowing:   mc.InstructionFollowing,
+		JSONMode:               mc.JSONMode,
+		ToolUse:                mc.ToolUse,
+		ExtractionGrade:        mc.ExtractionGrade,
+		CreativeGrade:          mc.CreativeGrade,
+		EmbeddingModel:         mc.EmbeddingModel,
+		CostPer1kInput:         mc.CostPer1kInput,
+		CostPer1kOutput:        mc.CostPer1kOutput,
+		LastProbedAt:           mc.LastProbedAt,
+		Source:                 mc.Source,
+	}
+	if mc.ID != "" {
+		p.ID = &mc.ID
+	}
+	if mc.Notes != "" {
+		p.Notes = &mc.Notes
+	}
+	if !mc.UpdatedAt.IsZero() {
+		p.UpdatedAt = &mc.UpdatedAt
+	}
+	return p
+}
+
 func mapKnowledgeArtifactWithStore(store knowledgepkg.KnowledgeStore, a *knowledgepkg.Artifact) *KnowledgeArtifact {
 	out := mapKnowledgeArtifact(a)
 	if store == nil || a == nil || out == nil {
 		return out
+	}
+	for _, dep := range store.GetArtifactDependencies(a.ID) {
+		out.Dependencies = append(out.Dependencies, mapArtifactDependency(&dep))
+	}
+	if out.Dependencies == nil {
+		out.Dependencies = []*ArtifactDependency{}
 	}
 	scope := knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository}
 	if a.Scope != nil {
@@ -731,23 +861,25 @@ func mapRepositoryUnderstanding(u *knowledgepkg.RepositoryUnderstanding) *Reposi
 	if u == nil {
 		return nil
 	}
+	firstPass := parseUnderstandingSections(u.Metadata)
 	return &RepositoryUnderstanding{
-		ID:               u.ID,
-		RepositoryID:     u.RepositoryID,
-		Scope:            mapArtifactScope(u.Scope),
-		CorpusID:         ptrString(u.CorpusID),
-		RevisionFp:       u.RevisionFP,
-		Strategy:         ptrString(u.Strategy),
-		Stage:            mapRepositoryUnderstandingStage(u.Stage),
-		TreeStatus:       mapRepositoryUnderstandingTreeStatus(u.TreeStatus),
-		CachedNodes:      u.CachedNodes,
-		TotalNodes:       u.TotalNodes,
-		ModelUsed:        ptrString(u.ModelUsed),
-		RefreshAvailable: u.Stage == knowledgepkg.UnderstandingNeedsRefresh,
-		CreatedAt:        u.CreatedAt,
-		UpdatedAt:        u.UpdatedAt,
-		ErrorCode:        ptrString(u.ErrorCode),
-		ErrorMessage:     ptrString(u.ErrorMessage),
+		ID:                u.ID,
+		RepositoryID:      u.RepositoryID,
+		Scope:             mapArtifactScope(u.Scope),
+		CorpusID:          ptrString(u.CorpusID),
+		RevisionFp:        u.RevisionFP,
+		Strategy:          ptrString(u.Strategy),
+		Stage:             mapRepositoryUnderstandingStage(u.Stage),
+		TreeStatus:        mapRepositoryUnderstandingTreeStatus(u.TreeStatus),
+		CachedNodes:       u.CachedNodes,
+		TotalNodes:        u.TotalNodes,
+		ModelUsed:         ptrString(u.ModelUsed),
+		FirstPassSections: firstPass,
+		RefreshAvailable:  u.Stage == knowledgepkg.UnderstandingNeedsRefresh,
+		CreatedAt:         u.CreatedAt,
+		UpdatedAt:         u.UpdatedAt,
+		ErrorCode:         ptrString(u.ErrorCode),
+		ErrorMessage:      ptrString(u.ErrorMessage),
 	}
 }
 
@@ -777,20 +909,62 @@ func mapArtifactScope(scope *knowledgepkg.ArtifactScope) *KnowledgeScope {
 
 func mapKnowledgeSection(s *knowledgepkg.Section) *KnowledgeSection {
 	out := &KnowledgeSection{
-		ID:         s.ID,
-		ArtifactID: s.ArtifactID,
-		Title:      s.Title,
-		Content:    s.Content,
-		Summary:    ptrString(s.Summary),
-		Confidence: mapKnowledgeConfidence(s.Confidence),
-		Inferred:   s.Inferred,
-		OrderIndex: s.OrderIndex,
+		ID:               s.ID,
+		ArtifactID:       s.ArtifactID,
+		SectionKey:       ptrString(s.SectionKey),
+		Title:            s.Title,
+		Content:          s.Content,
+		Summary:          ptrString(s.Summary),
+		Confidence:       mapKnowledgeConfidence(s.Confidence),
+		Inferred:         s.Inferred,
+		OrderIndex:       s.OrderIndex,
+		RefinementStatus: ptrString(s.RefinementStatus),
 	}
 	for _, ev := range s.Evidence {
 		out.Evidence = append(out.Evidence, mapKnowledgeEvidence(&ev))
 	}
 	if out.Evidence == nil {
 		out.Evidence = []*KnowledgeEvidence{}
+	}
+	return out
+}
+
+func mapArtifactDependency(dep *knowledgepkg.ArtifactDependency) *ArtifactDependency {
+	if dep == nil {
+		return nil
+	}
+	return &ArtifactDependency{
+		ID:               dep.ID,
+		DependencyType:   string(dep.DependencyType),
+		TargetID:         dep.TargetID,
+		TargetRevisionFp: ptrString(dep.TargetRevisionFP),
+		Metadata:         ptrString(dep.Metadata),
+		CreatedAt:        dep.CreatedAt,
+	}
+}
+
+func parseUnderstandingSections(metadata string) []*UnderstandingSection {
+	if strings.TrimSpace(metadata) == "" {
+		return []*UnderstandingSection{}
+	}
+	var payload struct {
+		FirstPassSections []struct {
+			Title   string `json:"title"`
+			Summary string `json:"summary"`
+		} `json:"first_pass_sections"`
+	}
+	if err := json.Unmarshal([]byte(metadata), &payload); err != nil {
+		return []*UnderstandingSection{}
+	}
+	out := make([]*UnderstandingSection, 0, len(payload.FirstPassSections))
+	for _, sec := range payload.FirstPassSections {
+		if strings.TrimSpace(sec.Title) == "" && strings.TrimSpace(sec.Summary) == "" {
+			continue
+		}
+		out = append(out, &UnderstandingSection{
+			Title:   sec.Title,
+			Summary: sec.Summary,
+		})
 	}
 	return out
 }

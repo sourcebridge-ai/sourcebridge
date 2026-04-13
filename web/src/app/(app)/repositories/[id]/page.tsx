@@ -112,10 +112,18 @@ interface KnowledgeSection {
   title: string;
   content: string;
   summary: string | null;
+  sectionKey?: string | null;
+  refinementStatus?: string | null;
   confidence: string;
   inferred: boolean;
   orderIndex: number;
   evidence: KnowledgeEvidence[];
+}
+
+interface ArtifactDependency {
+  dependencyType: string;
+  targetId: string;
+  targetRevisionFp: string | null;
 }
 
 interface KnowledgeArtifact {
@@ -140,6 +148,9 @@ interface KnowledgeArtifact {
   errorMessage: string | null;
   understandingId?: string | null;
   understandingRevisionFp?: string | null;
+  generationMode?: string | null;
+  rendererVersion?: string | null;
+  dependencies?: ArtifactDependency[];
   refreshAvailable?: boolean;
   generatedAt: string | null;
   createdAt: string;
@@ -164,6 +175,10 @@ interface RepositoryUnderstanding {
   totalNodes: number;
   modelUsed?: string | null;
   refreshAvailable: boolean;
+  firstPassSections?: Array<{
+    title: string;
+    summary: string;
+  }>;
   createdAt: string;
   updatedAt: string;
   errorCode?: string | null;
@@ -2321,6 +2336,29 @@ export default function RepositoryDetailPage() {
                         <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
                           {currentUnderstanding.revisionFp ? currentUnderstanding.revisionFp.slice(0, 12) : "Unknown"}
                         </p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {currentUnderstanding?.firstPassSections?.length ? (
+                    <div className="mt-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">
+                          First Pass
+                        </p>
+                        <span className="text-xs text-[var(--text-tertiary)]">
+                          {currentUnderstanding.firstPassSections.length} sections
+                        </span>
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        {currentUnderstanding.firstPassSections.map((section) => (
+                          <div
+                            key={section.title}
+                            className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3"
+                          >
+                            <p className="text-sm font-medium text-[var(--text-primary)]">{section.title}</p>
+                            <p className="mt-1 text-sm text-[var(--text-secondary)]">{section.summary}</p>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ) : null}
