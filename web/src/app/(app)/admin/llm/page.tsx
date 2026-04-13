@@ -117,6 +117,7 @@ interface ActivityResponse {
     in_flight: number;
     queue_depth: number;
     max_concurrency: number;
+    recent_reused_summaries?: number;
   };
 }
 
@@ -368,6 +369,11 @@ export default function MonitorPage() {
           label="Failed (last hour)"
           value={overall?.failed ?? "—"}
           detail={overall?.p95_latency_ms ? `p95 ${formatElapsed(overall.p95_latency_ms)}` : undefined}
+        />
+        <StatCard
+          label="Reused summaries"
+          value={stats?.recent_reused_summaries ?? "—"}
+          detail="Cache hits reused across recent jobs"
         />
       </div>
 

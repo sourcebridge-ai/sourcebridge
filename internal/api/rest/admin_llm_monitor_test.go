@@ -145,6 +145,9 @@ func TestHandleLLMActivityEmptySystem(t *testing.T) {
 	if resp.Stats.MaxConcurrency != 2 {
 		t.Fatalf("expected max_concurrency=2, got %d", resp.Stats.MaxConcurrency)
 	}
+	if resp.Stats.RecentReusedSummaries != 0 {
+		t.Fatalf("expected recent_reused_summaries=0, got %d", resp.Stats.RecentReusedSummaries)
+	}
 	if len(resp.Active) != 0 {
 		t.Fatalf("expected empty active list, got %d", len(resp.Active))
 	}
@@ -154,6 +157,17 @@ func TestHandleLLMActivityEmptySystem(t *testing.T) {
 	}
 	if resp.Control.IntakePaused {
 		t.Fatal("expected intake to be unpaused by default")
+	}
+}
+
+func TestTotalReusedSummaries(t *testing.T) {
+	total := totalReusedSummaries([]monitorJobView{
+		{ReusedSummaries: 3},
+		{ReusedSummaries: 0},
+		{ReusedSummaries: 5},
+	})
+	if total != 8 {
+		t.Fatalf("expected reused total 8, got %d", total)
 	}
 }
 

@@ -46,6 +46,7 @@ type monitorStats struct {
 	InFlight       int `json:"in_flight"`
 	QueueDepth     int `json:"queue_depth"`
 	MaxConcurrency int `json:"max_concurrency"`
+	RecentReusedSummaries int `json:"recent_reused_summaries"`
 }
 
 type monitorQueueControl struct {
@@ -263,12 +264,21 @@ func (s *Server) handleLLMActivity(w http.ResponseWriter, r *http.Request) {
 			IntakePaused: s.orchestrator.IntakePaused(),
 		},
 		Stats: monitorStats{
-			InFlight:       len(active), // DB-backed count — consistent across pods
-			QueueDepth:     s.orchestrator.QueueDepth(),
-			MaxConcurrency: s.orchestrator.MaxConcurrency(),
+			InFlight:              len(active), // DB-backed count — consistent across pods
+			QueueDepth:            s.orchestrator.QueueDepth(),
+			MaxConcurrency:        s.orchestrator.MaxConcurrency(),
+			RecentReusedSummaries: totalReusedSummaries(recentViews),
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func totalReusedSummaries(jobs []monitorJobView) int {
+	total := 0
+	for _, job := range jobs {
+		total += job.ReusedSummaries
+	}
+	return total
 }
 
 func enrichQueueMetadata(active []monitorJobView, pending []*llm.Job, metrics orchestrator.Snapshot, maxConcurrency int) {
