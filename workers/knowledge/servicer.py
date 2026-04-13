@@ -507,6 +507,10 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             fallback_count=diagnostics["fallback_count"],
             provider_compute_errors=diagnostics["provider_compute_errors"],
             root_fallback=diagnostics["root_fallback"],
+            leaf_cache_hits=diagnostics["leaf_cache_hits"],
+            file_cache_hits=diagnostics["file_cache_hits"],
+            package_cache_hits=diagnostics["package_cache_hits"],
+            root_cache_hits=diagnostics["root_cache_hits"],
         )
 
         total_nodes = max(len(tree.nodes), 1)
@@ -548,6 +552,10 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             output_tokens=usage.output_tokens,
             fallback_count=fallback_count,
             provider_compute_errors=diagnostics["provider_compute_errors"],
+            leaf_cache_hits=diagnostics["leaf_cache_hits"],
+            file_cache_hits=diagnostics["file_cache_hits"],
+            package_cache_hits=diagnostics["package_cache_hits"],
+            root_cache_hits=diagnostics["root_cache_hits"],
         )
         return result, usage
 

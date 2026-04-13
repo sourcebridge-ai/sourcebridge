@@ -8,6 +8,7 @@ import { PageFrame } from "@/components/ui/page-frame";
 import { PageHeader } from "@/components/ui/page-header";
 import { Panel } from "@/components/ui/panel";
 import { StatCard } from "@/components/ui/stat-card";
+import { normalizeActivityResponse } from "@/lib/llm/activity";
 import { disableJobAlerts, enableJobAlerts, jobAlertsEnabled, notifyJobEvent } from "@/lib/notifications";
 import { TOKEN_KEY } from "@/lib/token-key";
 import { cn } from "@/lib/utils";
@@ -204,7 +205,7 @@ export default function MonitorPage() {
       if (!res.ok) {
         throw new Error(`activity endpoint returned ${res.status}`);
       }
-      const body = (await res.json()) as ActivityResponse;
+      const body = normalizeActivityResponse((await res.json()) as ActivityResponse);
       setData(body);
       setError(null);
     } catch (e) {

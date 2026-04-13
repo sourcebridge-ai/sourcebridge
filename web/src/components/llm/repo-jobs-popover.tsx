@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import { normalizeActivityResponse } from "@/lib/llm/activity";
 import { TOKEN_KEY } from "@/lib/token-key";
 import { cn } from "@/lib/utils";
 
@@ -91,7 +92,7 @@ export function RepoJobsPopover({ repoId }: { repoId: string }) {
         }
       );
       if (!res.ok) throw new Error(`activity endpoint returned ${res.status}`);
-      const body = (await res.json()) as ActivityResponse;
+      const body = normalizeActivityResponse((await res.json()) as ActivityResponse);
       setData(body);
       setError(null);
     } catch (e) {

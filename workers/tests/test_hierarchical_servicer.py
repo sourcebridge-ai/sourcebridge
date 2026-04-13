@@ -518,3 +518,41 @@ async def test_hierarchical_path_reuses_cached_tree(monkeypatch: pytest.MonkeyPa
     )
 
     assert provider.counter == first_call_count + 1
+
+
+@pytest.mark.asyncio
+async def test_hierarchical_path_reports_cache_hit_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(CLIFF_NOTES_STRATEGY_ENV, "hierarchical")
+
+    provider = _StubProvider()
+    cache = _StubSummaryNodeCache()
+    servicer = KnowledgeServicer(llm_provider=provider, summary_node_cache=cache)
+
+    request = knowledge_pb2.GenerateCliffNotesRequest(
+        repository_id="repo-cache",
+        repository_name="Cached Sample",
+        audience="developer",
+        depth="medium",
+        scope_type="repository",
+        snapshot_json=_snapshot_json(),
+    )
+
+    await servicer._generate_cliff_notes_hierarchical(
+        request=request,
+        audience="developer",
+        depth="medium",
+        scope_type="repository",
+        model_override=None,
+    )
+
+    provider.counter = 0
+    _, usage = await servicer._generate_cliff_notes_hierarchical(
+        request=request,
+        audience="developer",
+        depth="medium",
+        scope_type="repository",
+        model_override=None,
+    )
+
+    assert provider.counter == 1
+    assert usage.operation == "cliff_notes_render"

@@ -57,6 +57,7 @@ import { RelatedReposPanel } from "@/components/federation/RelatedReposPanel";
 import { SymbolTree } from "@/components/source/SymbolTree";
 import { SymbolList } from "@/components/source/SymbolList";
 import { kindBadgeClass, kindLabel, SYMBOL_KINDS } from "@/components/source/symbol-kind";
+import { normalizeActivityResponse } from "@/lib/llm/activity";
 import { trackEvent } from "@/lib/telemetry";
 import { disableJobAlerts, enableJobAlerts, jobAlertsEnabled, notifyJobEvent } from "@/lib/notifications";
 import { TOKEN_KEY } from "@/lib/token-key";
@@ -330,7 +331,7 @@ function artifactHasActiveJob(
   if (job) {
     return job.status === "pending" || job.status === "generating";
   }
-  return artifact.status === "PENDING";
+  return artifact.status === "PENDING" || artifact.status === "GENERATING";
 }
 
 interface ScopeChild {
@@ -538,7 +539,7 @@ export default function RepositoryDetailPage() {
       if (!res.ok) {
         throw new Error(`job activity returned ${res.status}`);
       }
-      const body = (await res.json()) as RepoJobActivityResponse;
+      const body = normalizeActivityResponse((await res.json()) as RepoJobActivityResponse);
       setRepoJobs(body);
       setRepoJobsError(null);
     } catch (error) {

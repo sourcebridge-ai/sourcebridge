@@ -74,6 +74,8 @@ log = structlog.get_logger()
 
 
 DEFAULT_LEAF_CONCURRENCY = 1
+DEFAULT_FILE_CONCURRENCY = 2
+DEFAULT_PACKAGE_CONCURRENCY = 2
 DEFAULT_LEAF_MAX_TOKENS = 384
 DEFAULT_FILE_MAX_TOKENS = 640
 DEFAULT_PACKAGE_MAX_TOKENS = 896
@@ -105,6 +107,8 @@ class HierarchicalConfig:
 
     repository_name: str = ""
     leaf_concurrency: int = DEFAULT_LEAF_CONCURRENCY
+    file_concurrency: int = DEFAULT_FILE_CONCURRENCY
+    package_concurrency: int = DEFAULT_PACKAGE_CONCURRENCY
     leaf_max_tokens: int = DEFAULT_LEAF_MAX_TOKENS
     file_max_tokens: int = DEFAULT_FILE_MAX_TOKENS
     package_max_tokens: int = DEFAULT_PACKAGE_MAX_TOKENS
@@ -123,6 +127,14 @@ class HierarchicalConfig:
         return cls(
             repository_name=repository_name,
             leaf_concurrency=conc,
+            file_concurrency=_env_int(
+                "SOURCEBRIDGE_HIERARCHICAL_FILE_CONCURRENCY",
+                DEFAULT_FILE_CONCURRENCY,
+            ),
+            package_concurrency=_env_int(
+                "SOURCEBRIDGE_HIERARCHICAL_PACKAGE_CONCURRENCY",
+                DEFAULT_PACKAGE_CONCURRENCY,
+            ),
             leaf_max_tokens=_env_int(
                 "SOURCEBRIDGE_HIERARCHICAL_LEAF_MAX_TOKENS",
                 DEFAULT_LEAF_MAX_TOKENS,
@@ -153,6 +165,12 @@ class HierarchicalStrategy:
         self._fallback_count = 0
         self._provider_compute_errors = 0
         self._root_fallback = False
+        self._cache_hits: dict[str, int] = {
+            "leaves": 0,
+            "files": 0,
+            "packages": 0,
+            "root": 0,
+        }
 
     def capability_requirements(self) -> CapabilityRequirements:
         # Hierarchical is the floor strategy — every LLM call is small
@@ -177,6 +195,12 @@ class HierarchicalStrategy:
         self._fallback_count = 0
         self._provider_compute_errors = 0
         self._root_fallback = False
+        self._cache_hits = {
+            "leaves": 0,
+            "files": 0,
+            "packages": 0,
+            "root": 0,
+        }
 
         by_level = walk_by_level(corpus)
         leaf_units = by_level.get(0, [])
@@ -218,6 +242,7 @@ class HierarchicalStrategy:
                 corpus_id=corpus.corpus_id,
                 stage="leaves",
                 total=len(leaf_units),
+                cache_hits=self._cache_hits["leaves"],
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
             await self._emit_stage_checkpoint("leaves", tree)
@@ -232,22 +257,20 @@ class HierarchicalStrategy:
                 stage="files",
                 total=len(file_units),
             )
-            for idx, unit in enumerate(file_units, start=1):
-                self._populate_child_ids(unit, corpus, tree)
-                await self._summarize_file(corpus, unit, tree)
-                if idx == len(file_units) or idx % max(1, len(file_units) // 5) == 0:
-                    log.info(
-                        "hierarchical_stage_progress",
-                        corpus_id=corpus.corpus_id,
-                        stage="files",
-                        completed=idx,
-                        total=len(file_units),
-                    )
+            await self._summarize_nonleaf_stage(
+                corpus=corpus,
+                units=file_units,
+                tree=tree,
+                stage="files",
+                concurrency=self._config.file_concurrency,
+                summarize=self._summarize_file,
+            )
             log.info(
                 "hierarchical_stage_completed",
                 corpus_id=corpus.corpus_id,
                 stage="files",
                 total=len(file_units),
+                cache_hits=self._cache_hits["files"],
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
             await self._emit_stage_checkpoint("files", tree)
@@ -264,21 +287,20 @@ class HierarchicalStrategy:
                 stage="packages",
                 total=len(package_units),
             )
-            for idx, unit in enumerate(package_units, start=1):
-                self._populate_child_ids(unit, corpus, tree)
-                await self._summarize_package(corpus, unit, tree)
-                log.info(
-                    "hierarchical_stage_progress",
-                    corpus_id=corpus.corpus_id,
-                    stage="packages",
-                    completed=idx,
-                    total=len(package_units),
-                )
+            await self._summarize_nonleaf_stage(
+                corpus=corpus,
+                units=package_units,
+                tree=tree,
+                stage="packages",
+                concurrency=self._config.package_concurrency,
+                summarize=self._summarize_package,
+            )
             log.info(
                 "hierarchical_stage_completed",
                 corpus_id=corpus.corpus_id,
                 stage="packages",
                 total=len(package_units),
+                cache_hits=self._cache_hits["packages"],
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
             await self._emit_stage_checkpoint("packages", tree)
@@ -307,6 +329,7 @@ class HierarchicalStrategy:
                 corpus_id=corpus.corpus_id,
                 stage="root",
                 total=1,
+                cache_hits=self._cache_hits["root"],
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
             await self._emit_stage_checkpoint("root", tree)
@@ -335,6 +358,10 @@ class HierarchicalStrategy:
             "fallback_count": self._fallback_count,
             "provider_compute_errors": self._provider_compute_errors,
             "root_fallback": self._root_fallback,
+            "leaf_cache_hits": self._cache_hits["leaves"],
+            "file_cache_hits": self._cache_hits["files"],
+            "package_cache_hits": self._cache_hits["packages"],
+            "root_cache_hits": self._cache_hits["root"],
         }
 
     # ------------------------------------------------------------------
@@ -374,6 +401,39 @@ class HierarchicalStrategy:
 
         await asyncio.gather(*(one(u) for u in leaves))
 
+    async def _summarize_nonleaf_stage(
+        self,
+        *,
+        corpus: CorpusSource,
+        units: list[CorpusUnit],
+        tree: SummaryTree,
+        stage: str,
+        concurrency: int,
+        summarize: Callable[[CorpusSource, CorpusUnit, SummaryTree], Awaitable[None]],
+    ) -> None:
+        sem = asyncio.Semaphore(max(1, concurrency))
+        total = len(units)
+        completed = 0
+        completed_lock = asyncio.Lock()
+
+        async def one(unit: CorpusUnit) -> None:
+            nonlocal completed
+            self._populate_child_ids(unit, corpus, tree)
+            async with sem:
+                await summarize(corpus, unit, tree)
+            async with completed_lock:
+                completed += 1
+                if completed == total or completed % max(1, total // 5) == 0:
+                    log.info(
+                        "hierarchical_stage_progress",
+                        corpus_id=corpus.corpus_id,
+                        stage=stage,
+                        completed=completed,
+                        total=total,
+                    )
+
+        await asyncio.gather(*(one(unit) for unit in units))
+
     async def _summarize_leaf(
         self,
         corpus: CorpusSource,
@@ -402,6 +462,7 @@ class HierarchicalStrategy:
                     segment_label=unit.label,
                     elapsed_ms=int((monotonic() - leaf_started) * 1000),
                 )
+                self._cache_hits["leaves"] += 1
                 tree.add(cached)
                 return
 
@@ -476,8 +537,9 @@ class HierarchicalStrategy:
     ) -> None:
         children = tree.children_of(unit.id)
         node_hash = self._derived_content_hash(unit, children)
-        cached = self._cached_node(unit.id, node_hash)
+        cached = self._cached_node(unit.id, node_hash, stage="files")
         if cached is not None:
+            self._cache_hits["files"] += 1
             tree.add(cached)
             return
         child_summaries = [n.summary_text for n in children if n.summary_text]
@@ -527,8 +589,9 @@ class HierarchicalStrategy:
     ) -> None:
         children = tree.children_of(unit.id)
         node_hash = self._derived_content_hash(unit, children)
-        cached = self._cached_node(unit.id, node_hash)
+        cached = self._cached_node(unit.id, node_hash, stage="packages")
         if cached is not None:
+            self._cache_hits["packages"] += 1
             tree.add(cached)
             return
         child_summaries = [n.summary_text for n in children if n.summary_text]
@@ -578,8 +641,9 @@ class HierarchicalStrategy:
     ) -> None:
         children = tree.children_of(unit.id)
         node_hash = self._derived_content_hash(unit, children)
-        cached = self._cached_node(unit.id, node_hash)
+        cached = self._cached_node(unit.id, node_hash, stage="root")
         if cached is not None:
+            self._cache_hits["root"] += 1
             tree.add(cached)
             return
         child_summaries = [n.summary_text for n in children if n.summary_text]
@@ -747,12 +811,17 @@ class HierarchicalStrategy:
             metadata=dict(unit.metadata),
         )
 
-    def _cached_node(self, unit_id: str, content_hash: str) -> SummaryNode | None:
+    def _cached_node(self, unit_id: str, content_hash: str, *, stage: str) -> SummaryNode | None:
         if not content_hash or self._config.cached_tree is None:
             return None
         cached = self._config.cached_tree.get(unit_id)
         if cached and cached.content_hash == content_hash and cached.summary_text:
-            log.debug("hierarchical_node_cache_hit", unit_id=unit_id, level=cached.level)
+            log.info(
+                "hierarchical_node_cache_hit",
+                stage=stage,
+                unit_id=unit_id,
+                level=cached.level,
+            )
             return cached
         return None
 
