@@ -2262,6 +2262,7 @@ export default function RepositoryDetailPage() {
                                   <div key={job.id} className="flex items-center justify-between gap-3">
                                     <span className="truncate">
                                       {job.status === "failed" ? (job.error_title || "Failed") : job.status === "pending" ? "Queued" : job.status === "generating" ? "Generating" : job.status === "cancelled" ? "Cancelled" : "Completed"}
+                                      {job.progress_message ? ` · ${job.progress_message}` : ""}
                                       {job.attached_requests > 1 ? ` · shared by ${job.attached_requests}` : ""}
                                     </span>
                                     <span>{new Date(job.updated_at).toLocaleTimeString()}</span>

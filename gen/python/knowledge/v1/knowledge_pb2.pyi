@@ -26,12 +26,32 @@ class GenerateCliffNotesRequest(_message.Message):
     def __init__(self, repository_id: _Optional[str] = ..., repository_name: _Optional[str] = ..., audience: _Optional[str] = ..., depth: _Optional[str] = ..., snapshot_json: _Optional[str] = ..., scope_type: _Optional[str] = ..., scope_path: _Optional[str] = ...) -> None: ...
 
 class GenerateCliffNotesResponse(_message.Message):
-    __slots__ = ("sections", "usage")
+    __slots__ = ("sections", "usage", "diagnostics")
     SECTIONS_FIELD_NUMBER: _ClassVar[int]
     USAGE_FIELD_NUMBER: _ClassVar[int]
+    DIAGNOSTICS_FIELD_NUMBER: _ClassVar[int]
     sections: _containers.RepeatedCompositeFieldContainer[KnowledgeSection]
     usage: _types_pb2.LLMUsage
-    def __init__(self, sections: _Optional[_Iterable[_Union[KnowledgeSection, _Mapping]]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ...) -> None: ...
+    diagnostics: CliffNotesDiagnostics
+    def __init__(self, sections: _Optional[_Iterable[_Union[KnowledgeSection, _Mapping]]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ..., diagnostics: _Optional[_Union[CliffNotesDiagnostics, _Mapping]] = ...) -> None: ...
+
+class CliffNotesDiagnostics(_message.Message):
+    __slots__ = ("cached_nodes", "fallback_count", "provider_compute_errors", "leaf_cache_hits", "file_cache_hits", "package_cache_hits", "root_cache_hits")
+    CACHED_NODES_FIELD_NUMBER: _ClassVar[int]
+    FALLBACK_COUNT_FIELD_NUMBER: _ClassVar[int]
+    PROVIDER_COMPUTE_ERRORS_FIELD_NUMBER: _ClassVar[int]
+    LEAF_CACHE_HITS_FIELD_NUMBER: _ClassVar[int]
+    FILE_CACHE_HITS_FIELD_NUMBER: _ClassVar[int]
+    PACKAGE_CACHE_HITS_FIELD_NUMBER: _ClassVar[int]
+    ROOT_CACHE_HITS_FIELD_NUMBER: _ClassVar[int]
+    cached_nodes: int
+    fallback_count: int
+    provider_compute_errors: int
+    leaf_cache_hits: int
+    file_cache_hits: int
+    package_cache_hits: int
+    root_cache_hits: int
+    def __init__(self, cached_nodes: _Optional[int] = ..., fallback_count: _Optional[int] = ..., provider_compute_errors: _Optional[int] = ..., leaf_cache_hits: _Optional[int] = ..., file_cache_hits: _Optional[int] = ..., package_cache_hits: _Optional[int] = ..., root_cache_hits: _Optional[int] = ...) -> None: ...
 
 class GenerateLearningPathRequest(_message.Message):
     __slots__ = ("repository_id", "repository_name", "audience", "depth", "snapshot_json", "focus_area")

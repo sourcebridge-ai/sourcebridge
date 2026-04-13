@@ -43,6 +43,17 @@ message GenerateCliffNotesRequest {
 message GenerateCliffNotesResponse {
   repeated KnowledgeSection sections = 1;
   sourcebridge.common.v1.LLMUsage usage = 2;
+  CliffNotesDiagnostics diagnostics = 3;
+}
+
+message CliffNotesDiagnostics {
+  int32 cached_nodes = 1;
+  int32 fallback_count = 2;
+  int32 provider_compute_errors = 3;
+  int32 leaf_cache_hits = 4;
+  int32 file_cache_hits = 5;
+  int32 package_cache_hits = 6;
+  int32 root_cache_hits = 7;
 }
 
 // GenerateLearningPathRequest carries the snapshot for learning path generation.

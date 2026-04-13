@@ -240,7 +240,7 @@ async def test_hierarchical_path_returns_required_sections(monkeypatch: pytest.M
     # just call the internal helper directly to bypass the ServicerContext
     # shim. This mirrors how existing test_cliff_notes.py invokes the
     # generation functions directly.
-    result, usage = await servicer._generate_cliff_notes_hierarchical(
+    result, usage, diagnostics = await servicer._generate_cliff_notes_hierarchical(
         request=request,
         audience="developer",
         depth="medium",
@@ -252,6 +252,7 @@ async def test_hierarchical_path_returns_required_sections(monkeypatch: pytest.M
     for required in REQUIRED_SECTIONS:
         assert required in titles
     assert usage.operation == "cliff_notes_render"
+    assert diagnostics["leaf_cache_hits"] == 0
 
     # Sanity: there should be many hierarchical summary calls + exactly
     # one final render call. The snapshot has 4 symbol leaves + 3 files
@@ -290,7 +291,7 @@ async def test_chain_walker_falls_through_on_snapshot_too_large(
         snapshot_json=_snapshot_json(),
     )
 
-    result, usage, selection = await servicer._run_cliff_notes_strategy_chain(
+    result, usage, selection, diagnostics = await servicer._run_cliff_notes_strategy_chain(
         request=request,
         audience="developer",
         depth="medium",
@@ -302,6 +303,7 @@ async def test_chain_walker_falls_through_on_snapshot_too_large(
     # long_context_direct tripped the budget guard at runtime.
     assert selection.strategy_name == "hierarchical"
     assert usage.operation == "cliff_notes_render"
+    assert diagnostics["leaf_cache_hits"] == 0
     titles = [s.title for s in result.sections]
     for required in REQUIRED_SECTIONS:
         assert required in titles
@@ -333,7 +335,7 @@ async def test_chain_walker_selects_long_context_on_capable_model(
         snapshot_json=_snapshot_json(),
     )
 
-    _, _, selection = await servicer._run_cliff_notes_strategy_chain(
+    _, _, selection, _ = await servicer._run_cliff_notes_strategy_chain(
         request=request,
         audience="developer",
         depth="medium",
@@ -366,7 +368,7 @@ async def test_chain_walker_selects_hierarchical_on_small_model(
         snapshot_json=_snapshot_json(),
     )
 
-    _, _, selection = await servicer._run_cliff_notes_strategy_chain(
+    _, _, selection, _ = await servicer._run_cliff_notes_strategy_chain(
         request=request,
         audience="developer",
         depth="medium",
@@ -406,7 +408,7 @@ async def test_hierarchical_path_handles_scoped_request(monkeypatch: pytest.Monk
         snapshot_json=json.dumps(snap),
     )
 
-    result, _ = await servicer._generate_cliff_notes_hierarchical(
+    result, _, _ = await servicer._generate_cliff_notes_hierarchical(
         request=request,
         audience="developer",
         depth="summary",
@@ -546,7 +548,7 @@ async def test_hierarchical_path_reports_cache_hit_diagnostics(monkeypatch: pyte
     )
 
     provider.counter = 0
-    _, usage = await servicer._generate_cliff_notes_hierarchical(
+    _, usage, diagnostics = await servicer._generate_cliff_notes_hierarchical(
         request=request,
         audience="developer",
         depth="medium",
@@ -556,3 +558,7 @@ async def test_hierarchical_path_reports_cache_hit_diagnostics(monkeypatch: pyte
 
     assert provider.counter == 1
     assert usage.operation == "cliff_notes_render"
+    assert diagnostics["leaf_cache_hits"] == 4
+    assert diagnostics["file_cache_hits"] == 3
+    assert diagnostics["package_cache_hits"] == 2
+    assert diagnostics["root_cache_hits"] == 1

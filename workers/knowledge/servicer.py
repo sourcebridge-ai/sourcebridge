@@ -263,7 +263,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         depth: str,
         scope_type: str,
         model_override: str | None,
-    ) -> tuple[CliffNotesResult, LLMUsageRecord, SelectionResult]:
+    ) -> tuple[CliffNotesResult, LLMUsageRecord, SelectionResult, dict[str, int | bool]]:
         """Walk the preference chain and run the first viable strategy.
 
         If a strategy passes capability gating but then raises
@@ -328,7 +328,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             name = selection.strategy_name
             tried.append(name)
             try:
-                result, usage = await self._run_one_cliff_notes_strategy(
+                result, usage, diagnostics = await self._run_one_cliff_notes_strategy(
                     provider=provider,
                     strategy=selection.strategy,
                     strategy_name=name,
@@ -339,7 +339,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     model_override=model_override,
                     snapshot_json=snapshot,
                 )
-                return result, usage, selection
+                return result, usage, selection, diagnostics
             except SnapshotTooLargeError as exc:
                 log.warning(
                     "cliff_notes_strategy_runtime_skip",
@@ -370,7 +370,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         scope_type: str,
         model_override: str | None,
         snapshot_json: str,
-    ) -> tuple[CliffNotesResult, LLMUsageRecord]:
+    ) -> tuple[CliffNotesResult, LLMUsageRecord, dict[str, int | bool]]:
         """Actually run a single strategy and produce the final cliff
         notes result. Kept separate from the chain walker so the logic
         is easy to unit-test."""
@@ -398,7 +398,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             raise RuntimeError(
                 f"strategy {strategy_name!r} did not populate last_result/last_usage",
             )
-        return result, usage
+        return result, usage, {}
 
     async def _generate_cliff_notes_hierarchical(
         self,
@@ -410,7 +410,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         scope_type: str,
         model_override: str | None,
         snapshot_json: str | None = None,
-    ) -> tuple[CliffNotesResult, LLMUsageRecord]:
+    ) -> tuple[CliffNotesResult, LLMUsageRecord, dict[str, int | bool]]:
         """Run the Phase 3 hierarchical pipeline for cliff notes.
 
         Steps:
@@ -557,7 +557,16 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             package_cache_hits=diagnostics["package_cache_hits"],
             root_cache_hits=diagnostics["root_cache_hits"],
         )
-        return result, usage
+        return result, usage, {
+            "cached_nodes": len(cached_tree.nodes) if cached_tree is not None else 0,
+            "fallback_count": fallback_count,
+            "provider_compute_errors": diagnostics["provider_compute_errors"],
+            "leaf_cache_hits": diagnostics["leaf_cache_hits"],
+            "file_cache_hits": diagnostics["file_cache_hits"],
+            "package_cache_hits": diagnostics["package_cache_hits"],
+            "root_cache_hits": diagnostics["root_cache_hits"],
+            "root_fallback": diagnostics["root_fallback"],
+        }
 
     async def GenerateCliffNotes(  # noqa: N802
         self,
@@ -591,7 +600,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         # records a trace that we emit on every generation for operator
         # visibility.
         try:
-            result, usage, selection = await self._run_cliff_notes_strategy_chain(
+            result, usage, selection, diagnostics = await self._run_cliff_notes_strategy_chain(
                 request=request,
                 provider=provider,
                 audience=audience,
@@ -643,6 +652,15 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         return knowledge_pb2.GenerateCliffNotesResponse(
             sections=sections,
             usage=_llm_usage_proto(usage),
+            diagnostics=knowledge_pb2.CliffNotesDiagnostics(
+                cached_nodes=int(diagnostics.get("cached_nodes", 0)),
+                fallback_count=int(diagnostics.get("fallback_count", 0)),
+                provider_compute_errors=int(diagnostics.get("provider_compute_errors", 0)),
+                leaf_cache_hits=int(diagnostics.get("leaf_cache_hits", 0)),
+                file_cache_hits=int(diagnostics.get("file_cache_hits", 0)),
+                package_cache_hits=int(diagnostics.get("package_cache_hits", 0)),
+                root_cache_hits=int(diagnostics.get("root_cache_hits", 0)),
+            ),
         )
 
     async def GenerateLearningPath(  # noqa: N802

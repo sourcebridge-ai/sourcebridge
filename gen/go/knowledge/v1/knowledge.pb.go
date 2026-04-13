@@ -121,6 +121,7 @@ type GenerateCliffNotesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Sections      []*KnowledgeSection    `protobuf:"bytes,1,rep,name=sections,proto3" json:"sections,omitempty"`
 	Usage         *v1.LLMUsage           `protobuf:"bytes,2,opt,name=usage,proto3" json:"usage,omitempty"`
+	Diagnostics   *CliffNotesDiagnostics `protobuf:"bytes,3,opt,name=diagnostics,proto3" json:"diagnostics,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -169,6 +170,105 @@ func (x *GenerateCliffNotesResponse) GetUsage() *v1.LLMUsage {
 	return nil
 }
 
+func (x *GenerateCliffNotesResponse) GetDiagnostics() *CliffNotesDiagnostics {
+	if x != nil {
+		return x.Diagnostics
+	}
+	return nil
+}
+
+type CliffNotesDiagnostics struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	CachedNodes           int32                  `protobuf:"varint,1,opt,name=cached_nodes,json=cachedNodes,proto3" json:"cached_nodes,omitempty"`
+	FallbackCount         int32                  `protobuf:"varint,2,opt,name=fallback_count,json=fallbackCount,proto3" json:"fallback_count,omitempty"`
+	ProviderComputeErrors int32                  `protobuf:"varint,3,opt,name=provider_compute_errors,json=providerComputeErrors,proto3" json:"provider_compute_errors,omitempty"`
+	LeafCacheHits         int32                  `protobuf:"varint,4,opt,name=leaf_cache_hits,json=leafCacheHits,proto3" json:"leaf_cache_hits,omitempty"`
+	FileCacheHits         int32                  `protobuf:"varint,5,opt,name=file_cache_hits,json=fileCacheHits,proto3" json:"file_cache_hits,omitempty"`
+	PackageCacheHits      int32                  `protobuf:"varint,6,opt,name=package_cache_hits,json=packageCacheHits,proto3" json:"package_cache_hits,omitempty"`
+	RootCacheHits         int32                  `protobuf:"varint,7,opt,name=root_cache_hits,json=rootCacheHits,proto3" json:"root_cache_hits,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *CliffNotesDiagnostics) Reset() {
+	*x = CliffNotesDiagnostics{}
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CliffNotesDiagnostics) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CliffNotesDiagnostics) ProtoMessage() {}
+
+func (x *CliffNotesDiagnostics) ProtoReflect() protoreflect.Message {
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CliffNotesDiagnostics.ProtoReflect.Descriptor instead.
+func (*CliffNotesDiagnostics) Descriptor() ([]byte, []int) {
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CliffNotesDiagnostics) GetCachedNodes() int32 {
+	if x != nil {
+		return x.CachedNodes
+	}
+	return 0
+}
+
+func (x *CliffNotesDiagnostics) GetFallbackCount() int32 {
+	if x != nil {
+		return x.FallbackCount
+	}
+	return 0
+}
+
+func (x *CliffNotesDiagnostics) GetProviderComputeErrors() int32 {
+	if x != nil {
+		return x.ProviderComputeErrors
+	}
+	return 0
+}
+
+func (x *CliffNotesDiagnostics) GetLeafCacheHits() int32 {
+	if x != nil {
+		return x.LeafCacheHits
+	}
+	return 0
+}
+
+func (x *CliffNotesDiagnostics) GetFileCacheHits() int32 {
+	if x != nil {
+		return x.FileCacheHits
+	}
+	return 0
+}
+
+func (x *CliffNotesDiagnostics) GetPackageCacheHits() int32 {
+	if x != nil {
+		return x.PackageCacheHits
+	}
+	return 0
+}
+
+func (x *CliffNotesDiagnostics) GetRootCacheHits() int32 {
+	if x != nil {
+		return x.RootCacheHits
+	}
+	return 0
+}
+
 // GenerateLearningPathRequest carries the snapshot for learning path generation.
 type GenerateLearningPathRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -184,7 +284,7 @@ type GenerateLearningPathRequest struct {
 
 func (x *GenerateLearningPathRequest) Reset() {
 	*x = GenerateLearningPathRequest{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[2]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -196,7 +296,7 @@ func (x *GenerateLearningPathRequest) String() string {
 func (*GenerateLearningPathRequest) ProtoMessage() {}
 
 func (x *GenerateLearningPathRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[2]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -209,7 +309,7 @@ func (x *GenerateLearningPathRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateLearningPathRequest.ProtoReflect.Descriptor instead.
 func (*GenerateLearningPathRequest) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{2}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GenerateLearningPathRequest) GetRepositoryId() string {
@@ -264,7 +364,7 @@ type GenerateLearningPathResponse struct {
 
 func (x *GenerateLearningPathResponse) Reset() {
 	*x = GenerateLearningPathResponse{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[3]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -276,7 +376,7 @@ func (x *GenerateLearningPathResponse) String() string {
 func (*GenerateLearningPathResponse) ProtoMessage() {}
 
 func (x *GenerateLearningPathResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[3]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -289,7 +389,7 @@ func (x *GenerateLearningPathResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateLearningPathResponse.ProtoReflect.Descriptor instead.
 func (*GenerateLearningPathResponse) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{3}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GenerateLearningPathResponse) GetSteps() []*LearningStep {
@@ -323,7 +423,7 @@ type GenerateWorkflowStoryRequest struct {
 
 func (x *GenerateWorkflowStoryRequest) Reset() {
 	*x = GenerateWorkflowStoryRequest{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[4]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -335,7 +435,7 @@ func (x *GenerateWorkflowStoryRequest) String() string {
 func (*GenerateWorkflowStoryRequest) ProtoMessage() {}
 
 func (x *GenerateWorkflowStoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[4]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -348,7 +448,7 @@ func (x *GenerateWorkflowStoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateWorkflowStoryRequest.ProtoReflect.Descriptor instead.
 func (*GenerateWorkflowStoryRequest) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{4}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GenerateWorkflowStoryRequest) GetRepositoryId() string {
@@ -424,7 +524,7 @@ type GenerateWorkflowStoryResponse struct {
 
 func (x *GenerateWorkflowStoryResponse) Reset() {
 	*x = GenerateWorkflowStoryResponse{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[5]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -436,7 +536,7 @@ func (x *GenerateWorkflowStoryResponse) String() string {
 func (*GenerateWorkflowStoryResponse) ProtoMessage() {}
 
 func (x *GenerateWorkflowStoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[5]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -449,7 +549,7 @@ func (x *GenerateWorkflowStoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateWorkflowStoryResponse.ProtoReflect.Descriptor instead.
 func (*GenerateWorkflowStoryResponse) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{5}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GenerateWorkflowStoryResponse) GetSections() []*KnowledgeSection {
@@ -481,7 +581,7 @@ type LearningStep struct {
 
 func (x *LearningStep) Reset() {
 	*x = LearningStep{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[6]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -493,7 +593,7 @@ func (x *LearningStep) String() string {
 func (*LearningStep) ProtoMessage() {}
 
 func (x *LearningStep) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[6]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -506,7 +606,7 @@ func (x *LearningStep) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LearningStep.ProtoReflect.Descriptor instead.
 func (*LearningStep) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{6}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *LearningStep) GetOrder() int32 {
@@ -575,7 +675,7 @@ type ExplainSystemRequest struct {
 
 func (x *ExplainSystemRequest) Reset() {
 	*x = ExplainSystemRequest{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[7]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -587,7 +687,7 @@ func (x *ExplainSystemRequest) String() string {
 func (*ExplainSystemRequest) ProtoMessage() {}
 
 func (x *ExplainSystemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[7]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -600,7 +700,7 @@ func (x *ExplainSystemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplainSystemRequest.ProtoReflect.Descriptor instead.
 func (*ExplainSystemRequest) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{7}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExplainSystemRequest) GetRepositoryId() string {
@@ -670,7 +770,7 @@ type ExplainSystemResponse struct {
 
 func (x *ExplainSystemResponse) Reset() {
 	*x = ExplainSystemResponse{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[8]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -682,7 +782,7 @@ func (x *ExplainSystemResponse) String() string {
 func (*ExplainSystemResponse) ProtoMessage() {}
 
 func (x *ExplainSystemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[8]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -695,7 +795,7 @@ func (x *ExplainSystemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplainSystemResponse.ProtoReflect.Descriptor instead.
 func (*ExplainSystemResponse) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{8}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ExplainSystemResponse) GetExplanation() string {
@@ -734,7 +834,7 @@ type GenerateCodeTourRequest struct {
 
 func (x *GenerateCodeTourRequest) Reset() {
 	*x = GenerateCodeTourRequest{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[9]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -746,7 +846,7 @@ func (x *GenerateCodeTourRequest) String() string {
 func (*GenerateCodeTourRequest) ProtoMessage() {}
 
 func (x *GenerateCodeTourRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[9]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -759,7 +859,7 @@ func (x *GenerateCodeTourRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateCodeTourRequest.ProtoReflect.Descriptor instead.
 func (*GenerateCodeTourRequest) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{9}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GenerateCodeTourRequest) GetRepositoryId() string {
@@ -814,7 +914,7 @@ type GenerateCodeTourResponse struct {
 
 func (x *GenerateCodeTourResponse) Reset() {
 	*x = GenerateCodeTourResponse{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[10]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -826,7 +926,7 @@ func (x *GenerateCodeTourResponse) String() string {
 func (*GenerateCodeTourResponse) ProtoMessage() {}
 
 func (x *GenerateCodeTourResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[10]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -839,7 +939,7 @@ func (x *GenerateCodeTourResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateCodeTourResponse.ProtoReflect.Descriptor instead.
 func (*GenerateCodeTourResponse) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{10}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GenerateCodeTourResponse) GetStops() []*CodeTourStop {
@@ -870,7 +970,7 @@ type CodeTourStop struct {
 
 func (x *CodeTourStop) Reset() {
 	*x = CodeTourStop{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[11]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -882,7 +982,7 @@ func (x *CodeTourStop) String() string {
 func (*CodeTourStop) ProtoMessage() {}
 
 func (x *CodeTourStop) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[11]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -895,7 +995,7 @@ func (x *CodeTourStop) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CodeTourStop.ProtoReflect.Descriptor instead.
 func (*CodeTourStop) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{11}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CodeTourStop) GetOrder() int32 {
@@ -955,7 +1055,7 @@ type KnowledgeSection struct {
 
 func (x *KnowledgeSection) Reset() {
 	*x = KnowledgeSection{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[12]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -967,7 +1067,7 @@ func (x *KnowledgeSection) String() string {
 func (*KnowledgeSection) ProtoMessage() {}
 
 func (x *KnowledgeSection) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[12]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -980,7 +1080,7 @@ func (x *KnowledgeSection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KnowledgeSection.ProtoReflect.Descriptor instead.
 func (*KnowledgeSection) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{12}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *KnowledgeSection) GetTitle() string {
@@ -1040,7 +1140,7 @@ type KnowledgeEvidence struct {
 
 func (x *KnowledgeEvidence) Reset() {
 	*x = KnowledgeEvidence{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[13]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1052,7 +1152,7 @@ func (x *KnowledgeEvidence) String() string {
 func (*KnowledgeEvidence) ProtoMessage() {}
 
 func (x *KnowledgeEvidence) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[13]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1065,7 +1165,7 @@ func (x *KnowledgeEvidence) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KnowledgeEvidence.ProtoReflect.Descriptor instead.
 func (*KnowledgeEvidence) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{13}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *KnowledgeEvidence) GetSourceType() string {
@@ -1135,7 +1235,7 @@ type GenerateReportRequest struct {
 
 func (x *GenerateReportRequest) Reset() {
 	*x = GenerateReportRequest{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[14]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1147,7 +1247,7 @@ func (x *GenerateReportRequest) String() string {
 func (*GenerateReportRequest) ProtoMessage() {}
 
 func (x *GenerateReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[14]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1160,7 +1260,7 @@ func (x *GenerateReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateReportRequest.ProtoReflect.Descriptor instead.
 func (*GenerateReportRequest) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{14}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GenerateReportRequest) GetReportId() string {
@@ -1298,7 +1398,7 @@ type GenerateReportResponse struct {
 
 func (x *GenerateReportResponse) Reset() {
 	*x = GenerateReportResponse{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[15]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1310,7 +1410,7 @@ func (x *GenerateReportResponse) String() string {
 func (*GenerateReportResponse) ProtoMessage() {}
 
 func (x *GenerateReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[15]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1323,7 +1423,7 @@ func (x *GenerateReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateReportResponse.ProtoReflect.Descriptor instead.
 func (*GenerateReportResponse) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{15}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GenerateReportResponse) GetMarkdown() string {
@@ -1397,7 +1497,7 @@ type ReportSectionResult struct {
 
 func (x *ReportSectionResult) Reset() {
 	*x = ReportSectionResult{}
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[16]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1409,7 +1509,7 @@ func (x *ReportSectionResult) String() string {
 func (*ReportSectionResult) ProtoMessage() {}
 
 func (x *ReportSectionResult) ProtoReflect() protoreflect.Message {
-	mi := &file_knowledge_v1_knowledge_proto_msgTypes[16]
+	mi := &file_knowledge_v1_knowledge_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1422,7 +1522,7 @@ func (x *ReportSectionResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportSectionResult.ProtoReflect.Descriptor instead.
 func (*ReportSectionResult) Descriptor() ([]byte, []int) {
-	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{16}
+	return file_knowledge_v1_knowledge_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ReportSectionResult) GetKey() string {
@@ -1488,10 +1588,19 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\n" +
 	"scope_type\x18\x06 \x01(\tR\tscopeType\x12\x1d\n" +
 	"\n" +
-	"scope_path\x18\a \x01(\tR\tscopePath\"\x9d\x01\n" +
+	"scope_path\x18\a \x01(\tR\tscopePath\"\xf1\x01\n" +
 	"\x1aGenerateCliffNotesResponse\x12G\n" +
 	"\bsections\x18\x01 \x03(\v2+.sourcebridge.knowledge.v1.KnowledgeSectionR\bsections\x126\n" +
-	"\x05usage\x18\x02 \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\"\xe1\x01\n" +
+	"\x05usage\x18\x02 \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\x12R\n" +
+	"\vdiagnostics\x18\x03 \x01(\v20.sourcebridge.knowledge.v1.CliffNotesDiagnosticsR\vdiagnostics\"\xbf\x02\n" +
+	"\x15CliffNotesDiagnostics\x12!\n" +
+	"\fcached_nodes\x18\x01 \x01(\x05R\vcachedNodes\x12%\n" +
+	"\x0efallback_count\x18\x02 \x01(\x05R\rfallbackCount\x126\n" +
+	"\x17provider_compute_errors\x18\x03 \x01(\x05R\x15providerComputeErrors\x12&\n" +
+	"\x0fleaf_cache_hits\x18\x04 \x01(\x05R\rleafCacheHits\x12&\n" +
+	"\x0ffile_cache_hits\x18\x05 \x01(\x05R\rfileCacheHits\x12,\n" +
+	"\x12package_cache_hits\x18\x06 \x01(\x05R\x10packageCacheHits\x12&\n" +
+	"\x0froot_cache_hits\x18\a \x01(\x05R\rrootCacheHits\"\xe1\x01\n" +
 	"\x1bGenerateLearningPathRequest\x12#\n" +
 	"\rrepository_id\x18\x01 \x01(\tR\frepositoryId\x12'\n" +
 	"\x0frepository_name\x18\x02 \x01(\tR\x0erepositoryName\x12\x1a\n" +
@@ -1643,58 +1752,60 @@ func file_knowledge_v1_knowledge_proto_rawDescGZIP() []byte {
 	return file_knowledge_v1_knowledge_proto_rawDescData
 }
 
-var file_knowledge_v1_knowledge_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_knowledge_v1_knowledge_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_knowledge_v1_knowledge_proto_goTypes = []any{
 	(*GenerateCliffNotesRequest)(nil),     // 0: sourcebridge.knowledge.v1.GenerateCliffNotesRequest
 	(*GenerateCliffNotesResponse)(nil),    // 1: sourcebridge.knowledge.v1.GenerateCliffNotesResponse
-	(*GenerateLearningPathRequest)(nil),   // 2: sourcebridge.knowledge.v1.GenerateLearningPathRequest
-	(*GenerateLearningPathResponse)(nil),  // 3: sourcebridge.knowledge.v1.GenerateLearningPathResponse
-	(*GenerateWorkflowStoryRequest)(nil),  // 4: sourcebridge.knowledge.v1.GenerateWorkflowStoryRequest
-	(*GenerateWorkflowStoryResponse)(nil), // 5: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse
-	(*LearningStep)(nil),                  // 6: sourcebridge.knowledge.v1.LearningStep
-	(*ExplainSystemRequest)(nil),          // 7: sourcebridge.knowledge.v1.ExplainSystemRequest
-	(*ExplainSystemResponse)(nil),         // 8: sourcebridge.knowledge.v1.ExplainSystemResponse
-	(*GenerateCodeTourRequest)(nil),       // 9: sourcebridge.knowledge.v1.GenerateCodeTourRequest
-	(*GenerateCodeTourResponse)(nil),      // 10: sourcebridge.knowledge.v1.GenerateCodeTourResponse
-	(*CodeTourStop)(nil),                  // 11: sourcebridge.knowledge.v1.CodeTourStop
-	(*KnowledgeSection)(nil),              // 12: sourcebridge.knowledge.v1.KnowledgeSection
-	(*KnowledgeEvidence)(nil),             // 13: sourcebridge.knowledge.v1.KnowledgeEvidence
-	(*GenerateReportRequest)(nil),         // 14: sourcebridge.knowledge.v1.GenerateReportRequest
-	(*GenerateReportResponse)(nil),        // 15: sourcebridge.knowledge.v1.GenerateReportResponse
-	(*ReportSectionResult)(nil),           // 16: sourcebridge.knowledge.v1.ReportSectionResult
-	(*v1.LLMUsage)(nil),                   // 17: sourcebridge.common.v1.LLMUsage
+	(*CliffNotesDiagnostics)(nil),         // 2: sourcebridge.knowledge.v1.CliffNotesDiagnostics
+	(*GenerateLearningPathRequest)(nil),   // 3: sourcebridge.knowledge.v1.GenerateLearningPathRequest
+	(*GenerateLearningPathResponse)(nil),  // 4: sourcebridge.knowledge.v1.GenerateLearningPathResponse
+	(*GenerateWorkflowStoryRequest)(nil),  // 5: sourcebridge.knowledge.v1.GenerateWorkflowStoryRequest
+	(*GenerateWorkflowStoryResponse)(nil), // 6: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse
+	(*LearningStep)(nil),                  // 7: sourcebridge.knowledge.v1.LearningStep
+	(*ExplainSystemRequest)(nil),          // 8: sourcebridge.knowledge.v1.ExplainSystemRequest
+	(*ExplainSystemResponse)(nil),         // 9: sourcebridge.knowledge.v1.ExplainSystemResponse
+	(*GenerateCodeTourRequest)(nil),       // 10: sourcebridge.knowledge.v1.GenerateCodeTourRequest
+	(*GenerateCodeTourResponse)(nil),      // 11: sourcebridge.knowledge.v1.GenerateCodeTourResponse
+	(*CodeTourStop)(nil),                  // 12: sourcebridge.knowledge.v1.CodeTourStop
+	(*KnowledgeSection)(nil),              // 13: sourcebridge.knowledge.v1.KnowledgeSection
+	(*KnowledgeEvidence)(nil),             // 14: sourcebridge.knowledge.v1.KnowledgeEvidence
+	(*GenerateReportRequest)(nil),         // 15: sourcebridge.knowledge.v1.GenerateReportRequest
+	(*GenerateReportResponse)(nil),        // 16: sourcebridge.knowledge.v1.GenerateReportResponse
+	(*ReportSectionResult)(nil),           // 17: sourcebridge.knowledge.v1.ReportSectionResult
+	(*v1.LLMUsage)(nil),                   // 18: sourcebridge.common.v1.LLMUsage
 }
 var file_knowledge_v1_knowledge_proto_depIdxs = []int32{
-	12, // 0: sourcebridge.knowledge.v1.GenerateCliffNotesResponse.sections:type_name -> sourcebridge.knowledge.v1.KnowledgeSection
-	17, // 1: sourcebridge.knowledge.v1.GenerateCliffNotesResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	6,  // 2: sourcebridge.knowledge.v1.GenerateLearningPathResponse.steps:type_name -> sourcebridge.knowledge.v1.LearningStep
-	17, // 3: sourcebridge.knowledge.v1.GenerateLearningPathResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	12, // 4: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.sections:type_name -> sourcebridge.knowledge.v1.KnowledgeSection
-	17, // 5: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	13, // 6: sourcebridge.knowledge.v1.ExplainSystemResponse.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
-	17, // 7: sourcebridge.knowledge.v1.ExplainSystemResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	11, // 8: sourcebridge.knowledge.v1.GenerateCodeTourResponse.stops:type_name -> sourcebridge.knowledge.v1.CodeTourStop
-	17, // 9: sourcebridge.knowledge.v1.GenerateCodeTourResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	13, // 10: sourcebridge.knowledge.v1.KnowledgeSection.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
-	16, // 11: sourcebridge.knowledge.v1.GenerateReportResponse.sections:type_name -> sourcebridge.knowledge.v1.ReportSectionResult
-	17, // 12: sourcebridge.knowledge.v1.GenerateReportResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	0,  // 13: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:input_type -> sourcebridge.knowledge.v1.GenerateCliffNotesRequest
-	2,  // 14: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:input_type -> sourcebridge.knowledge.v1.GenerateLearningPathRequest
-	4,  // 15: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:input_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryRequest
-	7,  // 16: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:input_type -> sourcebridge.knowledge.v1.ExplainSystemRequest
-	9,  // 17: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:input_type -> sourcebridge.knowledge.v1.GenerateCodeTourRequest
-	14, // 18: sourcebridge.knowledge.v1.KnowledgeService.GenerateReport:input_type -> sourcebridge.knowledge.v1.GenerateReportRequest
-	1,  // 19: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:output_type -> sourcebridge.knowledge.v1.GenerateCliffNotesResponse
-	3,  // 20: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:output_type -> sourcebridge.knowledge.v1.GenerateLearningPathResponse
-	5,  // 21: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:output_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse
-	8,  // 22: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:output_type -> sourcebridge.knowledge.v1.ExplainSystemResponse
-	10, // 23: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:output_type -> sourcebridge.knowledge.v1.GenerateCodeTourResponse
-	15, // 24: sourcebridge.knowledge.v1.KnowledgeService.GenerateReport:output_type -> sourcebridge.knowledge.v1.GenerateReportResponse
-	19, // [19:25] is the sub-list for method output_type
-	13, // [13:19] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	13, // 0: sourcebridge.knowledge.v1.GenerateCliffNotesResponse.sections:type_name -> sourcebridge.knowledge.v1.KnowledgeSection
+	18, // 1: sourcebridge.knowledge.v1.GenerateCliffNotesResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	2,  // 2: sourcebridge.knowledge.v1.GenerateCliffNotesResponse.diagnostics:type_name -> sourcebridge.knowledge.v1.CliffNotesDiagnostics
+	7,  // 3: sourcebridge.knowledge.v1.GenerateLearningPathResponse.steps:type_name -> sourcebridge.knowledge.v1.LearningStep
+	18, // 4: sourcebridge.knowledge.v1.GenerateLearningPathResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	13, // 5: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.sections:type_name -> sourcebridge.knowledge.v1.KnowledgeSection
+	18, // 6: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	14, // 7: sourcebridge.knowledge.v1.ExplainSystemResponse.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
+	18, // 8: sourcebridge.knowledge.v1.ExplainSystemResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	12, // 9: sourcebridge.knowledge.v1.GenerateCodeTourResponse.stops:type_name -> sourcebridge.knowledge.v1.CodeTourStop
+	18, // 10: sourcebridge.knowledge.v1.GenerateCodeTourResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	14, // 11: sourcebridge.knowledge.v1.KnowledgeSection.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
+	17, // 12: sourcebridge.knowledge.v1.GenerateReportResponse.sections:type_name -> sourcebridge.knowledge.v1.ReportSectionResult
+	18, // 13: sourcebridge.knowledge.v1.GenerateReportResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	0,  // 14: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:input_type -> sourcebridge.knowledge.v1.GenerateCliffNotesRequest
+	3,  // 15: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:input_type -> sourcebridge.knowledge.v1.GenerateLearningPathRequest
+	5,  // 16: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:input_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryRequest
+	8,  // 17: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:input_type -> sourcebridge.knowledge.v1.ExplainSystemRequest
+	10, // 18: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:input_type -> sourcebridge.knowledge.v1.GenerateCodeTourRequest
+	15, // 19: sourcebridge.knowledge.v1.KnowledgeService.GenerateReport:input_type -> sourcebridge.knowledge.v1.GenerateReportRequest
+	1,  // 20: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:output_type -> sourcebridge.knowledge.v1.GenerateCliffNotesResponse
+	4,  // 21: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:output_type -> sourcebridge.knowledge.v1.GenerateLearningPathResponse
+	6,  // 22: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:output_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse
+	9,  // 23: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:output_type -> sourcebridge.knowledge.v1.ExplainSystemResponse
+	11, // 24: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:output_type -> sourcebridge.knowledge.v1.GenerateCodeTourResponse
+	16, // 25: sourcebridge.knowledge.v1.KnowledgeService.GenerateReport:output_type -> sourcebridge.knowledge.v1.GenerateReportResponse
+	20, // [20:26] is the sub-list for method output_type
+	14, // [14:20] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_knowledge_v1_knowledge_proto_init() }
@@ -1708,7 +1819,7 @@ func file_knowledge_v1_knowledge_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_knowledge_v1_knowledge_proto_rawDesc), len(file_knowledge_v1_knowledge_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

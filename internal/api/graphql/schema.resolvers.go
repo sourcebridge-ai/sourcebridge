@@ -1542,8 +1542,19 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 			return err
 		}
 
-		rt.ReportProgress(0.96, "llm", "LLM completed, persisting sections")
-		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.8, "llm", "LLM completed, persisting")
+		reusedSummaries := 0
+		if resp.Diagnostics != nil {
+			reusedSummaries += int(resp.Diagnostics.LeafCacheHits)
+			reusedSummaries += int(resp.Diagnostics.FileCacheHits)
+			reusedSummaries += int(resp.Diagnostics.PackageCacheHits)
+			reusedSummaries += int(resp.Diagnostics.RootCacheHits)
+		}
+		llmMessage := "LLM completed, persisting sections"
+		if reusedSummaries > 0 {
+			llmMessage = fmt.Sprintf("LLM completed, reused %d summaries, persisting sections", reusedSummaries)
+		}
+		rt.ReportProgress(0.96, "llm", llmMessage)
+		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.8, "llm", llmMessage)
 
 		if resp.Usage != nil {
 			store.StoreLLMUsage(&graphstore.LLMUsageRecord{
@@ -1596,7 +1607,11 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusReady); err != nil {
 			slog.Error("failed to mark cliff notes ready", "artifact_id", artifact.ID, "error", err)
 		}
-		rt.ReportProgress(1.0, "ready", "Cliff notes ready")
+		readyMessage := "Cliff notes ready"
+		if reusedSummaries > 0 {
+			readyMessage = fmt.Sprintf("Cliff notes ready · reused %d summaries", reusedSummaries)
+		}
+		rt.ReportProgress(1.0, "ready", readyMessage)
 		slog.Info("cliff_notes_generation_completed",
 			"artifact_id", artifact.ID,
 			"scope_type", string(scope.ScopeType),
@@ -1605,6 +1620,7 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 			"duration_ms", time.Since(genStart).Milliseconds(),
 			"snapshot_size_bytes", snapshotSizeBytes,
 			"section_count", len(resp.Sections),
+			"reused_summaries", reusedSummaries,
 		)
 		return nil
 	})
