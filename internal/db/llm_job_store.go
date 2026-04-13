@@ -5,8 +5,10 @@ package db
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	surrealdb "github.com/surrealdb/surrealdb.go"
 	"github.com/surrealdb/surrealdb.go/pkg/models"
 
@@ -53,6 +55,22 @@ type surrealLLMJob struct {
 	CompletedAt      surrealTime      `json:"completed_at"`
 }
 
+type surrealLLMJobLog struct {
+	ID          *models.RecordID `json:"id,omitempty"`
+	JobID       string           `json:"job_id"`
+	RepoID      string           `json:"repo_id"`
+	ArtifactID  string           `json:"artifact_id"`
+	Subsystem   string           `json:"subsystem"`
+	JobType     string           `json:"job_type"`
+	Level       string           `json:"level"`
+	Phase       string           `json:"phase"`
+	Event       string           `json:"event"`
+	Message     string           `json:"message"`
+	PayloadJSON string           `json:"payload_json"`
+	Sequence    int64            `json:"sequence"`
+	CreatedAt   surrealTime      `json:"created_at"`
+}
+
 func (r *surrealLLMJob) toJob() *llm.Job {
 	job := &llm.Job{
 		ID:               recordIDString(r.ID),
@@ -93,6 +111,27 @@ func (r *surrealLLMJob) toJob() *llm.Job {
 		job.CompletedAt = &t
 	}
 	return job
+}
+
+func (r *surrealLLMJobLog) toJobLog() *llm.JobLogEntry {
+	if r == nil {
+		return nil
+	}
+	return &llm.JobLogEntry{
+		ID:          recordIDString(r.ID),
+		JobID:       r.JobID,
+		RepoID:      r.RepoID,
+		ArtifactID:  r.ArtifactID,
+		Subsystem:   llm.Subsystem(r.Subsystem),
+		JobType:     r.JobType,
+		Level:       llm.JobLogLevel(r.Level),
+		Phase:       r.Phase,
+		Event:       r.Event,
+		Message:     r.Message,
+		PayloadJSON: r.PayloadJSON,
+		Sequence:    r.Sequence,
+		CreatedAt:   r.CreatedAt.Time,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -552,4 +591,87 @@ func (s *SurrealStore) IncrementAttachedRequests(id string) error {
 		"attached_requests": next,
 	})
 	return err
+}
+
+// AppendLog persists a structured job log record.
+func (s *SurrealStore) AppendLog(entry *llm.JobLogEntry) (*llm.JobLogEntry, error) {
+	db := s.client.DB()
+	if db == nil {
+		return nil, fmt.Errorf("database not connected")
+	}
+	if entry == nil || strings.TrimSpace(entry.JobID) == "" {
+		return nil, fmt.Errorf("job log job_id is required")
+	}
+	id := entry.ID
+	if id == "" {
+		id = uuid.NewString()
+	}
+	sql := `CREATE ca_llm_job_log SET
+		id = type::thing('ca_llm_job_log', $id),
+		job_id = $job_id,
+		repo_id = $repo_id,
+		artifact_id = $artifact_id,
+		subsystem = $subsystem,
+		job_type = $job_type,
+		level = $level,
+		phase = $phase,
+		event = $event,
+		message = $message,
+		payload_json = $payload_json,
+		sequence = $sequence,
+		created_at = time::now()`
+	vars := map[string]any{
+		"id":           id,
+		"job_id":       entry.JobID,
+		"repo_id":      entry.RepoID,
+		"artifact_id":  entry.ArtifactID,
+		"subsystem":    string(entry.Subsystem),
+		"job_type":     entry.JobType,
+		"level":        string(entry.Level),
+		"phase":        entry.Phase,
+		"event":        entry.Event,
+		"message":      entry.Message,
+		"payload_json": entry.PayloadJSON,
+		"sequence":     entry.Sequence,
+	}
+	if _, err := surrealdb.Query[interface{}](ctx(), db, sql, vars); err != nil {
+		return nil, fmt.Errorf("create llm job log: %w", err)
+	}
+	rows, err := queryOne[[]surrealLLMJobLog](ctx(), db,
+		`SELECT * FROM type::thing('ca_llm_job_log', $id)`,
+		map[string]any{"id": id})
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	return rows[0].toJobLog(), nil
+}
+
+// ListLogs returns persisted logs for a job ordered by sequence ascending.
+func (s *SurrealStore) ListLogs(jobID string, filter llm.JobLogFilter) []*llm.JobLogEntry {
+	db := s.client.DB()
+	if db == nil || strings.TrimSpace(jobID) == "" {
+		return nil
+	}
+	if filter.Limit <= 0 {
+		filter.Limit = 200
+	}
+	sql := `SELECT * FROM ca_llm_job_log WHERE job_id = $job_id`
+	vars := map[string]any{
+		"job_id": jobID,
+		"limit":  filter.Limit,
+	}
+	if filter.AfterSequence > 0 {
+		sql += ` AND sequence > $after_sequence`
+		vars["after_sequence"] = filter.AfterSequence
+	}
+	sql += ` ORDER BY sequence ASC LIMIT $limit`
+	rows, err := queryOne[[]surrealLLMJobLog](ctx(), db, sql, vars)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	out := make([]*llm.JobLogEntry, 0, len(rows))
+	for i := range rows {
+		out = append(out, rows[i].toJobLog())
+	}
+	return out
 }

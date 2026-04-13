@@ -205,3 +205,41 @@ func TestMemStoreCloneIsolatesCallers(t *testing.T) {
 		t.Fatal("MemStore leaked stored pointer to caller — clone broken")
 	}
 }
+
+func TestMemStoreAppendAndListLogs(t *testing.T) {
+	store := NewMemStore()
+	_, _ = store.Create(newTestJob("log-job", "tk", StatusGenerating))
+
+	if _, err := store.AppendLog(&JobLogEntry{
+		JobID:    "log-job",
+		Level:    LogLevelInfo,
+		Phase:    "snapshot",
+		Event:    "snapshot_assembled",
+		Message:  "Snapshot assembled",
+		Sequence: 1,
+	}); err != nil {
+		t.Fatalf("AppendLog failed: %v", err)
+	}
+	if _, err := store.AppendLog(&JobLogEntry{
+		JobID:    "log-job",
+		Level:    LogLevelWarn,
+		Phase:    "queued",
+		Event:    "slot_wait",
+		Message:  "Waiting for slot",
+		Sequence: 2,
+	}); err != nil {
+		t.Fatalf("AppendLog second entry failed: %v", err)
+	}
+
+	rows := store.ListLogs("log-job", JobLogFilter{})
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 log rows, got %d", len(rows))
+	}
+	if rows[0].Sequence != 1 || rows[1].Sequence != 2 {
+		t.Fatalf("unexpected log ordering: %+v", rows)
+	}
+	filtered := store.ListLogs("log-job", JobLogFilter{AfterSequence: 1})
+	if len(filtered) != 1 || filtered[0].Sequence != 2 {
+		t.Fatalf("expected only second log after sequence filter, got %+v", filtered)
+	}
+}

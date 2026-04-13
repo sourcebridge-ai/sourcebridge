@@ -225,6 +225,9 @@ func (r *Resolver) enqueueKnowledgeJob(
 		RunWithContext: func(runCtx context.Context, rt llm.Runtime) error {
 			rt.ReportProgress(0.02, "queued", "Waiting for knowledge generation slot")
 			_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.02, "queued", "Waiting for knowledge generation slot")
+			appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "queued", "knowledge_slot_wait_started", "Waiting for knowledge generation slot", map[string]any{
+				"job_type": jobType,
+			})
 			stopHeartbeat := startKnowledgeQueueHeartbeat(runCtx, rt, artifact.ID, r.KnowledgeStore)
 			defer stopHeartbeat()
 			releaseGlobal, err := acquireKnowledgeGlobalSlot(runCtx)
@@ -232,12 +235,16 @@ func (r *Resolver) enqueueKnowledgeJob(
 				return err
 			}
 			defer releaseGlobal()
+			appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "queued", "knowledge_global_slot_acquired", "Acquired global knowledge slot", nil)
 			release, err := acquireKnowledgeJobSlot(runCtx, jobType)
 			if err != nil {
 				return err
 			}
 			defer release()
 			stopHeartbeat()
+			appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "queued", "knowledge_job_slot_acquired", "Acquired job-specific knowledge slot", map[string]any{
+				"job_type": jobType,
+			})
 			if snapshotBytes > 0 {
 				rt.ReportSnapshotBytes(snapshotBytes)
 			}

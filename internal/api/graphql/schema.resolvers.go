@@ -1517,9 +1517,23 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		genStart := time.Now()
 		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
+		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "snapshot", "snapshot_assembled", "Snapshot assembled", map[string]any{
+			"snapshot_bytes": len(enrichedCliffSnapJSON),
+			"scope_type":     string(scope.ScopeType),
+			"scope_path":     scope.ScopePath,
+			"depth":          depth,
+			"audience":       audience,
+		})
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
-		bgCtx := r.withModelMetadata(runCtx, "knowledge")
+		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "cliff_notes")
+		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "llm", "worker_dispatch", "Dispatching cliff notes request to worker", map[string]any{
+			"repository_id":   repo.ID,
+			"repository_name": repo.Name,
+			"scope_type":      string(scope.ScopeType),
+			"scope_path":      scope.ScopePath,
+			"depth":           depth,
+		})
 		resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
 			RepositoryId:   repo.ID,
 			RepositoryName: repo.Name,
@@ -1531,6 +1545,9 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		})
 		stopProgress()
 		if err != nil {
+			appendJobLog(r.Orchestrator, rt, llm.LogLevelError, "llm", "worker_failed", "Worker cliff notes request failed", map[string]any{
+				"duration_ms": time.Since(genStart).Milliseconds(),
+			})
 			slog.Error("cliff_notes_generation_failed",
 				"artifact_id", artifact.ID,
 				"scope_type", string(scope.ScopeType),
@@ -1560,6 +1577,27 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 					"error", err)
 			}
 		}
+		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "llm", "worker_response_received", "Worker returned cliff notes response", map[string]any{
+			"duration_ms":        time.Since(genStart).Milliseconds(),
+			"section_count":      len(resp.Sections),
+			"reused_summaries":   reusedSummaries,
+			"leaf_cache_hits":    leafCacheHits,
+			"file_cache_hits":    fileCacheHits,
+			"package_cache_hits": packageCacheHits,
+			"root_cache_hits":    rootCacheHits,
+			"provider_compute_errors": func() int32 {
+				if resp.Diagnostics == nil {
+					return 0
+				}
+				return resp.Diagnostics.ProviderComputeErrors
+			}(),
+			"fallback_count": func() int32 {
+				if resp.Diagnostics == nil {
+					return 0
+				}
+				return resp.Diagnostics.FallbackCount
+			}(),
+		})
 		llmMessage := "LLM completed, persisting sections"
 		if reusedSummaries > 0 {
 			llmMessage = fmt.Sprintf("LLM completed, reused %d summaries, persisting sections", reusedSummaries)
@@ -1578,6 +1616,9 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 			})
 			rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
 		}
+		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "persist", "persist_sections_started", "Persisting generated cliff note sections", map[string]any{
+			"section_count": len(resp.Sections),
+		})
 
 		sections := make([]knowledgepkg.Section, len(resp.Sections))
 		for i, sec := range resp.Sections {
@@ -1593,6 +1634,9 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 			slog.Error("failed to store cliff notes sections", "artifact_id", artifact.ID, "error", err)
 			return err
 		}
+		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "persist", "persist_sections_completed", "Stored cliff note sections", map[string]any{
+			"section_count": len(sections),
+		})
 
 		storedSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
 		for i, sec := range resp.Sections {
@@ -1618,6 +1662,9 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusReady); err != nil {
 			slog.Error("failed to mark cliff notes ready", "artifact_id", artifact.ID, "error", err)
 		}
+		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "ready", "artifact_ready", "Cliff notes artifact marked ready", map[string]any{
+			"section_count": len(sections),
+		})
 		readyMessage := "Cliff notes ready"
 		if reusedSummaries > 0 {
 			readyMessage = fmt.Sprintf("Cliff notes ready · reused %d summaries", reusedSummaries)
@@ -1723,7 +1770,7 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
-		bgCtx := r.withModelMetadata(runCtx, "knowledge")
+		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "learning_path")
 		resp, err := r.Worker.GenerateLearningPath(bgCtx, &knowledgev1.GenerateLearningPathRequest{
 			RepositoryId:   repo.ID,
 			RepositoryName: repo.Name,
@@ -1884,7 +1931,7 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
-		bgCtx := r.withModelMetadata(runCtx, "knowledge")
+		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "code_tour")
 		resp, err := r.Worker.GenerateCodeTour(bgCtx, &knowledgev1.GenerateCodeTourRequest{
 			RepositoryId:   repo.ID,
 			RepositoryName: repo.Name,
@@ -2084,7 +2131,7 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
-		bgCtx := r.withModelMetadata(runCtx, "knowledge")
+		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "workflow_story")
 		resp, err := r.Worker.GenerateWorkflowStory(bgCtx, &knowledgev1.GenerateWorkflowStoryRequest{
 			RepositoryId:      repo.ID,
 			RepositoryName:    repo.Name,
@@ -2352,7 +2399,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 
 		switch existing.Type {
 		case knowledgepkg.ArtifactCliffNotes:
-			resp, err := r.Worker.GenerateCliffNotes(r.withModelMetadata(runCtx, "knowledge"), &knowledgev1.GenerateCliffNotesRequest{
+			resp, err := r.Worker.GenerateCliffNotes(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "cliff_notes"), &knowledgev1.GenerateCliffNotesRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),
@@ -2381,7 +2428,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				return err
 			}
 		case knowledgepkg.ArtifactLearningPath:
-			resp, err := r.Worker.GenerateLearningPath(r.withModelMetadata(runCtx, "knowledge"), &knowledgev1.GenerateLearningPathRequest{
+			resp, err := r.Worker.GenerateLearningPath(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "learning_path"), &knowledgev1.GenerateLearningPathRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),
@@ -2406,7 +2453,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				return err
 			}
 		case knowledgepkg.ArtifactCodeTour:
-			resp, err := r.Worker.GenerateCodeTour(r.withModelMetadata(runCtx, "knowledge"), &knowledgev1.GenerateCodeTourRequest{
+			resp, err := r.Worker.GenerateCodeTour(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "code_tour"), &knowledgev1.GenerateCodeTourRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),
@@ -2442,7 +2489,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				return err
 			}
 		case knowledgepkg.ArtifactWorkflowStory:
-			resp, err := r.Worker.GenerateWorkflowStory(r.withModelMetadata(runCtx, "knowledge"), &knowledgev1.GenerateWorkflowStoryRequest{
+			resp, err := r.Worker.GenerateWorkflowStory(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "workflow_story"), &knowledgev1.GenerateWorkflowStoryRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),

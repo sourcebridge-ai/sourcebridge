@@ -43,6 +43,18 @@ interface JobView {
   updated_at: string;
 }
 
+interface JobLogView {
+  id: string;
+  job_id: string;
+  level: "debug" | "info" | "warn" | "error";
+  phase?: string;
+  event: string;
+  message: string;
+  payload_json?: string;
+  sequence: number;
+  created_at: string;
+}
+
 interface ActivityResponse {
   active: JobView[];
   recent: JobView[];
@@ -87,10 +99,18 @@ function reuseLabel(job: JobView): string | null {
   return `${reused} reused`;
 }
 
+function formatTime(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
 export function RepoJobsPopover({ repoId }: { repoId: string }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<ActivityResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedJob, setSelectedJob] = useState<JobView | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<number | null>(null);
 
@@ -203,6 +223,15 @@ export function RepoJobsPopover({ repoId }: { repoId: string }) {
                 return (
                   <div
                     key={job.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedJob(job)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedJob(job);
+                      }
+                    }}
                     className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] p-2"
                   >
                     <div className="flex items-center justify-between text-xs">
@@ -256,7 +285,16 @@ export function RepoJobsPopover({ repoId }: { repoId: string }) {
               recent.slice(0, 5).map((job) => (
                 <div
                   key={job.id}
-                  className="flex items-start gap-2 text-xs text-[var(--text-secondary)]"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedJob(job)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedJob(job);
+                    }
+                  }}
+                  className="flex items-start gap-2 rounded-[var(--radius-sm)] px-1 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)]"
                 >
                   <span
                     className={cn(
@@ -282,6 +320,8 @@ export function RepoJobsPopover({ repoId }: { repoId: string }) {
             )}
           </section>
 
+          {selectedJob ? <RepoJobLogsPanel job={selectedJob} /> : null}
+
           <div className="mt-3 border-t border-[var(--border-subtle)] pt-2">
             <Button
               variant="secondary"
@@ -294,5 +334,63 @@ export function RepoJobsPopover({ repoId }: { repoId: string }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function RepoJobLogsPanel({ job }: { job: JobView }) {
+  const [logs, setLogs] = useState<JobLogView[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchLogs = useCallback(async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+      const res = await fetch(`/api/v1/admin/llm/jobs/${encodeURIComponent(job.id)}/logs?limit=100`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`logs endpoint returned ${res.status}`);
+      const body = (await res.json()) as { logs?: JobLogView[] };
+      setLogs(Array.isArray(body.logs) ? body.logs : []);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to load logs");
+    }
+  }, [job.id]);
+
+  useEffect(() => {
+    void fetchLogs();
+    const interval = window.setInterval(() => {
+      void fetchLogs();
+    }, job.status === "generating" || job.status === "pending" ? 2000 : 5000);
+    return () => window.clearInterval(interval);
+  }, [fetchLogs, job.status]);
+
+  return (
+    <section className="mt-3 space-y-1">
+      <p className="text-[11px] uppercase tracking-wide text-[var(--text-tertiary)]">
+        Debug log · {job.job_type}
+      </p>
+      <div className="max-h-48 overflow-y-auto rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-2">
+        {error ? (
+          <p className="text-[11px] text-[color:var(--color-error,#ef4444)]">{error}</p>
+        ) : logs.length === 0 ? (
+          <p className="text-[11px] text-[var(--text-secondary)]">No log entries yet.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {logs.map((entry) => (
+              <div key={entry.id || `${entry.sequence}`} className="rounded-[var(--radius-sm)] bg-[var(--bg-base)] px-2 py-1.5">
+                <div className="flex items-center justify-between gap-2 text-[10px] text-[var(--text-tertiary)]">
+                  <span className="uppercase">{entry.level}</span>
+                  <span>{formatTime(entry.created_at)}</span>
+                </div>
+                <div className="text-[11px] text-[var(--text-primary)]">{entry.message}</div>
+                <div className="text-[10px] font-mono text-[var(--text-tertiary)]">
+                  {entry.phase ? `${entry.phase} · ` : ""}{entry.event}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

@@ -15,7 +15,11 @@ from knowledge.v1 import knowledge_pb2, knowledge_pb2_grpc
 
 from workers.common.config import WorkerConfig
 from workers.common.embedding.provider import EmbeddingProvider
-from workers.common.grpc_metadata import resolve_llm_override, resolve_model_override
+from workers.common.grpc_metadata import (
+    resolve_job_log_metadata,
+    resolve_llm_override,
+    resolve_model_override,
+)
 from workers.common.llm.config import create_llm_provider_for_request
 from workers.common.llm.provider import LLMProvider, SnapshotTooLargeError
 from workers.comprehension.adapters.code import CodeCorpus
@@ -36,6 +40,7 @@ from workers.knowledge.retrieval import (
     retrieve_relevant_snapshot,
 )
 from workers.knowledge.snapshot_truncate import condense_snapshot
+from workers.knowledge.job_logs import JobLogMetadata, SurrealJobLogger
 from workers.knowledge.summary_nodes import SurrealSummaryNodeCache
 from workers.knowledge.types import CliffNotesResult
 from workers.knowledge.workflow_story import generate_workflow_story
@@ -162,6 +167,23 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         )
         return provider, model or None
 
+    def _resolve_job_logger(self, context: grpc.aio.ServicerContext) -> SurrealJobLogger | None:
+        if self._config is None:
+            return None
+        meta = resolve_job_log_metadata(context)
+        if meta is None or not meta.job_id:
+            return None
+        return SurrealJobLogger.from_config(
+            self._config,
+            JobLogMetadata(
+                job_id=meta.job_id,
+                repo_id=meta.repo_id,
+                artifact_id=meta.artifact_id,
+                subsystem=meta.subsystem or "knowledge",
+                job_type=meta.job_type,
+            ),
+        )
+
     async def _prepare_snapshot(
         self,
         snapshot_json: str,
@@ -263,6 +285,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         depth: str,
         scope_type: str,
         model_override: str | None,
+        job_logger: SurrealJobLogger | None = None,
     ) -> tuple[CliffNotesResult, LLMUsageRecord, SelectionResult, dict[str, int | bool]]:
         """Walk the preference chain and run the first viable strategy.
 
@@ -338,6 +361,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     scope_type=scope_type,
                     model_override=model_override,
                     snapshot_json=snapshot,
+                    job_logger=job_logger,
                 )
                 return result, usage, selection, diagnostics
             except SnapshotTooLargeError as exc:
@@ -370,6 +394,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         scope_type: str,
         model_override: str | None,
         snapshot_json: str,
+        job_logger: SurrealJobLogger | None = None,
     ) -> tuple[CliffNotesResult, LLMUsageRecord, dict[str, int | bool]]:
         """Actually run a single strategy and produce the final cliff
         notes result. Kept separate from the chain walker so the logic
@@ -385,6 +410,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 scope_type=scope_type,
                 model_override=model_override,
                 snapshot_json=snapshot_json,
+                job_logger=job_logger,
             )
 
         # Single-shot and long-context strategies both produce the
@@ -410,6 +436,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         scope_type: str,
         model_override: str | None,
         snapshot_json: str | None = None,
+        job_logger: SurrealJobLogger | None = None,
     ) -> tuple[CliffNotesResult, LLMUsageRecord, dict[str, int | bool]]:
         """Run the Phase 3 hierarchical pipeline for cliff notes.
 
@@ -478,12 +505,28 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     error=str(exc),
                 )
 
+        async def emit_job_log(
+            phase: str,
+            event: str,
+            message: str,
+            payload: dict[str, object] | None = None,
+        ) -> None:
+            if job_logger is None:
+                return
+            await job_logger.info(
+                phase=phase,
+                event=event,
+                message=message,
+                payload=payload,
+            )
+
         cfg = HierarchicalConfig.from_env(
             repository_name=request.repository_name or corpus.root().label,
         )
         cfg.cached_tree = cached_tree
         cfg.on_stage_completed = persist_stage
         cfg.on_node_completed = persist_node
+        cfg.on_log = emit_job_log
         strategy = HierarchicalStrategy(
             provider=provider,
             config=cfg,
@@ -494,6 +537,16 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             repository_id=request.repository_id,
             scope_type=scope_type,
             scope_path=request.scope_path,
+        )
+        await emit_job_log(
+            "leaves",
+            "cliff_notes_hierarchical_started",
+            "Hierarchical cliff notes generation started",
+            {
+                "repository_id": request.repository_id,
+                "scope_type": scope_type,
+                "scope_path": request.scope_path,
+            },
         )
 
         tree = await strategy.build_tree(corpus)
@@ -512,6 +565,21 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             package_cache_hits=diagnostics["package_cache_hits"],
             root_cache_hits=diagnostics["root_cache_hits"],
         )
+        await emit_job_log(
+            "llm",
+            "cliff_notes_hierarchical_tree_built",
+            "Hierarchical summary tree built",
+            {
+                "stats": tree.stats(),
+                "cached_nodes": len(cached_tree.nodes) if cached_tree is not None else 0,
+                "fallback_count": diagnostics["fallback_count"],
+                "provider_compute_errors": diagnostics["provider_compute_errors"],
+                "leaf_cache_hits": diagnostics["leaf_cache_hits"],
+                "file_cache_hits": diagnostics["file_cache_hits"],
+                "package_cache_hits": diagnostics["package_cache_hits"],
+                "root_cache_hits": diagnostics["root_cache_hits"],
+            },
+        )
 
         total_nodes = max(len(tree.nodes), 1)
         fallback_count = int(diagnostics["fallback_count"])
@@ -529,6 +597,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             provider=provider,
             model_override=model_override,
         )
+        await emit_job_log("llm", "cliff_notes_renderer_started", "Final cliff notes render started", None)
         result, usage = await renderer.render(
             tree,
             repository_name=request.repository_name,
@@ -556,6 +625,18 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             file_cache_hits=diagnostics["file_cache_hits"],
             package_cache_hits=diagnostics["package_cache_hits"],
             root_cache_hits=diagnostics["root_cache_hits"],
+        )
+        await emit_job_log(
+            "ready",
+            "cliff_notes_hierarchical_completed",
+            "Hierarchical cliff notes generation completed",
+            {
+                "sections": len(result.sections),
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "fallback_count": fallback_count,
+                "provider_compute_errors": diagnostics["provider_compute_errors"],
+            },
         )
         return result, usage, {
             "cached_nodes": len(cached_tree.nodes) if cached_tree is not None else 0,
@@ -594,6 +675,21 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         depth = request.depth or "medium"
         scope_type = request.scope_type or "repository"
         provider, model_override = self._resolve_request_provider(context)
+        job_logger = self._resolve_job_logger(context)
+        if job_logger is not None:
+            await job_logger.info(
+                phase="snapshot",
+                event="generate_cliff_notes_started",
+                message="Cliff notes request received by worker",
+                payload={
+                    "repository_id": request.repository_id,
+                    "repository_name": request.repository_name,
+                    "audience": audience,
+                    "depth": depth,
+                    "scope_type": scope_type,
+                    "scope_path": request.scope_path,
+                },
+            )
 
         # Run through the StrategySelector with the preference chain from
         # the environment. The selector handles capability gating and
@@ -607,8 +703,17 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 depth=depth,
                 scope_type=scope_type,
                 model_override=model_override,
+                job_logger=job_logger,
             )
         except Exception as exc:
+            if job_logger is not None:
+                await job_logger.error(
+                    phase="failed",
+                    event="generate_cliff_notes_failed",
+                    message="Cliff notes generation failed in worker",
+                    payload={"error": str(exc)},
+                )
+                await job_logger.close()
             log.error(
                 "generate_cliff_notes_failed",
                 error=str(exc),
@@ -623,6 +728,13 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             strategy=selection.strategy_name,
             trace=selection.trace.summary(),
         )
+        if job_logger is not None:
+            await job_logger.info(
+                phase="llm",
+                event="cliff_notes_strategy_selection",
+                message=f"Selected strategy {selection.strategy_name}",
+                payload={"strategy": selection.strategy_name, "trace": selection.trace.summary()},
+            )
 
         sections = []
         for sec in result.sections:
@@ -649,7 +761,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 )
             )
 
-        return knowledge_pb2.GenerateCliffNotesResponse(
+        response = knowledge_pb2.GenerateCliffNotesResponse(
             sections=sections,
             usage=_llm_usage_proto(usage),
             diagnostics=knowledge_pb2.CliffNotesDiagnostics(
@@ -662,6 +774,19 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 root_cache_hits=int(diagnostics.get("root_cache_hits", 0)),
             ),
         )
+        if job_logger is not None:
+            await job_logger.info(
+                phase="ready",
+                event="generate_cliff_notes_completed",
+                message="Cliff notes response ready",
+                payload={
+                    "sections": len(sections),
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                },
+            )
+            await job_logger.close()
+        return response
 
     async def GenerateLearningPath(  # noqa: N802
         self,
@@ -691,6 +816,14 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         snapshot = await self._prepare_snapshot(request.snapshot_json, query)
 
         provider, model_override = self._resolve_request_provider(context)
+        job_logger = self._resolve_job_logger(context)
+        if job_logger is not None:
+            await job_logger.info(
+                phase="snapshot",
+                event="generate_learning_path_started",
+                message="Learning path request received by worker",
+                payload={"repository_id": request.repository_id, "depth": depth, "audience": audience},
+            )
         try:
             result, usage = await generate_learning_path(
                 provider=provider,
@@ -702,6 +835,14 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 model_override=model_override,
             )
         except Exception as exc:
+            if job_logger is not None:
+                await job_logger.error(
+                    phase="failed",
+                    event="generate_learning_path_failed",
+                    message="Learning path generation failed in worker",
+                    payload={"error": str(exc)},
+                )
+                await job_logger.close()
             log.error("generate_learning_path_failed", error=str(exc))
             await context.abort(
                 grpc.StatusCode.INTERNAL,
@@ -722,10 +863,19 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 )
             )
 
-        return knowledge_pb2.GenerateLearningPathResponse(
+        response = knowledge_pb2.GenerateLearningPathResponse(
             steps=steps,
             usage=_llm_usage_proto(usage),
         )
+        if job_logger is not None:
+            await job_logger.info(
+                phase="ready",
+                event="generate_learning_path_completed",
+                message="Learning path response ready",
+                payload={"steps": len(steps), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
+            )
+            await job_logger.close()
+        return response
 
     async def GenerateWorkflowStory(  # noqa: N802
         self,
@@ -758,6 +908,14 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         snapshot = await self._prepare_snapshot(request.snapshot_json, query, scope_type=scope_type)
 
         provider, model_override = self._resolve_request_provider(context)
+        job_logger = self._resolve_job_logger(context)
+        if job_logger is not None:
+            await job_logger.info(
+                phase="snapshot",
+                event="generate_workflow_story_started",
+                message="Workflow story request received by worker",
+                payload={"repository_id": request.repository_id, "scope_type": scope_type, "scope_path": request.scope_path},
+            )
         try:
             result, usage = await generate_workflow_story(
                 provider=provider,
@@ -773,6 +931,14 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             )
         except Exception as exc:
             import traceback
+            if job_logger is not None:
+                await job_logger.error(
+                    phase="failed",
+                    event="generate_workflow_story_failed",
+                    message="Workflow story generation failed in worker",
+                    payload={"error": str(exc)},
+                )
+                await job_logger.close()
             log.error("generate_workflow_story_failed", error=str(exc), traceback=traceback.format_exc())
             await context.abort(
                 grpc.StatusCode.INTERNAL,
@@ -804,10 +970,19 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 )
             )
 
-        return knowledge_pb2.GenerateWorkflowStoryResponse(
+        response = knowledge_pb2.GenerateWorkflowStoryResponse(
             sections=sections,
             usage=_llm_usage_proto(usage),
         )
+        if job_logger is not None:
+            await job_logger.info(
+                phase="ready",
+                event="generate_workflow_story_completed",
+                message="Workflow story response ready",
+                payload={"sections": len(sections), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
+            )
+            await job_logger.close()
+        return response
 
     async def ExplainSystem(  # noqa: N802
         self,
@@ -837,6 +1012,14 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         snapshot = await self._prepare_snapshot(request.snapshot_json, query)
 
         provider, model_override = self._resolve_request_provider(context)
+        job_logger = self._resolve_job_logger(context)
+        if job_logger is not None:
+            await job_logger.info(
+                phase="snapshot",
+                event="explain_system_started",
+                message="Explain system request received by worker",
+                payload={"repository_id": request.repository_id, "depth": depth, "audience": audience},
+            )
         try:
             result, usage = await explain_system(
                 provider=provider,
@@ -848,17 +1031,34 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 model_override=model_override,
             )
         except Exception as exc:
+            if job_logger is not None:
+                await job_logger.error(
+                    phase="failed",
+                    event="explain_system_failed",
+                    message="Explain system failed in worker",
+                    payload={"error": str(exc)},
+                )
+                await job_logger.close()
             log.error("explain_system_failed", error=str(exc))
             await context.abort(
                 grpc.StatusCode.INTERNAL,
                 f"System explanation failed: {exc}",
             )
 
-        return knowledge_pb2.ExplainSystemResponse(
+        response = knowledge_pb2.ExplainSystemResponse(
             explanation=result.explanation,
             evidence=[],
             usage=_llm_usage_proto(usage),
         )
+        if job_logger is not None:
+            await job_logger.info(
+                phase="ready",
+                event="explain_system_completed",
+                message="Explain system response ready",
+                payload={"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
+            )
+            await job_logger.close()
+        return response
 
     async def GenerateCodeTour(  # noqa: N802
         self,
@@ -888,6 +1088,14 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         snapshot = await self._prepare_snapshot(request.snapshot_json, query)
 
         provider, model_override = self._resolve_request_provider(context)
+        job_logger = self._resolve_job_logger(context)
+        if job_logger is not None:
+            await job_logger.info(
+                phase="snapshot",
+                event="generate_code_tour_started",
+                message="Code tour request received by worker",
+                payload={"repository_id": request.repository_id, "depth": depth, "audience": audience},
+            )
         try:
             result, usage = await generate_code_tour(
                 provider=provider,
@@ -899,6 +1107,14 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 model_override=model_override,
             )
         except Exception as exc:
+            if job_logger is not None:
+                await job_logger.error(
+                    phase="failed",
+                    event="generate_code_tour_failed",
+                    message="Code tour generation failed in worker",
+                    payload={"error": str(exc)},
+                )
+                await job_logger.close()
             log.error("generate_code_tour_failed", error=str(exc))
             await context.abort(
                 grpc.StatusCode.INTERNAL,
@@ -918,10 +1134,19 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 )
             )
 
-        return knowledge_pb2.GenerateCodeTourResponse(
+        response = knowledge_pb2.GenerateCodeTourResponse(
             stops=stops,
             usage=_llm_usage_proto(usage),
         )
+        if job_logger is not None:
+            await job_logger.info(
+                phase="ready",
+                event="generate_code_tour_completed",
+                message="Code tour response ready",
+                payload={"stops": len(stops), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
+            )
+            await job_logger.close()
+        return response
 
     async def GenerateReport(  # noqa: N802
         self,

@@ -73,6 +73,18 @@ interface JobView {
   completed_at?: string;
 }
 
+interface JobLogView {
+  id: string;
+  job_id: string;
+  level: "debug" | "info" | "warn" | "error";
+  phase?: string;
+  event: string;
+  message: string;
+  payload_json?: string;
+  sequence: number;
+  created_at: string;
+}
+
 interface HealthPayload {
   status: "healthy" | "degraded" | "unhealthy";
   summary: string;
@@ -146,6 +158,13 @@ function formatRelative(iso: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
+function formatTime(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
 function statusDot(status: Status): string {
   switch (status) {
     case "generating":
@@ -205,6 +224,20 @@ function healthStyle(status: HealthPayload["status"]) {
         text: "text-[color:var(--color-error,#ef4444)]",
         icon: "■",
       };
+  }
+}
+
+function logLevelStyle(level: JobLogView["level"]): string {
+  switch (level) {
+    case "error":
+      return "border-[color:var(--color-error,#ef4444)] text-[color:var(--color-error,#ef4444)]";
+    case "warn":
+      return "border-amber-500 text-amber-600";
+    case "debug":
+      return "border-[var(--border-default)] text-[var(--text-tertiary)]";
+    case "info":
+    default:
+      return "border-[var(--border-default)] text-[var(--text-secondary)]";
   }
 }
 
@@ -796,6 +829,8 @@ function JobDetailDrawer({ job, onClose }: { job: JobView; onClose: () => void }
           </dl>
         </section>
 
+        <JobLogsPanel job={job} />
+
         {job.repo_id ? (
           <Link href={`/repositories/${job.repo_id}`} className="block">
             <Button variant="secondary" className="w-full">
@@ -805,5 +840,81 @@ function JobDetailDrawer({ job, onClose }: { job: JobView; onClose: () => void }
         ) : null}
       </div>
     </div>
+  );
+}
+
+function JobLogsPanel({ job }: { job: JobView }) {
+  const [logs, setLogs] = useState<JobLogView[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchLogs = useCallback(async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+      const res = await fetch(`/api/v1/admin/llm/jobs/${encodeURIComponent(job.id)}/logs?limit=200`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`logs endpoint returned ${res.status}`);
+      const body = (await res.json()) as { logs?: JobLogView[] };
+      setLogs(Array.isArray(body.logs) ? body.logs : []);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to load logs");
+    }
+  }, [job.id]);
+
+  useEffect(() => {
+    void fetchLogs();
+    const interval = window.setInterval(() => {
+      void fetchLogs();
+    }, job.status === "generating" || job.status === "pending" ? 2000 : 5000);
+    return () => window.clearInterval(interval);
+  }, [fetchLogs, job.status]);
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs uppercase tracking-wide text-[var(--text-tertiary)]">Execution log</p>
+        <span className="text-[11px] text-[var(--text-tertiary)]">{logs.length} entries</span>
+      </div>
+      <div className="max-h-80 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-subtle)]">
+        {error ? (
+          <p className="px-3 py-2 text-xs text-[color:var(--color-error,#ef4444)]">{error}</p>
+        ) : logs.length === 0 ? (
+          <p className="px-3 py-2 text-xs text-[var(--text-secondary)]">No job logs yet.</p>
+        ) : (
+          <div className="space-y-2 p-3">
+            {logs.map((entry) => (
+              <div key={entry.id || `${entry.sequence}`} className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-2">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className={cn("rounded-full border px-1.5 py-0.5 font-medium uppercase tracking-wide", logLevelStyle(entry.level))}>
+                    {entry.level}
+                  </span>
+                  <span className="text-[var(--text-tertiary)]">{formatTime(entry.created_at)}</span>
+                </div>
+                <div className="mt-1 text-xs font-medium text-[var(--text-primary)]">{entry.message}</div>
+                <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-[var(--text-tertiary)]">
+                  {entry.phase ? <span>{entry.phase}</span> : null}
+                  <span className="font-mono">{entry.event}</span>
+                </div>
+                {entry.payload_json ? (
+                  <details className="mt-2 text-[11px] text-[var(--text-secondary)]">
+                    <summary className="cursor-pointer">Payload</summary>
+                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words rounded-[var(--radius-sm)] bg-[var(--bg-subtle)] p-2 font-mono text-[10px]">
+                      {(() => {
+                        try {
+                          return JSON.stringify(JSON.parse(entry.payload_json), null, 2);
+                        } catch {
+                          return entry.payload_json;
+                        }
+                      })()}
+                    </pre>
+                  </details>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

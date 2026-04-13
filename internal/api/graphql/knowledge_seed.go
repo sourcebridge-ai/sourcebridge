@@ -116,7 +116,7 @@ func (r *mutationResolver) ensureKnowledgeArtifact(repo *graphstore.Repository, 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
 		defer stopProgress()
 
-		bgCtx := r.withModelMetadata(runCtx, "knowledge")
+		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, string(key.Type))
 		switch key.Type {
 		case knowledgepkg.ArtifactCliffNotes:
 			resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{

@@ -321,6 +321,8 @@ func (s *Server) setupRouter() {
 		r.Put("/api/v1/admin/llm/control", s.handleUpdateQueueControl)
 		r.Post("/api/v1/admin/llm/drain", s.handleDrainQueue)
 		r.Get("/api/v1/admin/llm/jobs/{id}", s.handleLLMJobDetail)
+		r.Get("/api/v1/admin/llm/jobs/{id}/logs", s.handleLLMJobLogs)
+		r.Get("/api/v1/admin/llm/jobs/{id}/logs/stream", s.handleLLMJobLogStream)
 		r.Post("/api/v1/admin/llm/jobs/{id}/cancel", s.handleLLMJobCancel)
 		r.Post("/api/v1/admin/llm/jobs/{id}/retry", s.handleLLMJobRetry)
 

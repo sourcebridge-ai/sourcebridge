@@ -24,12 +24,14 @@ type runtime struct {
 	orch  *Orchestrator
 	jobID string
 
-	mu              sync.Mutex
-	lastProgress    float64
-	lastPhase       string
-	lastMessage     string
-	lastWrite       time.Time
-	pendingProgress bool
+	mu                sync.Mutex
+	lastProgress      float64
+	lastPhase         string
+	lastMessage       string
+	lastWrite         time.Time
+	pendingProgress   bool
+	lastLoggedPhase   string
+	lastLoggedMessage string
 
 	// Token and byte metrics are buffered until flush() so a runaway
 	// job cannot produce a storm of single-field updates.
@@ -123,6 +125,13 @@ func (r *runtime) writeProgressLocked(now time.Time) {
 	}
 	r.lastWrite = now
 	r.pendingProgress = false
+	if r.lastPhase != r.lastLoggedPhase || r.lastMessage != r.lastLoggedMessage {
+		_ = r.orch.AppendJobLog(r.jobID, llm.LogLevelInfo, r.lastPhase, "progress_update", r.lastMessage, map[string]any{
+			"progress": r.lastProgress,
+		})
+		r.lastLoggedPhase = r.lastPhase
+		r.lastLoggedMessage = r.lastMessage
+	}
 
 	if job := r.orch.store.GetByID(r.jobID); job != nil {
 		r.orch.publish(llm.JobEvent{Kind: llm.EventProgress, Job: job})

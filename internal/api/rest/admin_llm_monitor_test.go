@@ -246,6 +246,40 @@ func TestHandleLLMJobDetailRoundTrip(t *testing.T) {
 	}
 }
 
+func TestHandleLLMJobLogs(t *testing.T) {
+	s := newMonitorTestServer(t)
+	job, err := s.orchestrator.Enqueue(&llm.EnqueueRequest{
+		Subsystem: llm.SubsystemKnowledge,
+		JobType:   "cliff_notes",
+		TargetKey: "repo-1:logs",
+		Run: func(rt llm.Runtime) error {
+			rt.ReportProgress(0.25, "snapshot", "Snapshot assembled")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+	time.Sleep(25 * time.Millisecond)
+	r := chi.NewRouter()
+	r.Get("/api/v1/admin/llm/jobs/{id}/logs", s.handleLLMJobLogs)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/llm/jobs/"+job.ID+"/logs", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Logs []monitorJobLogView `json:"logs"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Logs) == 0 {
+		t.Fatal("expected at least one log entry")
+	}
+}
+
 func TestHandleLLMJobDetail404(t *testing.T) {
 	s := newMonitorTestServer(t)
 	r := chi.NewRouter()

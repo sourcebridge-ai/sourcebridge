@@ -43,11 +43,11 @@ type monitorHealth struct {
 }
 
 type monitorStats struct {
-	InFlight       int `json:"in_flight"`
-	QueueDepth     int `json:"queue_depth"`
-	GateWaiting    int `json:"gate_waiting"`
-	TotalWaiting   int `json:"total_waiting"`
-	MaxConcurrency int `json:"max_concurrency"`
+	InFlight              int `json:"in_flight"`
+	QueueDepth            int `json:"queue_depth"`
+	GateWaiting           int `json:"gate_waiting"`
+	TotalWaiting          int `json:"total_waiting"`
+	MaxConcurrency        int `json:"max_concurrency"`
 	RecentReusedSummaries int `json:"recent_reused_summaries"`
 }
 
@@ -95,6 +95,22 @@ type monitorJobView struct {
 	StartedAt        *time.Time `json:"started_at,omitempty"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+}
+
+type monitorJobLogView struct {
+	ID          string    `json:"id"`
+	JobID       string    `json:"job_id"`
+	RepoID      string    `json:"repo_id,omitempty"`
+	ArtifactID  string    `json:"artifact_id,omitempty"`
+	Subsystem   string    `json:"subsystem,omitempty"`
+	JobType     string    `json:"job_type,omitempty"`
+	Level       string    `json:"level"`
+	Phase       string    `json:"phase,omitempty"`
+	Event       string    `json:"event"`
+	Message     string    `json:"message"`
+	PayloadJSON string    `json:"payload_json,omitempty"`
+	Sequence    int64     `json:"sequence"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // errorTitleForCode maps a classified error code to a plain-English
@@ -179,6 +195,27 @@ func toMonitorJobView(j *llm.Job) monitorJobView {
 		StartedAt:        j.StartedAt,
 		UpdatedAt:        j.UpdatedAt,
 		CompletedAt:      j.CompletedAt,
+	}
+}
+
+func toMonitorJobLogView(entry *llm.JobLogEntry) monitorJobLogView {
+	if entry == nil {
+		return monitorJobLogView{}
+	}
+	return monitorJobLogView{
+		ID:          entry.ID,
+		JobID:       entry.JobID,
+		RepoID:      entry.RepoID,
+		ArtifactID:  entry.ArtifactID,
+		Subsystem:   string(entry.Subsystem),
+		JobType:     entry.JobType,
+		Level:       string(entry.Level),
+		Phase:       entry.Phase,
+		Event:       entry.Event,
+		Message:     entry.Message,
+		PayloadJSON: entry.PayloadJSON,
+		Sequence:    entry.Sequence,
+		CreatedAt:   entry.CreatedAt,
 	}
 }
 
@@ -507,6 +544,102 @@ func (s *Server) handleLLMJobRetry(w http.ResponseWriter, r *http.Request) {
 		"message": "Open the related artifact and click Refresh to re-run this job.",
 		"job":     toMonitorJobView(job),
 	})
+}
+
+// handleLLMJobLogs returns persisted structured log entries for one job.
+func (s *Server) handleLLMJobLogs(w http.ResponseWriter, r *http.Request) {
+	if s.orchestrator == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "llm orchestrator not configured",
+		})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
+		return
+	}
+	limit := 200
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	var afterSequence int64
+	if v := r.URL.Query().Get("after_sequence"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			afterSequence = n
+		}
+	}
+	rows := s.orchestrator.ListJobLogs(id, llm.JobLogFilter{
+		Limit:         limit,
+		AfterSequence: afterSequence,
+	})
+	logs := make([]monitorJobLogView, 0, len(rows))
+	for _, row := range rows {
+		logs = append(logs, toMonitorJobLogView(row))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"logs": logs})
+}
+
+// handleLLMJobLogStream streams structured log entries for one job via SSE.
+func (s *Server) handleLLMJobLogStream(w http.ResponseWriter, r *http.Request) {
+	if s.orchestrator == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "llm orchestrator not configured",
+		})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "streaming not supported by this connection",
+		})
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	_, _ = w.Write([]byte(": connected\n\n"))
+	flusher.Flush()
+
+	events, unsubscribe := s.orchestrator.SubscribeLogs()
+	defer unsubscribe()
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			if _, err := w.Write([]byte(": ping\n\n")); err != nil {
+				return
+			}
+			flusher.Flush()
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			if ev.JobID != id {
+				continue
+			}
+			payload, err := json.Marshal(toMonitorJobLogView(&ev))
+			if err != nil {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "event: log\ndata: %s\n\n", payload); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
 }
 
 // handleLLMStream is an SSE endpoint that streams JobEvents to the

@@ -22,10 +22,12 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,6 +121,11 @@ type Orchestrator struct {
 	subMu       sync.RWMutex
 	subscribers map[int64]chan llm.JobEvent
 	nextSubID   int64
+
+	logMu           sync.RWMutex
+	logSubscribers  map[int64]chan llm.JobLogEntry
+	nextLogSubID    int64
+	lastLogSequence map[string]int64
 }
 
 // workItem is the internal envelope that carries a job id and its run
@@ -134,17 +141,19 @@ func New(store llm.JobStore, cfg Config) *Orchestrator {
 	cfg = cfg.withDefaults()
 	ctx, cancel := context.WithCancel(context.Background())
 	o := &Orchestrator{
-		cfg:         cfg,
-		store:       store,
-		inflight:    newInflightRegistry(),
-		metrics:     newMetrics(cfg.MetricsCapacity),
-		breaker:     newSubsystemBreaker(cfg.ComputeErrorThreshold, cfg.ComputeCooldown),
-		queue:       make(chan *workItem, cfg.QueueCapacity),
-		ctx:         ctx,
-		cancel:      cancel,
-		subscribers: make(map[int64]chan llm.JobEvent),
-		runCancels:  make(map[string]context.CancelFunc),
-		cancelled:   make(map[string]struct{}),
+		cfg:             cfg,
+		store:           store,
+		inflight:        newInflightRegistry(),
+		metrics:         newMetrics(cfg.MetricsCapacity),
+		breaker:         newSubsystemBreaker(cfg.ComputeErrorThreshold, cfg.ComputeCooldown),
+		queue:           make(chan *workItem, cfg.QueueCapacity),
+		ctx:             ctx,
+		cancel:          cancel,
+		subscribers:     make(map[int64]chan llm.JobEvent),
+		logSubscribers:  make(map[int64]chan llm.JobLogEntry),
+		lastLogSequence: make(map[string]int64),
+		runCancels:      make(map[string]context.CancelFunc),
+		cancelled:       make(map[string]struct{}),
 	}
 	for i := 0; i < cfg.MaxConcurrency; i++ {
 		o.workers.Add(1)
@@ -298,6 +307,12 @@ func (o *Orchestrator) Enqueue(req *llm.EnqueueRequest) (*llm.Job, error) {
 	}
 
 	o.publish(llm.JobEvent{Kind: llm.EventCreated, Job: job})
+	_ = o.AppendJobLog(job.ID, llm.LogLevelInfo, "queued", "job_created", "Job created and enqueued", map[string]any{
+		"target_key":  job.TargetKey,
+		"subsystem":   string(job.Subsystem),
+		"job_type":    job.JobType,
+		"artifact_id": job.ArtifactID,
+	})
 
 	// Hand off to the worker pool. Enqueue is non-blocking when there
 	// is queue capacity; otherwise the caller's goroutine parks here.
@@ -352,6 +367,54 @@ func (o *Orchestrator) GetJob(id string) *llm.Job {
 // SetReuseStats records structured summary reuse/cache-hit counts on a job.
 func (o *Orchestrator) SetReuseStats(id string, reused, leafHits, fileHits, packageHits, rootHits int) error {
 	return o.store.SetReuseStats(id, reused, leafHits, fileHits, packageHits, rootHits)
+}
+
+// AppendJobLog persists and publishes a structured job-scoped log entry.
+func (o *Orchestrator) AppendJobLog(jobID string, level llm.JobLogLevel, phase, event, message string, payload map[string]any) error {
+	if strings.TrimSpace(jobID) == "" {
+		return fmt.Errorf("job id is required")
+	}
+	job := o.store.GetByID(jobID)
+	if job == nil {
+		return fmt.Errorf("job %s not found", jobID)
+	}
+	sequence := time.Now().UnixNano()
+	o.logMu.Lock()
+	if last := o.lastLogSequence[jobID]; sequence <= last {
+		sequence = last + 1
+	}
+	o.lastLogSequence[jobID] = sequence
+	o.logMu.Unlock()
+
+	payloadJSON := ""
+	if len(payload) > 0 {
+		if encoded, err := json.Marshal(payload); err == nil {
+			payloadJSON = string(encoded)
+		}
+	}
+	entry, err := o.store.AppendLog(&llm.JobLogEntry{
+		JobID:       job.ID,
+		RepoID:      job.RepoID,
+		ArtifactID:  job.ArtifactID,
+		Subsystem:   job.Subsystem,
+		JobType:     job.JobType,
+		Level:       level,
+		Phase:       phase,
+		Event:       event,
+		Message:     message,
+		PayloadJSON: payloadJSON,
+		Sequence:    sequence,
+	})
+	if err != nil {
+		return err
+	}
+	o.publishLog(*entry)
+	return nil
+}
+
+// ListJobLogs returns persisted log lines for a job.
+func (o *Orchestrator) ListJobLogs(jobID string, filter llm.JobLogFilter) []*llm.JobLogEntry {
+	return o.store.ListLogs(jobID, filter)
 }
 
 // Cancel requests cancellation of an active job. Pending jobs are cancelled
@@ -515,6 +578,26 @@ func (o *Orchestrator) Subscribe() (<-chan llm.JobEvent, func()) {
 	return ch, unsubscribe
 }
 
+// SubscribeLogs returns a channel that receives structured job log entries.
+func (o *Orchestrator) SubscribeLogs() (<-chan llm.JobLogEntry, func()) {
+	o.logMu.Lock()
+	o.nextLogSubID++
+	id := o.nextLogSubID
+	ch := make(chan llm.JobLogEntry, 128)
+	o.logSubscribers[id] = ch
+	o.logMu.Unlock()
+
+	unsubscribe := func() {
+		o.logMu.Lock()
+		defer o.logMu.Unlock()
+		if existing, ok := o.logSubscribers[id]; ok {
+			close(existing)
+			delete(o.logSubscribers, id)
+		}
+	}
+	return ch, unsubscribe
+}
+
 // publish delivers an event to every subscriber without blocking. If a
 // subscriber's buffer is full, the event is dropped for that subscriber
 // and logged — we prefer losing an event to stalling the publisher.
@@ -534,6 +617,21 @@ func (o *Orchestrator) publish(event llm.JobEvent) {
 					return ""
 				}(),
 				"kind", event.Kind)
+		}
+	}
+}
+
+func (o *Orchestrator) publishLog(entry llm.JobLogEntry) {
+	o.logMu.RLock()
+	defer o.logMu.RUnlock()
+	for id, ch := range o.logSubscribers {
+		select {
+		case ch <- entry:
+		default:
+			slog.Warn("llm_job_log_event_dropped",
+				"subscriber_id", id,
+				"job_id", entry.JobID,
+				"event", entry.Event)
 		}
 	}
 }
@@ -576,6 +674,7 @@ func (o *Orchestrator) runJob(item *workItem) {
 	if job != nil {
 		o.publish(llm.JobEvent{Kind: llm.EventStarted, Job: job})
 	}
+	_ = o.AppendJobLog(jobID, llm.LogLevelInfo, "generating", "job_started", "Worker claimed the job", nil)
 
 	// Run with retry loop.
 	var lastErr error
@@ -589,6 +688,9 @@ func (o *Orchestrator) runJob(item *workItem) {
 			if job := o.store.GetByID(jobID); job != nil {
 				o.publish(llm.JobEvent{Kind: llm.EventProgress, Job: job})
 			}
+			_ = o.AppendJobLog(jobID, llm.LogLevelWarn, "backoff", "breaker_backoff", "Waiting for model backend to recover", map[string]any{
+				"cooldown_ms": cooldown.Milliseconds(),
+			})
 			select {
 			case <-time.After(cooldown):
 			case <-o.ctx.Done():
@@ -598,6 +700,11 @@ func (o *Orchestrator) runJob(item *workItem) {
 		}
 		if attempt > 1 {
 			backoff := o.cfg.Retry.BackoffFor(attempt)
+			_ = o.AppendJobLog(jobID, llm.LogLevelWarn, "retry", "retry_scheduled", "Retrying job after transient failure", map[string]any{
+				"attempt":      attempt,
+				"max_attempts": maxAttempts,
+				"backoff_ms":   backoff.Milliseconds(),
+			})
 			select {
 			case <-time.After(backoff):
 			case <-o.ctx.Done():
@@ -665,6 +772,7 @@ func (o *Orchestrator) finalizeReady(jobID string, req *llm.EnqueueRequest) {
 		o.metrics.record(req.Subsystem, req.JobType, job.Elapsed(), llm.StatusReady)
 		o.publish(llm.JobEvent{Kind: llm.EventCompleted, Job: job})
 	}
+	_ = o.AppendJobLog(jobID, llm.LogLevelInfo, "ready", "job_ready", "Job completed successfully", nil)
 }
 
 // finalizeFailed classifies the error, persists it, records metrics,
@@ -684,6 +792,9 @@ func (o *Orchestrator) finalizeFailed(jobID string, req *llm.EnqueueRequest, err
 		o.metrics.record(req.Subsystem, req.JobType, job.Elapsed(), llm.StatusFailed)
 		o.publish(llm.JobEvent{Kind: llm.EventFailed, Job: job})
 	}
+	_ = o.AppendJobLog(jobID, llm.LogLevelError, "failed", "job_failed", msg, map[string]any{
+		"error_code": code,
+	})
 }
 
 // finalizeCancelled marks the job cancelled (does not count as failure).
@@ -696,6 +807,7 @@ func (o *Orchestrator) finalizeCancelled(jobID string) {
 		o.metrics.record(job.Subsystem, job.JobType, job.Elapsed(), llm.StatusCancelled)
 		o.publish(llm.JobEvent{Kind: llm.EventCancelled, Job: job})
 	}
+	_ = o.AppendJobLog(jobID, llm.LogLevelWarn, "cancelled", "job_cancelled", "Job cancelled before completion", nil)
 }
 
 func (o *Orchestrator) setRunCancel(jobID string, cancel context.CancelFunc) {

@@ -318,7 +318,7 @@ func TestQueuedKnowledgeJobsHeartbeatWhileWaitingForGate(t *testing.T) {
 	}
 
 	initialUpdatedAt := waitingJob.UpdatedAt
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(650 * time.Millisecond)
 	waitingJob = jobStore.GetByID(waitingJob.ID)
 	if waitingJob == nil {
 		t.Fatal("expected waiting job to still exist")

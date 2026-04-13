@@ -63,3 +63,44 @@ def resolve_llm_override(context: grpc.aio.ServicerContext) -> RuntimeLLMOverrid
     if override.is_empty():
         return None
     return override
+
+
+@dataclass
+class RuntimeJobLogMetadata:
+    job_id: str = ""
+    repo_id: str = ""
+    artifact_id: str = ""
+    subsystem: str = ""
+    job_type: str = ""
+
+    def is_empty(self) -> bool:
+        return not any(
+            (
+                self.job_id,
+                self.repo_id,
+                self.artifact_id,
+                self.subsystem,
+                self.job_type,
+            )
+        )
+
+
+def resolve_job_log_metadata(context: grpc.aio.ServicerContext) -> RuntimeJobLogMetadata | None:
+    """Read job log metadata from gRPC metadata."""
+    if not hasattr(context, "invocation_metadata"):
+        return None
+    meta = RuntimeJobLogMetadata()
+    for key, value in context.invocation_metadata():
+        if key == "x-sb-job-id":
+            meta.job_id = value or ""
+        elif key == "x-sb-repo-id":
+            meta.repo_id = value or ""
+        elif key == "x-sb-artifact-id":
+            meta.artifact_id = value or ""
+        elif key == "x-sb-subsystem":
+            meta.subsystem = value or ""
+        elif key == "x-sb-job-type":
+            meta.job_type = value or ""
+    if meta.is_empty():
+        return None
+    return meta

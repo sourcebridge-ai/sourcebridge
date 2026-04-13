@@ -38,7 +38,7 @@ import os
 import uuid
 from dataclasses import dataclass
 from time import monotonic
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 import structlog
 
@@ -117,6 +117,7 @@ class HierarchicalConfig:
     cached_tree: SummaryTree | None = None
     on_stage_completed: Callable[[str, SummaryTree], Awaitable[None]] | None = None
     on_node_completed: Callable[[str, SummaryTree, SummaryNode], Awaitable[None]] | None = None
+    on_log: Callable[[str, str, str, dict[str, Any] | None], Awaitable[None]] | None = None
 
     @classmethod
     def from_env(cls, repository_name: str = "") -> HierarchicalConfig:
@@ -218,6 +219,18 @@ class HierarchicalStrategy:
             packages=len(package_units),
             total=total_nodes,
         )
+        await self._emit_log(
+            "leaves",
+            "hierarchical_build_started",
+            "Hierarchical summary build started",
+            {
+                "corpus_id": corpus.corpus_id,
+                "leaves": len(leaf_units),
+                "files": len(file_units),
+                "packages": len(package_units),
+                "total_nodes": total_nodes,
+            },
+        )
         await _maybe_await(progress("leaves", 0.05, f"Summarizing {len(leaf_units)} segments"))
 
         tree = SummaryTree(
@@ -236,6 +249,7 @@ class HierarchicalStrategy:
                 stage="leaves",
                 total=len(leaf_units),
             )
+            await self._emit_log("leaves", "hierarchical_stage_started", "Leaf summarization started", {"total": len(leaf_units)})
             await self._summarize_leaves(corpus, leaf_units, tree, progress)
             log.info(
                 "hierarchical_stage_completed",
@@ -244,6 +258,16 @@ class HierarchicalStrategy:
                 total=len(leaf_units),
                 cache_hits=self._cache_hits["leaves"],
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
+            )
+            await self._emit_log(
+                "leaves",
+                "hierarchical_stage_completed",
+                "Leaf summarization completed",
+                {
+                    "total": len(leaf_units),
+                    "cache_hits": self._cache_hits["leaves"],
+                    "elapsed_ms": int((monotonic() - stage_started) * 1000),
+                },
             )
             await self._emit_stage_checkpoint("leaves", tree)
 
@@ -257,6 +281,7 @@ class HierarchicalStrategy:
                 stage="files",
                 total=len(file_units),
             )
+            await self._emit_log("files", "hierarchical_stage_started", "File summarization started", {"total": len(file_units)})
             await self._summarize_nonleaf_stage(
                 corpus=corpus,
                 units=file_units,
@@ -273,6 +298,16 @@ class HierarchicalStrategy:
                 cache_hits=self._cache_hits["files"],
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
+            await self._emit_log(
+                "files",
+                "hierarchical_stage_completed",
+                "File summarization completed",
+                {
+                    "total": len(file_units),
+                    "cache_hits": self._cache_hits["files"],
+                    "elapsed_ms": int((monotonic() - stage_started) * 1000),
+                },
+            )
             await self._emit_stage_checkpoint("files", tree)
 
         # Level 2 — package summaries.
@@ -287,6 +322,7 @@ class HierarchicalStrategy:
                 stage="packages",
                 total=len(package_units),
             )
+            await self._emit_log("packages", "hierarchical_stage_started", "Package summarization started", {"total": len(package_units)})
             await self._summarize_nonleaf_stage(
                 corpus=corpus,
                 units=package_units,
@@ -303,6 +339,16 @@ class HierarchicalStrategy:
                 cache_hits=self._cache_hits["packages"],
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
+            await self._emit_log(
+                "packages",
+                "hierarchical_stage_completed",
+                "Package summarization completed",
+                {
+                    "total": len(package_units),
+                    "cache_hits": self._cache_hits["packages"],
+                    "elapsed_ms": int((monotonic() - stage_started) * 1000),
+                },
+            )
             await self._emit_stage_checkpoint("packages", tree)
 
         # Level 3 — root summary.
@@ -315,6 +361,7 @@ class HierarchicalStrategy:
                 stage="root",
                 total=1,
             )
+            await self._emit_log("root", "hierarchical_stage_started", "Root summarization started", {"total": 1})
             root = root_units[0]
             self._populate_child_ids(root, corpus, tree)
             await self._summarize_root(
@@ -332,6 +379,15 @@ class HierarchicalStrategy:
                 cache_hits=self._cache_hits["root"],
                 elapsed_ms=int((monotonic() - stage_started) * 1000),
             )
+            await self._emit_log(
+                "root",
+                "hierarchical_stage_completed",
+                "Root summarization completed",
+                {
+                    "cache_hits": self._cache_hits["root"],
+                    "elapsed_ms": int((monotonic() - stage_started) * 1000),
+                },
+            )
             await self._emit_stage_checkpoint("root", tree)
 
         log.info(
@@ -339,6 +395,15 @@ class HierarchicalStrategy:
             corpus_id=corpus.corpus_id,
             stats=tree.stats(),
             elapsed_ms=int((monotonic() - build_started) * 1000),
+        )
+        await self._emit_log(
+            "ready",
+            "hierarchical_build_completed",
+            "Hierarchical summary tree built",
+            {
+                "stats": tree.stats(),
+                "elapsed_ms": int((monotonic() - build_started) * 1000),
+            },
         )
         await _maybe_await(progress("ready", 1.0, "Hierarchical summary tree built"))
         return tree
@@ -352,6 +417,17 @@ class HierarchicalStrategy:
         if self._config.on_node_completed is None:
             return
         await self._config.on_node_completed(stage, tree, node)
+
+    async def _emit_log(
+        self,
+        phase: str,
+        event: str,
+        message: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        if self._config.on_log is None:
+            return
+        await self._config.on_log(phase, event, message, payload)
 
     def diagnostics(self) -> dict[str, int | bool]:
         return {
@@ -395,6 +471,12 @@ class HierarchicalStrategy:
                         completed=completed,
                         total=total,
                     )
+                    await self._emit_log(
+                        "leaves",
+                        "hierarchical_stage_progress",
+                        f"Leaf summarization progress {completed}/{total}",
+                        {"completed": completed, "total": total},
+                    )
                     await _maybe_await(
                         progress("leaves", pct, f"Summarized {completed}/{total} segments")
                     )
@@ -431,6 +513,12 @@ class HierarchicalStrategy:
                         completed=completed,
                         total=total,
                     )
+                    await self._emit_log(
+                        stage,
+                        "hierarchical_stage_progress",
+                        f"{stage.capitalize()} progress {completed}/{total}",
+                        {"completed": completed, "total": total},
+                    )
 
         await asyncio.gather(*(one(unit) for unit in units))
 
@@ -450,6 +538,12 @@ class HierarchicalStrategy:
             file_path=file_path,
             segment_label=unit.label,
         )
+        await self._emit_log(
+            "leaves",
+            "hierarchical_leaf_started",
+            f"Summarizing leaf {unit.label}",
+            {"unit_id": unit.id, "file_path": file_path, "segment_label": unit.label},
+        )
         # Incremental reindex: skip if the cached summary has the same content_hash.
         if unit.content_hash and self._config.cached_tree:
             cached = self._config.cached_tree.get(unit.id)
@@ -462,6 +556,12 @@ class HierarchicalStrategy:
                     segment_label=unit.label,
                     elapsed_ms=int((monotonic() - leaf_started) * 1000),
                 )
+                await self._emit_log(
+                    "leaves",
+                    "hierarchical_leaf_cache_hit",
+                    f"Reused cached leaf {unit.label}",
+                    {"unit_id": unit.id, "file_path": file_path, "segment_label": unit.label},
+                )
                 self._cache_hits["leaves"] += 1
                 tree.add(cached)
                 return
@@ -470,6 +570,12 @@ class HierarchicalStrategy:
             code = corpus.leaf_content(unit)
         except ValueError as exc:
             log.warning("hierarchical_leaf_missing_content", unit_id=unit.id, error=str(exc))
+            await self._emit_log(
+                "leaves",
+                "hierarchical_leaf_missing_content",
+                f"Leaf content missing for {unit.label}",
+                {"unit_id": unit.id, "error": str(exc)},
+            )
             tree.add(self._stub_node(unit, tree, "Missing content — could not load segment."))
             return
 
@@ -499,6 +605,12 @@ class HierarchicalStrategy:
                 elapsed_ms=elapsed_ms,
                 model=model,
             )
+            await self._emit_log(
+                "leaves",
+                "hierarchical_leaf_slow",
+                f"Slow leaf {unit.label}",
+                {"unit_id": unit.id, "elapsed_ms": elapsed_ms, "model": model},
+            )
         log.info(
             "hierarchical_leaf_completed",
             corpus_id=corpus.corpus_id,
@@ -509,6 +621,20 @@ class HierarchicalStrategy:
             model=model,
             input_tokens=tokens_in,
             output_tokens=tokens_out,
+        )
+        await self._emit_log(
+            "leaves",
+            "hierarchical_leaf_completed",
+            f"Completed leaf {unit.label}",
+            {
+                "unit_id": unit.id,
+                "file_path": file_path,
+                "segment_label": unit.label,
+                "elapsed_ms": elapsed_ms,
+                "model": model,
+                "input_tokens": tokens_in,
+                "output_tokens": tokens_out,
+            },
         )
         node = SummaryNode(
             id=str(uuid.uuid4()),

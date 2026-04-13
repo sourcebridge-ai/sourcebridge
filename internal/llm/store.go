@@ -71,6 +71,12 @@ type JobStore interface {
 	// IncrementAttachedRequests bumps the dedupe attachment count when a new
 	// enqueue request attaches to an already-active job.
 	IncrementAttachedRequests(id string) error
+
+	// AppendLog persists a structured job-scoped log line.
+	AppendLog(entry *JobLogEntry) (*JobLogEntry, error)
+
+	// ListLogs returns persisted logs for a job ordered by sequence ascending.
+	ListLogs(jobID string, filter JobLogFilter) []*JobLogEntry
 }
 
 // ListFilter narrows the result of the list endpoints. Zero-value filters

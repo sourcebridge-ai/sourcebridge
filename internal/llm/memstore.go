@@ -15,6 +15,7 @@ import (
 type MemStore struct {
 	mu   sync.RWMutex
 	jobs map[string]*Job
+	logs map[string][]*JobLogEntry
 }
 
 // Verify at compile time that *MemStore satisfies JobStore.
@@ -24,6 +25,7 @@ var _ JobStore = (*MemStore)(nil)
 func NewMemStore() *MemStore {
 	return &MemStore{
 		jobs: make(map[string]*Job),
+		logs: make(map[string][]*JobLogEntry),
 	}
 }
 
@@ -322,6 +324,51 @@ func (s *MemStore) IncrementRetry(id string) error {
 	return nil
 }
 
+// AppendLog persists a structured log entry for a job.
+func (s *MemStore) AppendLog(entry *JobLogEntry) (*JobLogEntry, error) {
+	if entry == nil || entry.JobID == "" {
+		return nil, fmt.Errorf("job log job_id is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.jobs[entry.JobID]; !ok {
+		return nil, fmt.Errorf("job %s not found", entry.JobID)
+	}
+	stored := cloneJobLog(entry)
+	if stored.CreatedAt.IsZero() {
+		stored.CreatedAt = time.Now()
+	}
+	s.logs[entry.JobID] = append(s.logs[entry.JobID], stored)
+	return cloneJobLog(stored), nil
+}
+
+// ListLogs returns logs for a job ordered by sequence ascending.
+func (s *MemStore) ListLogs(jobID string, filter JobLogFilter) []*JobLogEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rows := s.logs[jobID]
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]*JobLogEntry, 0, len(rows))
+	for _, row := range rows {
+		if filter.AfterSequence > 0 && row.Sequence <= filter.AfterSequence {
+			continue
+		}
+		out = append(out, cloneJobLog(row))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Sequence == out[j].Sequence {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		return out[i].Sequence < out[j].Sequence
+	})
+	if filter.Limit > 0 && len(out) > filter.Limit {
+		out = out[len(out)-filter.Limit:]
+	}
+	return out
+}
+
 // cloneJob returns a deep-enough copy of the job record. Pointer fields
 // (timestamps) are independently allocated so callers cannot mutate the
 // stored record via returned references.
@@ -338,5 +385,13 @@ func cloneJob(j *Job) *Job {
 		t := *j.CompletedAt
 		out.CompletedAt = &t
 	}
+	return &out
+}
+
+func cloneJobLog(entry *JobLogEntry) *JobLogEntry {
+	if entry == nil {
+		return nil
+	}
+	out := *entry
 	return &out
 }
