@@ -5,6 +5,7 @@ package worker
 
 import (
 	"testing"
+	"time"
 )
 
 func TestNewClient(t *testing.T) {
@@ -87,5 +88,42 @@ func TestTimeoutConstants(t *testing.T) {
 	}
 	if TimeoutLinkTotal <= TimeoutLinkItem {
 		t.Error("TimeoutLinkTotal should be greater than TimeoutLinkItem")
+	}
+}
+
+func TestRepositoryKnowledgeTimeoutUsesProvider(t *testing.T) {
+	c, err := New("localhost:59999", WithKnowledgeTimeoutProvider(func() time.Duration {
+		return 45 * time.Minute
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if got := c.repositoryKnowledgeTimeout(); got != 45*time.Minute {
+		t.Fatalf("repositoryKnowledgeTimeout() = %s, want %s", got, 45*time.Minute)
+	}
+}
+
+func TestRepositoryKnowledgeTimeoutFallsBackToDefault(t *testing.T) {
+	c, err := New("localhost:59999", WithKnowledgeTimeoutProvider(func() time.Duration {
+		return 0
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if got := c.repositoryKnowledgeTimeout(); got != TimeoutKnowledgeRepository {
+		t.Fatalf("repositoryKnowledgeTimeout() = %s, want %s", got, TimeoutKnowledgeRepository)
+	}
+}
+
+func TestMinDuration(t *testing.T) {
+	if got := minDuration(2*time.Minute, 5*time.Minute); got != 2*time.Minute {
+		t.Fatalf("minDuration() = %s, want %s", got, 2*time.Minute)
+	}
+	if got := minDuration(0, 5*time.Minute); got != 5*time.Minute {
+		t.Fatalf("minDuration() with zero left = %s, want %s", got, 5*time.Minute)
 	}
 }

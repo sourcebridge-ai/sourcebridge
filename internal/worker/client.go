@@ -76,6 +76,7 @@ func timeoutForKnowledgeScope(scopeType string) time.Duration {
 type Client struct {
 	conn         *grpc.ClientConn
 	address      string
+	knowledgeTimeoutProvider func() time.Duration
 	Reasoning    reasoningv1.ReasoningServiceClient
 	Linking      linkingv1.LinkingServiceClient
 	Requirements requirementsv1.RequirementsServiceClient
@@ -84,10 +85,22 @@ type Client struct {
 	Health       healthpb.HealthClient
 }
 
+type Option func(*Client)
+
+// WithKnowledgeTimeoutProvider injects a live timeout provider for
+// repository-scale knowledge/report generation. The returned duration is used
+// as the repository-level ceiling and falls back to built-in defaults when
+// zero or negative.
+func WithKnowledgeTimeoutProvider(fn func() time.Duration) Option {
+	return func(c *Client) {
+		c.knowledgeTimeoutProvider = fn
+	}
+}
+
 // New creates a new worker Client. It attempts to connect to the worker at the
 // given address. If the worker is unreachable, the connection is established
 // lazily and the API can still start in degraded mode.
-func New(address string) (*Client, error) {
+func New(address string, opts ...Option) (*Client, error) {
 	conn, err := grpc.NewClient(
 		address,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -103,6 +116,7 @@ func New(address string) (*Client, error) {
 	c := &Client{
 		conn:         conn,
 		address:      address,
+		knowledgeTimeoutProvider: func() time.Duration { return TimeoutKnowledgeRepository },
 		Reasoning:    reasoningv1.NewReasoningServiceClient(conn),
 		Linking:      linkingv1.NewLinkingServiceClient(conn),
 		Requirements: requirementsv1.NewRequirementsServiceClient(conn),
@@ -110,7 +124,35 @@ func New(address string) (*Client, error) {
 		Contracts:    contractsv1.NewContractsServiceClient(conn),
 		Health:       healthpb.NewHealthClient(conn),
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(c)
+		}
+	}
 	return c, nil
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a <= 0 {
+		return b
+	}
+	if b <= 0 {
+		return a
+	}
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func (c *Client) repositoryKnowledgeTimeout() time.Duration {
+	if c == nil || c.knowledgeTimeoutProvider == nil {
+		return TimeoutKnowledgeRepository
+	}
+	if d := c.knowledgeTimeoutProvider(); d > 0 {
+		return d
+	}
+	return TimeoutKnowledgeRepository
 }
 
 // IsAvailable checks whether the worker gRPC connection is in READY state.
@@ -234,7 +276,13 @@ func (c *Client) SimulateChange(ctx context.Context, req *reasoningv1.SimulateCh
 // Timeout is scoped to the request: repository-level calls get 600s,
 // module-level 300s, and file/symbol-level 120s.
 func (c *Client) GenerateCliffNotes(ctx context.Context, req *knowledgev1.GenerateCliffNotesRequest) (*knowledgev1.GenerateCliffNotesResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeoutForKnowledgeScope(req.GetScopeType()))
+	timeout := timeoutForKnowledgeScope(req.GetScopeType())
+	if strings.EqualFold(strings.TrimSpace(req.GetScopeType()), "repository") || strings.TrimSpace(req.GetScopeType()) == "" {
+		timeout = c.repositoryKnowledgeTimeout()
+	} else {
+		timeout = minDuration(c.repositoryKnowledgeTimeout(), timeout)
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return c.Knowledge.GenerateCliffNotes(ctx, req)
 }
@@ -242,21 +290,33 @@ func (c *Client) GenerateCliffNotes(ctx context.Context, req *knowledgev1.Genera
 // GenerateLearningPath calls the knowledge worker to generate a learning path.
 // Learning paths are always repository-scoped today.
 func (c *Client) GenerateLearningPath(ctx context.Context, req *knowledgev1.GenerateLearningPathRequest) (*knowledgev1.GenerateLearningPathResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, TimeoutKnowledgeRepository)
+	ctx, cancel := context.WithTimeout(ctx, c.repositoryKnowledgeTimeout())
 	defer cancel()
 	return c.Knowledge.GenerateLearningPath(ctx, req)
 }
 
 // GenerateWorkflowStory calls the knowledge worker to generate a workflow story.
 func (c *Client) GenerateWorkflowStory(ctx context.Context, req *knowledgev1.GenerateWorkflowStoryRequest) (*knowledgev1.GenerateWorkflowStoryResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeoutForKnowledgeScope(req.GetScopeType()))
+	timeout := timeoutForKnowledgeScope(req.GetScopeType())
+	if strings.EqualFold(strings.TrimSpace(req.GetScopeType()), "repository") || strings.TrimSpace(req.GetScopeType()) == "" {
+		timeout = c.repositoryKnowledgeTimeout()
+	} else {
+		timeout = minDuration(c.repositoryKnowledgeTimeout(), timeout)
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return c.Knowledge.GenerateWorkflowStory(ctx, req)
 }
 
 // ExplainSystem calls the knowledge worker for a whole-system explanation.
 func (c *Client) ExplainSystem(ctx context.Context, req *knowledgev1.ExplainSystemRequest) (*knowledgev1.ExplainSystemResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeoutForKnowledgeScope(req.GetScopeType()))
+	timeout := timeoutForKnowledgeScope(req.GetScopeType())
+	if strings.EqualFold(strings.TrimSpace(req.GetScopeType()), "repository") || strings.TrimSpace(req.GetScopeType()) == "" {
+		timeout = c.repositoryKnowledgeTimeout()
+	} else {
+		timeout = minDuration(c.repositoryKnowledgeTimeout(), timeout)
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return c.Knowledge.ExplainSystem(ctx, req)
 }
@@ -264,7 +324,7 @@ func (c *Client) ExplainSystem(ctx context.Context, req *knowledgev1.ExplainSyst
 // GenerateCodeTour calls the knowledge worker to generate a code tour.
 // Code tours are always repository-scoped today.
 func (c *Client) GenerateCodeTour(ctx context.Context, req *knowledgev1.GenerateCodeTourRequest) (*knowledgev1.GenerateCodeTourResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, TimeoutKnowledgeRepository)
+	ctx, cancel := context.WithTimeout(ctx, c.repositoryKnowledgeTimeout())
 	defer cancel()
 	return c.Knowledge.GenerateCodeTour(ctx, req)
 }
@@ -272,7 +332,7 @@ func (c *Client) GenerateCodeTour(ctx context.Context, req *knowledgev1.Generate
 // GenerateReport calls the knowledge worker to generate a professional report.
 // Reports can take a long time (30+ sections × LLM calls) so the timeout is generous.
 func (c *Client) GenerateReport(ctx context.Context, req *knowledgev1.GenerateReportRequest) (*knowledgev1.GenerateReportResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, TimeoutKnowledge) // 30 min
+	ctx, cancel := context.WithTimeout(ctx, c.repositoryKnowledgeTimeout())
 	defer cancel()
 	return c.Knowledge.GenerateReport(ctx, req)
 }
