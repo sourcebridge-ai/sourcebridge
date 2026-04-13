@@ -45,6 +45,12 @@ body {
 }
 
 @media (min-width: 768px) {
+  html:has(.ca-shell-grid),
+  html:has(.ca-shell-grid) body {
+    height: 100vh;
+    overflow: hidden;
+  }
+
   .ca-shell-grid {
     height: 100vh;
     overflow: hidden;
