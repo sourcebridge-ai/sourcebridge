@@ -1,6 +1,10 @@
-# SourceBridge.ai
+<p align="center">
+  <img src="web/public/logo.png" alt="SourceBridge.ai" width="128">
+</p>
 
-**The field guide your codebase should have had.**
+<h1 align="center">SourceBridge.ai</h1>
+
+<p align="center"><strong>The field guide your codebase should have had.</strong></p>
 
 [![CI](https://github.com/sourcebridge/sourcebridge/actions/workflows/ci.yml/badge.svg)](https://github.com/sourcebridge/sourcebridge/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
