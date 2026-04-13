@@ -1815,6 +1815,13 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusReady); err != nil {
 			slog.Error("failed to mark cliff notes ready", "artifact_id", artifact.ID, "error", err)
 		}
+		if artifactUsesUnderstanding(generationMode) && depth != string(knowledgepkg.DepthSummary) {
+			if targets := cliffNotesDeepeningTargets(r.KnowledgeStore, artifact); len(targets) > 0 {
+				if err := r.enqueueCliffNotesDeepening(repo, artifact, scope, snap.SourceRevision, enrichedCliffSnapJSON, targets); err != nil {
+					slog.Warn("failed to enqueue cliff notes deepening", "artifact_id", artifact.ID, "error", err)
+				}
+			}
+		}
 		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "ready", "artifact_ready", "Cliff notes artifact marked ready", map[string]any{
 			"section_count": len(sections),
 		})
@@ -2666,6 +2673,13 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			}
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
 				return err
+			}
+			if existing.GenerationMode != knowledgepkg.GenerationModeClassic && existing.Depth != knowledgepkg.DepthSummary {
+				if targets := cliffNotesDeepeningTargets(r.KnowledgeStore, existing); len(targets) > 0 {
+					if err := r.enqueueCliffNotesDeepening(repo, existing, scope, snap.SourceRevision, snapJSON, targets); err != nil {
+						slog.Warn("failed to enqueue refreshed cliff notes deepening", "artifact_id", existing.ID, "error", err)
+					}
+				}
 			}
 		case knowledgepkg.ArtifactLearningPath:
 			enrichedSnapJSON := snapJSON

@@ -24,6 +24,34 @@ type cliffNotesRenderPlan struct {
 	SelectedSectionTitles []string
 }
 
+func cliffNotesDeepeningTargets(store knowledgepkg.KnowledgeStore, artifact *knowledgepkg.Artifact) []string {
+	if store == nil || artifact == nil || artifact.Type != knowledgepkg.ArtifactCliffNotes {
+		return nil
+	}
+	scopeType := knowledgepkg.ScopeRepository
+	if artifact.Scope != nil {
+		scopeType = artifact.Scope.Normalize().ScopeType
+	}
+	targets := knowledgepkg.DeepRefinementSectionTitles(scopeType)
+	if len(targets) == 0 {
+		return nil
+	}
+	current := store.GetKnowledgeSections(artifact.ID)
+	byTitle := make(map[string]knowledgepkg.Section, len(current))
+	for _, sec := range current {
+		byTitle[sec.Title] = sec
+	}
+	var pending []string
+	for _, title := range targets {
+		sec, ok := byTitle[title]
+		if !ok || strings.EqualFold(sec.RefinementStatus, "deep") {
+			continue
+		}
+		pending = append(pending, title)
+	}
+	return pending
+}
+
 func understandingScopeForArtifact(scope knowledgepkg.ArtifactScope) knowledgepkg.ArtifactScope {
 	return scope.Normalize()
 }
@@ -592,6 +620,78 @@ func scopeLabel(scope knowledgepkg.ArtifactScope) string {
 	default:
 		return "Repository"
 	}
+}
+
+func (r *Resolver) enqueueCliffNotesDeepening(
+	repo *graphstore.Repository,
+	artifact *knowledgepkg.Artifact,
+	scope knowledgepkg.ArtifactScope,
+	sourceRevision knowledgepkg.SourceRevision,
+	snapshotJSON []byte,
+	selectedTitles []string,
+) error {
+	if r == nil || r.Orchestrator == nil || r.Worker == nil || r.KnowledgeStore == nil {
+		return nil
+	}
+	if repo == nil || artifact == nil || len(selectedTitles) == 0 {
+		return nil
+	}
+	if artifact.GenerationMode == knowledgepkg.GenerationModeClassic {
+		return nil
+	}
+	req := &llm.EnqueueRequest{
+		Subsystem:      llm.SubsystemKnowledge,
+		JobType:        "cliff_notes_deepen",
+		TargetKey:      fmt.Sprintf("refine:%s:%s", artifact.ID, strings.Join(selectedTitles, "|")),
+		Strategy:       "knowledge_artifact_refinement",
+		ArtifactID:     artifact.ID,
+		RepoID:         repo.ID,
+		Priority:       llm.PriorityMaintenance,
+		GenerationMode: string(artifact.GenerationMode),
+		MaxAttempts:    1,
+		RunWithContext: func(runCtx context.Context, rt llm.Runtime) error {
+			rt.ReportProgress(0.05, "deepening", "Deepening critical cliff note sections")
+			bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "cliff_notes_deepen")
+			bgCtx = withCliffNotesRenderMetadata(bgCtx, true, selectedTitles)
+			resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
+				RepositoryId:   repo.ID,
+				RepositoryName: repo.Name,
+				Audience:       string(artifact.Audience),
+				Depth:          string(knowledgepkg.DepthDeep),
+				ScopeType:      string(scope.ScopeType),
+				ScopePath:      scope.ScopePath,
+				SnapshotJson:   string(snapshotJSON),
+			})
+			if err != nil {
+				return err
+			}
+			incoming := make([]knowledgepkg.Section, 0, len(resp.Sections))
+			for _, sec := range resp.Sections {
+				incoming = append(incoming, knowledgepkg.Section{
+					Title:            sec.Title,
+					Content:          sec.Content,
+					Summary:          sec.Summary,
+					Confidence:       mapProtoConfidence(sec.Confidence),
+					Inferred:         sec.Inferred,
+					Evidence:         mapProtoEvidence(sec.Evidence),
+					SectionKey:       knowledgepkg.SectionKeyForTitle(sec.Title),
+					RefinementStatus: "deep",
+				})
+			}
+			selected := make(map[string]struct{}, len(selectedTitles))
+			for _, title := range selectedTitles {
+				selected[title] = struct{}{}
+			}
+			merged := knowledgepkg.MergeSectionsByTitle(r.KnowledgeStore.GetKnowledgeSections(artifact.ID), incoming, selected)
+			if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, merged); err != nil {
+				return err
+			}
+			rt.ReportProgress(1.0, "ready", "Section deepening complete")
+			return nil
+		},
+	}
+	_, err := r.Orchestrator.Enqueue(req)
+	return err
 }
 
 func mapProtoEvidence(evidence []*knowledgev1.KnowledgeEvidence) []knowledgepkg.Evidence {

@@ -575,6 +575,7 @@ export default function RepositoryDetailPage() {
   const knowledgeScopePath = searchParams.get("path") || "";
   const knowledgeAudience = (searchParams.get("audience") || "developer").toUpperCase();
   const knowledgeDepth = (searchParams.get("depth") || "medium").toUpperCase();
+  const knowledgeGenerationMode = (searchParams.get("mode") || "understanding_first").toUpperCase();
 
   const [knowledgeResult, reexecuteKnowledge] = useQuery({
     query: KNOWLEDGE_ARTIFACTS_QUERY,
@@ -1035,6 +1036,7 @@ export default function RepositoryDetailPage() {
           repositoryId: repoId,
           audience: knowledgeAudience,
           depth: knowledgeDepth,
+          generationMode: knowledgeGenerationMode,
           scopeType,
           scopePath: scopeType === "REPOSITORY" ? undefined : scopePath,
         },
@@ -1059,6 +1061,7 @@ export default function RepositoryDetailPage() {
           repositoryId: repoId,
           audience: "DEVELOPER",
           depth: "MEDIUM",
+          generationMode: knowledgeGenerationMode,
           scopeType: symbolScopeType,
           scopePath: symbolScopePath,
         },
@@ -1118,7 +1121,7 @@ export default function RepositoryDetailPage() {
   async function handleGenerateLearningPath() {
     setKnowledgeLoading(true);
     try {
-      await generateLearningPath({ input: { repositoryId: repoId, audience: knowledgeAudience, depth: knowledgeDepth } });
+      await generateLearningPath({ input: { repositoryId: repoId, audience: knowledgeAudience, depth: knowledgeDepth, generationMode: knowledgeGenerationMode } });
       reexecuteKnowledge({ requestPolicy: "network-only" });
     } finally {
       setKnowledgeLoading(false);
@@ -1145,7 +1148,7 @@ export default function RepositoryDetailPage() {
   async function handleGenerateCodeTour() {
     setKnowledgeLoading(true);
     try {
-      await generateCodeTour({ input: { repositoryId: repoId, audience: knowledgeAudience, depth: knowledgeDepth } });
+      await generateCodeTour({ input: { repositoryId: repoId, audience: knowledgeAudience, depth: knowledgeDepth, generationMode: knowledgeGenerationMode } });
       reexecuteKnowledge({ requestPolicy: "network-only" });
     } finally {
       setKnowledgeLoading(false);
@@ -1179,6 +1182,7 @@ export default function RepositoryDetailPage() {
           repositoryId: repoId,
           audience: knowledgeAudience,
           depth: knowledgeDepth,
+          generationMode: knowledgeGenerationMode,
           scopeType: knowledgeScopeType,
           scopePath: knowledgeScopeType === "REPOSITORY" ? undefined : knowledgeScopePath,
           anchorLabel: workflowStoryAnchorLabel(),
@@ -1217,6 +1221,7 @@ export default function RepositoryDetailPage() {
           repositoryId: repoId,
           audience: knowledgeAudience,
           depth: knowledgeDepth,
+          generationMode: knowledgeGenerationMode,
           question: explainQuestion,
           scopeType: knowledgeScopeType,
           scopePath: knowledgeScopeType === "REPOSITORY" ? undefined : knowledgeScopePath,
@@ -1294,6 +1299,13 @@ export default function RepositoryDetailPage() {
       next.set("tab", "knowledge");
       next.set("audience", nextAudience.toLowerCase());
       next.set("depth", nextDepth.toLowerCase());
+    });
+  }
+
+  function setKnowledgeGenerationMode(nextMode: string) {
+    updateSearchParams((next) => {
+      next.set("tab", "knowledge");
+      next.set("mode", nextMode.toLowerCase());
     });
   }
 
@@ -2233,6 +2245,29 @@ export default function RepositoryDetailPage() {
                           )}
                         >
                           {dep[0]}{dep.slice(1).toLowerCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Engine</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { key: "UNDERSTANDING_FIRST", label: "Understanding First" },
+                        { key: "CLASSIC", label: "Classic" },
+                      ].map((mode) => (
+                        <button
+                          key={mode.key}
+                          type="button"
+                          onClick={() => setKnowledgeGenerationMode(mode.key)}
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                            knowledgeGenerationMode === mode.key
+                              ? "border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-contrast)]"
+                              : "border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                          )}
+                        >
+                          {mode.label}
                         </button>
                       ))}
                     </div>

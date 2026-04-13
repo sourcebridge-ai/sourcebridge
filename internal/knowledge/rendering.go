@@ -58,6 +58,40 @@ func RequiredCliffNotesSections(scopeType ScopeType) []string {
 	}
 }
 
+func DeepRefinementSectionTitles(scopeType ScopeType) []string {
+	switch scopeType {
+	case ScopeModule:
+		return []string{
+			"Internal Architecture",
+			"Dependencies & Interactions",
+		}
+	case ScopeFile:
+		return []string{
+			"Usage Patterns",
+			"Complexity Notes",
+		}
+	case ScopeSymbol:
+		return []string{
+			"Call Chain",
+			"Impact Analysis",
+			"Side Effects & State Changes",
+		}
+	case ScopeRequirement:
+		return []string{
+			"Implementation Summary",
+			"Integration Points",
+			"Change Impact",
+		}
+	default:
+		return []string{
+			"Architecture Overview",
+			"External Dependencies",
+			"Core System Flows",
+			"Complexity & Risk Areas",
+		}
+	}
+}
+
 func MissingSectionTitles(existing []Section, required []string) []string {
 	if len(required) == 0 {
 		return nil

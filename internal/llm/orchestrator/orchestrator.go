@@ -103,9 +103,11 @@ type Orchestrator struct {
 	metrics  *metrics
 	breaker  *subsystemBreaker
 
-	// queue carries pending work to the worker pool.
-	queue   chan *workItem
-	workers sync.WaitGroup
+	// Separate lanes keep interactive work ahead of maintenance/prewarm.
+	interactiveQ chan *workItem
+	maintenanceQ chan *workItem
+	prewarmQ     chan *workItem
+	workers      sync.WaitGroup
 
 	runMu        sync.Mutex
 	runCancels   map[string]context.CancelFunc
@@ -146,7 +148,9 @@ func New(store llm.JobStore, cfg Config) *Orchestrator {
 		inflight:        newInflightRegistry(),
 		metrics:         newMetrics(cfg.MetricsCapacity),
 		breaker:         newSubsystemBreaker(cfg.ComputeErrorThreshold, cfg.ComputeCooldown),
-		queue:           make(chan *workItem, cfg.QueueCapacity),
+		interactiveQ:    make(chan *workItem, cfg.QueueCapacity),
+		maintenanceQ:    make(chan *workItem, cfg.QueueCapacity),
+		prewarmQ:        make(chan *workItem, cfg.QueueCapacity),
 		ctx:             ctx,
 		cancel:          cancel,
 		subscribers:     make(map[int64]chan llm.JobEvent),
@@ -170,7 +174,6 @@ func New(store llm.JobStore, cfg Config) *Orchestrator {
 // It is safe to call multiple times.
 func (o *Orchestrator) Shutdown(graceful time.Duration) error {
 	o.cancel()
-	close(o.queue)
 
 	done := make(chan struct{})
 	go func() {
@@ -319,12 +322,23 @@ func (o *Orchestrator) Enqueue(req *llm.EnqueueRequest) (*llm.Job, error) {
 	// Hand off to the worker pool. Enqueue is non-blocking when there
 	// is queue capacity; otherwise the caller's goroutine parks here.
 	select {
-	case o.queue <- &workItem{jobID: id, req: req}:
+	case o.queueFor(req.Priority) <- &workItem{jobID: id, req: req}:
 		return job, nil
 	case <-o.ctx.Done():
 		o.inflight.release(req.TargetKey)
 		_ = o.store.SetError(id, "ORCHESTRATOR_SHUTDOWN", "orchestrator is shutting down")
 		return nil, fmt.Errorf("orchestrator shutting down")
+	}
+}
+
+func (o *Orchestrator) queueFor(priority llm.JobPriority) chan *workItem {
+	switch priority {
+	case llm.PriorityMaintenance:
+		return o.maintenanceQ
+	case llm.PriorityPrewarm:
+		return o.prewarmQ
+	default:
+		return o.interactiveQ
 	}
 }
 
@@ -533,7 +547,7 @@ func (o *Orchestrator) Metrics() Snapshot {
 // QueueDepth returns the current number of jobs waiting in the bounded
 // queue (not counting ones actively running).
 func (o *Orchestrator) QueueDepth() int {
-	return len(o.queue)
+	return len(o.interactiveQ) + len(o.maintenanceQ) + len(o.prewarmQ)
 }
 
 // InFlightCount returns the number of distinct target keys currently
@@ -552,9 +566,25 @@ func (o *Orchestrator) PendingSnapshot(filter llm.ListFilter) []*llm.Job {
 	filter.Statuses = []llm.JobStatus{llm.StatusPending}
 	pending := o.store.ListActive(filter)
 	sort.Slice(pending, func(i, j int) bool {
+		if pending[i].Priority != pending[j].Priority {
+			return jobPriorityRank(pending[i].Priority) < jobPriorityRank(pending[j].Priority)
+		}
 		return pending[i].CreatedAt.Before(pending[j].CreatedAt)
 	})
 	return pending
+}
+
+func jobPriorityRank(priority llm.JobPriority) int {
+	switch priority {
+	case llm.PriorityInteractive:
+		return 0
+	case llm.PriorityMaintenance:
+		return 1
+	case llm.PriorityPrewarm:
+		return 2
+	default:
+		return 3
+	}
 }
 
 // Subscribe returns a channel that receives JobEvents and an unsubscribe
@@ -642,12 +672,50 @@ func (o *Orchestrator) publishLog(entry llm.JobLogEntry) {
 // bounded concurrency budget. One goroutine per MaxConcurrency.
 func (o *Orchestrator) worker(idx int) {
 	defer o.workers.Done()
-	for item := range o.queue {
-		if item == nil {
-			continue
+	for {
+		item, ok := o.dequeue()
+		if !ok {
+			return
 		}
 		o.runJob(item)
 		_ = idx // reserved for future per-worker instrumentation
+	}
+}
+
+func (o *Orchestrator) dequeue() (*workItem, bool) {
+	for {
+		select {
+		case <-o.ctx.Done():
+			return nil, false
+		default:
+		}
+
+		select {
+		case item := <-o.interactiveQ:
+			return item, true
+		default:
+		}
+		select {
+		case item := <-o.maintenanceQ:
+			return item, true
+		default:
+		}
+		select {
+		case item := <-o.prewarmQ:
+			return item, true
+		default:
+		}
+
+		select {
+		case item := <-o.interactiveQ:
+			return item, true
+		case item := <-o.maintenanceQ:
+			return item, true
+		case item := <-o.prewarmQ:
+			return item, true
+		case <-o.ctx.Done():
+			return nil, false
+		}
 	}
 }
 
