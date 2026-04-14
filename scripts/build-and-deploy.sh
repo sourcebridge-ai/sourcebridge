@@ -112,7 +112,7 @@ if [ "$NO_DEPLOY" = true ]; then
 fi
 
 echo ""
-echo "--- Restarting deployments ---"
+echo "--- Updating deployments to image tag ${TAG} ---"
 
 DEPLOYMENTS="sourcebridge-api sourcebridge-web sourcebridge-worker"
 for DEPLOY in $DEPLOYMENTS; do
@@ -124,9 +124,13 @@ for DEPLOY in $DEPLOYMENTS; do
     worker) [ "$DEPLOY" != "sourcebridge-worker" ] && continue ;;
   esac
 
-  echo "Restarting deployment/${DEPLOY} in ${NAMESPACE}"
-  kubectl -n "${NAMESPACE}" rollout restart "deployment/${DEPLOY}" 2>/dev/null || \
-    echo "  Warning: deployment/${DEPLOY} not found (may not be deployed yet)"
+  IMAGE="${REGISTRY}/${DEPLOY}:${TAG}"
+  echo "Setting deployment/${DEPLOY} container ${DEPLOY} to ${IMAGE}"
+  if ! kubectl -n "${NAMESPACE}" set image "deployment/${DEPLOY}" "${DEPLOY}=${IMAGE}" >/dev/null 2>&1; then
+    echo "  Warning: set image failed for deployment/${DEPLOY}; attempting rollout restart"
+    kubectl -n "${NAMESPACE}" rollout restart "deployment/${DEPLOY}" 2>/dev/null || \
+      echo "  Warning: deployment/${DEPLOY} not found (may not be deployed yet)"
+  fi
 done
 
 echo ""
