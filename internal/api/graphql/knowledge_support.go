@@ -23,6 +23,15 @@ type repositoryUnderstandingMetadata struct {
 	Resume            map[string]any      `json:"resume,omitempty"`
 }
 
+type cliffNotesSectionMetadata struct {
+	SectionKey          string `json:"section_key,omitempty"`
+	RefinementTier      string `json:"refinement_tier,omitempty"`
+	RefinedWithEvidence bool   `json:"refined_with_evidence,omitempty"`
+	EvidenceRevisionFP  string `json:"evidence_revision_fp,omitempty"`
+	RendererVersion     string `json:"renderer_version,omitempty"`
+	UnderstandingID     string `json:"understanding_id,omitempty"`
+}
+
 type cliffNotesRenderPlan struct {
 	RenderOnly            bool
 	SelectedSectionTitles []string
@@ -41,17 +50,17 @@ type architectureDiagramScaffoldNode struct {
 }
 
 type architectureDiagramSectionMetadata struct {
-	RawMermaidSource     string   `json:"raw_mermaid_source,omitempty"`
-	ValidationStatus     string   `json:"validation_status,omitempty"`
-	RepairSummary        string   `json:"repair_summary,omitempty"`
-	InferredEdges        []string `json:"inferred_edges,omitempty"`
-	ContradictoryEdges   []string `json:"contradictory_edges,omitempty"`
-	GraphAlignmentStatus string   `json:"graph_alignment_status,omitempty"`
-	GenerationStrategy   string   `json:"generation_strategy,omitempty"`
+	RawMermaidSource     string                        `json:"raw_mermaid_source,omitempty"`
+	ValidationStatus     string                        `json:"validation_status,omitempty"`
+	RepairSummary        string                        `json:"repair_summary,omitempty"`
+	InferredEdges        []string                      `json:"inferred_edges,omitempty"`
+	ContradictoryEdges   []string                      `json:"contradictory_edges,omitempty"`
+	GraphAlignmentStatus string                        `json:"graph_alignment_status,omitempty"`
+	GenerationStrategy   string                        `json:"generation_strategy,omitempty"`
 	Components           []architectureSystemComponent `json:"components,omitempty"`
-	ExecutionMermaid     string   `json:"execution_mermaid_source,omitempty"`
-	ExecutionSummary     string   `json:"execution_summary,omitempty"`
-	SystemSummary        string   `json:"system_summary,omitempty"`
+	ExecutionMermaid     string                        `json:"execution_mermaid_source,omitempty"`
+	ExecutionSummary     string                        `json:"execution_summary,omitempty"`
+	SystemSummary        string                        `json:"system_summary,omitempty"`
 }
 
 type architectureDiagramPromptBundle struct {
@@ -159,17 +168,17 @@ func architectureDiagramMetadataJSON(resp *knowledgev1.GenerateArchitectureDiagr
 		return ""
 	}
 	meta := architectureDiagramSectionMetadata{
-		RawMermaidSource:   strings.TrimSpace(resp.RawMermaidSource),
-		ValidationStatus:   strings.TrimSpace(resp.ValidationStatus),
-		RepairSummary:      strings.TrimSpace(resp.RepairSummary),
-		InferredEdges:      append([]string(nil), resp.InferredEdges...),
-		ContradictoryEdges: architectureDiagramContradictoryEdges(resp, bundle),
+		RawMermaidSource:     strings.TrimSpace(resp.RawMermaidSource),
+		ValidationStatus:     strings.TrimSpace(resp.ValidationStatus),
+		RepairSummary:        strings.TrimSpace(resp.RepairSummary),
+		InferredEdges:        append([]string(nil), resp.InferredEdges...),
+		ContradictoryEdges:   architectureDiagramContradictoryEdges(resp, bundle),
 		GraphAlignmentStatus: architectureDiagramGraphAlignmentStatus(resp, bundle),
-		GenerationStrategy: architectureDiagramGenerationStrategy(resp),
-		Components:         append([]architectureSystemComponent(nil), bundle.SystemComponents...),
-		ExecutionMermaid:   buildArchitectureExecutionViewMermaid(*bundle),
-		ExecutionSummary:   buildArchitectureExecutionSummary(*bundle),
-		SystemSummary:      strings.TrimSpace(resp.DiagramSummary),
+		GenerationStrategy:   architectureDiagramGenerationStrategy(resp),
+		Components:           append([]architectureSystemComponent(nil), bundle.SystemComponents...),
+		ExecutionMermaid:     buildArchitectureExecutionViewMermaid(*bundle),
+		ExecutionSummary:     buildArchitectureExecutionSummary(*bundle),
+		SystemSummary:        strings.TrimSpace(resp.DiagramSummary),
 	}
 	if meta.RawMermaidSource == "" &&
 		meta.ValidationStatus == "" &&
@@ -812,6 +821,38 @@ func cliffNotesUnderstandingMetadata(existing *knowledgepkg.RepositoryUnderstand
 	return string(raw)
 }
 
+func cliffNotesSectionMetadataJSON(
+	artifactType knowledgepkg.ArtifactType,
+	understanding *knowledgepkg.RepositoryUnderstanding,
+	refinementTier string,
+	sectionTitle string,
+	hasEvidence bool,
+) string {
+	meta := cliffNotesSectionMetadata{
+		SectionKey:          knowledgepkg.SectionKeyForTitle(sectionTitle),
+		RefinementTier:      strings.TrimSpace(refinementTier),
+		RefinedWithEvidence: hasEvidence,
+		RendererVersion:     knowledgepkg.RendererVersionForArtifact(artifactType),
+	}
+	if understanding != nil {
+		meta.EvidenceRevisionFP = strings.TrimSpace(understanding.RevisionFP)
+		meta.UnderstandingID = strings.TrimSpace(understanding.ID)
+	}
+	if meta.SectionKey == "" &&
+		meta.RefinementTier == "" &&
+		!meta.RefinedWithEvidence &&
+		meta.EvidenceRevisionFP == "" &&
+		meta.RendererVersion == "" &&
+		meta.UnderstandingID == "" {
+		return ""
+	}
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
 func seedRepositoryUnderstanding(
 	store knowledgepkg.KnowledgeStore,
 	artifact *knowledgepkg.Artifact,
@@ -1441,6 +1482,7 @@ func (r *Resolver) enqueueCliffNotesDeepening(
 					Title:            sec.Title,
 					Content:          sec.Content,
 					Summary:          sec.Summary,
+					Metadata:         cliffNotesSectionMetadataJSON(knowledgepkg.ArtifactCliffNotes, &knowledgepkg.RepositoryUnderstanding{ID: artifact.UnderstandingID, RevisionFP: artifact.UnderstandingRevisionFP}, "deep", sec.Title, len(sec.Evidence) > 0),
 					Confidence:       mapProtoConfidence(sec.Confidence),
 					Inferred:         sec.Inferred,
 					Evidence:         mapProtoEvidence(sec.Evidence),

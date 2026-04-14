@@ -1719,7 +1719,8 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 			)
 			return err
 		}
-		if _, err := updateUnderstandingForCliffNotes(r.KnowledgeStore, artifact, scope, snap.SourceRevision, resp, knowledgepkg.UnderstandingReady); err != nil {
+		understanding, err := updateUnderstandingForCliffNotes(r.KnowledgeStore, artifact, scope, snap.SourceRevision, resp, knowledgepkg.UnderstandingReady)
+		if err != nil {
 			slog.Warn("failed to update repository understanding", "artifact_id", artifact.ID, "error", err)
 		}
 
@@ -1787,11 +1788,14 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		sections := make([]knowledgepkg.Section, len(resp.Sections))
 		for i, sec := range resp.Sections {
 			sections[i] = knowledgepkg.Section{
-				Title:      sec.Title,
-				Content:    sec.Content,
-				Summary:    sec.Summary,
-				Confidence: mapProtoConfidence(sec.Confidence),
-				Inferred:   sec.Inferred,
+				Title:            sec.Title,
+				Content:          sec.Content,
+				Summary:          sec.Summary,
+				Metadata:         cliffNotesSectionMetadataJSON(knowledgepkg.ArtifactCliffNotes, understanding, "light", sec.Title, len(sec.Evidence) > 0),
+				Confidence:       mapProtoConfidence(sec.Confidence),
+				Inferred:         sec.Inferred,
+				SectionKey:       knowledgepkg.SectionKeyForTitle(sec.Title),
+				RefinementStatus: "light",
 			}
 		}
 		if renderPlan.RenderOnly && len(renderPlan.SelectedSectionTitles) > 0 {
@@ -2808,19 +2812,23 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				markRepositoryUnderstandingFailed(r.KnowledgeStore, existing, scope, snap.SourceRevision, err)
 				return err
 			}
-			if _, err := updateUnderstandingForCliffNotes(r.KnowledgeStore, existing, scope, snap.SourceRevision, resp, knowledgepkg.UnderstandingReady); err != nil {
+			understanding, err := updateUnderstandingForCliffNotes(r.KnowledgeStore, existing, scope, snap.SourceRevision, resp, knowledgepkg.UnderstandingReady)
+			if err != nil {
 				slog.Warn("failed to update repository understanding", "artifact_id", existing.ID, "error", err)
 			}
 			persistUsage(resp.Usage)
 			sections := make([]knowledgepkg.Section, len(resp.Sections))
 			for i, sec := range resp.Sections {
 				sections[i] = knowledgepkg.Section{
-					Title:      sec.Title,
-					Content:    sec.Content,
-					Summary:    sec.Summary,
-					Confidence: mapProtoConfidence(sec.Confidence),
-					Inferred:   sec.Inferred,
-					Evidence:   mapProtoEvidence(sec.Evidence),
+					Title:            sec.Title,
+					Content:          sec.Content,
+					Summary:          sec.Summary,
+					Metadata:         cliffNotesSectionMetadataJSON(knowledgepkg.ArtifactCliffNotes, understanding, "light", sec.Title, len(sec.Evidence) > 0),
+					Confidence:       mapProtoConfidence(sec.Confidence),
+					Inferred:         sec.Inferred,
+					Evidence:         mapProtoEvidence(sec.Evidence),
+					SectionKey:       knowledgepkg.SectionKeyForTitle(sec.Title),
+					RefinementStatus: "light",
 				}
 			}
 			if renderPlan.RenderOnly && len(renderPlan.SelectedSectionTitles) > 0 {

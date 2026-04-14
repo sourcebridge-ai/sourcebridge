@@ -1,6 +1,7 @@
 package graphql
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/sourcebridge/sourcebridge/internal/graph"
@@ -106,5 +107,41 @@ func TestResolvedKnowledgeGenerationModePrecedence(t *testing.T) {
 	mode = resolvedKnowledgeGenerationMode(store, repo, &requested)
 	if mode != knowledgepkg.GenerationModeUnderstandingFirst {
 		t.Fatalf("expected request override to win, got %q", mode)
+	}
+}
+
+func TestCliffNotesSectionMetadataJSON(t *testing.T) {
+	understanding := &knowledgepkg.RepositoryUnderstanding{
+		ID:         "u-123",
+		RevisionFP: "rev-456",
+	}
+	raw := cliffNotesSectionMetadataJSON(
+		knowledgepkg.ArtifactCliffNotes,
+		understanding,
+		"deep",
+		"Core System Flows",
+		true,
+	)
+	if raw == "" {
+		t.Fatal("expected metadata JSON")
+	}
+	var meta cliffNotesSectionMetadata
+	if err := json.Unmarshal([]byte(raw), &meta); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if meta.SectionKey != "core_system_flows" {
+		t.Fatalf("expected section key core_system_flows, got %q", meta.SectionKey)
+	}
+	if meta.RefinementTier != "deep" {
+		t.Fatalf("expected deep refinement tier, got %q", meta.RefinementTier)
+	}
+	if !meta.RefinedWithEvidence {
+		t.Fatal("expected refined_with_evidence=true")
+	}
+	if meta.EvidenceRevisionFP != "rev-456" || meta.UnderstandingID != "u-123" {
+		t.Fatalf("unexpected understanding linkage %#v", meta)
+	}
+	if meta.RendererVersion != knowledgepkg.RendererVersionForArtifact(knowledgepkg.ArtifactCliffNotes) {
+		t.Fatalf("unexpected renderer version %q", meta.RendererVersion)
 	}
 }
