@@ -36,7 +36,7 @@ class GenerateCliffNotesResponse(_message.Message):
     def __init__(self, sections: _Optional[_Iterable[_Union[KnowledgeSection, _Mapping]]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ..., diagnostics: _Optional[_Union[CliffNotesDiagnostics, _Mapping]] = ...) -> None: ...
 
 class CliffNotesDiagnostics(_message.Message):
-    __slots__ = ("cached_nodes", "fallback_count", "provider_compute_errors", "leaf_cache_hits", "file_cache_hits", "package_cache_hits", "root_cache_hits")
+    __slots__ = ("cached_nodes", "fallback_count", "provider_compute_errors", "leaf_cache_hits", "file_cache_hits", "package_cache_hits", "root_cache_hits", "total_nodes", "corpus_id", "revision_fp", "strategy", "model_used")
     CACHED_NODES_FIELD_NUMBER: _ClassVar[int]
     FALLBACK_COUNT_FIELD_NUMBER: _ClassVar[int]
     PROVIDER_COMPUTE_ERRORS_FIELD_NUMBER: _ClassVar[int]
@@ -44,6 +44,11 @@ class CliffNotesDiagnostics(_message.Message):
     FILE_CACHE_HITS_FIELD_NUMBER: _ClassVar[int]
     PACKAGE_CACHE_HITS_FIELD_NUMBER: _ClassVar[int]
     ROOT_CACHE_HITS_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_NODES_FIELD_NUMBER: _ClassVar[int]
+    CORPUS_ID_FIELD_NUMBER: _ClassVar[int]
+    REVISION_FP_FIELD_NUMBER: _ClassVar[int]
+    STRATEGY_FIELD_NUMBER: _ClassVar[int]
+    MODEL_USED_FIELD_NUMBER: _ClassVar[int]
     cached_nodes: int
     fallback_count: int
     provider_compute_errors: int
@@ -51,7 +56,12 @@ class CliffNotesDiagnostics(_message.Message):
     file_cache_hits: int
     package_cache_hits: int
     root_cache_hits: int
-    def __init__(self, cached_nodes: _Optional[int] = ..., fallback_count: _Optional[int] = ..., provider_compute_errors: _Optional[int] = ..., leaf_cache_hits: _Optional[int] = ..., file_cache_hits: _Optional[int] = ..., package_cache_hits: _Optional[int] = ..., root_cache_hits: _Optional[int] = ...) -> None: ...
+    total_nodes: int
+    corpus_id: str
+    revision_fp: str
+    strategy: str
+    model_used: str
+    def __init__(self, cached_nodes: _Optional[int] = ..., fallback_count: _Optional[int] = ..., provider_compute_errors: _Optional[int] = ..., leaf_cache_hits: _Optional[int] = ..., file_cache_hits: _Optional[int] = ..., package_cache_hits: _Optional[int] = ..., root_cache_hits: _Optional[int] = ..., total_nodes: _Optional[int] = ..., corpus_id: _Optional[str] = ..., revision_fp: _Optional[str] = ..., strategy: _Optional[str] = ..., model_used: _Optional[str] = ...) -> None: ...
 
 class GenerateLearningPathRequest(_message.Message):
     __slots__ = ("repository_id", "repository_name", "audience", "depth", "snapshot_json", "focus_area")
