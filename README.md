@@ -260,6 +260,7 @@ See [CLI Reference](docs/user/cli-reference.md) for full documentation.
 
 ## Deployment
 
+- **[Going to Production](docs/going-to-production.md)** — Security, storage, LLM setup, networking, SSO, backups, and troubleshooting
 - [Docker Compose](docs/admin/deployment.md) — Best for evaluation and small teams
 - [Helm Guide](docs/self-hosted/helm-guide.md) — Production Kubernetes deployments
 - [Air-Gapped Installations](docs/self-hosted/air-gapped.md) — Deploy without internet access
@@ -271,6 +272,7 @@ See [CLI Reference](docs/user/cli-reference.md) for full documentation.
 ## Documentation
 
 - [Start Here](docs/start-here.md) — What just happened and what to do next
+- [Going to Production](docs/going-to-production.md) — Demo to production checklist
 - [Getting Started](docs/user/getting-started.md) — Full setup walkthrough
 - [CLI Reference](docs/user/cli-reference.md) — Command-line interface
 - [Web UI Guide](docs/user/web-ui-guide.md) — Dashboard features
