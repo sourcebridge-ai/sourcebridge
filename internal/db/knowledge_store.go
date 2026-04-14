@@ -740,10 +740,10 @@ func (s *SurrealStore) StoreKnowledgeEvidence(sectionID string, evidence []knowl
 		map[string]any{"section_id": sectionID})
 
 	for i, ev := range evidence {
-		evID := ev.ID
-		if evID == "" {
-			evID = uuid.New().String()
-		}
+		// Evidence IDs are persistence-row identifiers, not stable semantic keys.
+		// Always mint fresh IDs so supersedes/refinements remain idempotent even when
+		// callers pass through evidence copied from an existing artifact.
+		evID := uuid.New().String()
 
 		var metadataJSON string
 		if len(ev.Metadata) > 0 {

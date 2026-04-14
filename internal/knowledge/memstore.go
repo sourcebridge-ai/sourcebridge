@@ -371,9 +371,7 @@ func (s *MemStore) SupersedeArtifact(id string, sections []Section) error {
 		}
 		evs := make([]Evidence, len(sec.Evidence))
 		for i, ev := range sec.Evidence {
-			if ev.ID == "" {
-				ev.ID = uuid.New().String()
-			}
+			ev.ID = uuid.New().String()
 			ev.SectionID = sec.ID
 			evs[i] = ev
 		}
@@ -424,9 +422,7 @@ func (s *MemStore) StoreKnowledgeEvidence(sectionID string, evidence []Evidence)
 
 	stored := make([]Evidence, len(evidence))
 	for i, ev := range evidence {
-		if ev.ID == "" {
-			ev.ID = uuid.New().String()
-		}
+		ev.ID = uuid.New().String()
 		ev.SectionID = sectionID
 		stored[i] = ev
 	}

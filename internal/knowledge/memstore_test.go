@@ -174,6 +174,62 @@ func TestDeleteArtifactCleansUpSectionsAndEvidence(t *testing.T) {
 	}
 }
 
+func TestSupersedeArtifactRegeneratesEvidenceIDs(t *testing.T) {
+	s := NewMemStore()
+
+	artifact, _ := s.StoreKnowledgeArtifact(&Artifact{
+		RepositoryID: "repo-1",
+		Type:         ArtifactCliffNotes,
+		Audience:     AudienceDeveloper,
+		Depth:        DepthDeep,
+		Status:       StatusReady,
+	})
+
+	sections := []Section{{
+		Title:   "Architecture",
+		Content: "v1",
+		Evidence: []Evidence{{
+			ID:         "fixed-ev-id",
+			SourceType: EvidenceFile,
+			SourceID:   "file-1",
+			FilePath:   "main.go",
+			LineStart:  1,
+			LineEnd:    4,
+		}},
+	}}
+	if err := s.SupersedeArtifact(artifact.ID, sections); err != nil {
+		t.Fatalf("SupersedeArtifact initial: %v", err)
+	}
+
+	firstSections := s.GetKnowledgeSections(artifact.ID)
+	if len(firstSections) != 1 {
+		t.Fatalf("expected 1 section, got %d", len(firstSections))
+	}
+	firstEvidence := s.GetKnowledgeEvidence(firstSections[0].ID)
+	if len(firstEvidence) != 1 {
+		t.Fatalf("expected 1 evidence row, got %d", len(firstEvidence))
+	}
+	if firstEvidence[0].ID == "fixed-ev-id" {
+		t.Fatal("expected persisted evidence id to be regenerated")
+	}
+
+	if err := s.SupersedeArtifact(artifact.ID, sections); err != nil {
+		t.Fatalf("SupersedeArtifact repeat: %v", err)
+	}
+
+	secondSections := s.GetKnowledgeSections(artifact.ID)
+	if len(secondSections) != 1 {
+		t.Fatalf("expected 1 section after repeat, got %d", len(secondSections))
+	}
+	secondEvidence := s.GetKnowledgeEvidence(secondSections[0].ID)
+	if len(secondEvidence) != 1 {
+		t.Fatalf("expected 1 evidence row after repeat, got %d", len(secondEvidence))
+	}
+	if secondEvidence[0].ID == "fixed-ev-id" {
+		t.Fatal("expected repeated supersede to regenerate evidence ids")
+	}
+}
+
 func TestSetArtifactFailedPersistsErrorMetadata(t *testing.T) {
 	s := NewMemStore()
 

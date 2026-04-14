@@ -13,10 +13,13 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import shutil
 import sys
+import tempfile
 import time
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -36,6 +39,14 @@ class BenchmarkConfig:
     surreal_db: str
     surreal_user: str
     surreal_pass: str
+
+
+def make_repo_copy(src: str, label: str) -> str:
+    src_path = Path(src).resolve()
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"sourcebridge-{label}-"))
+    dest = temp_dir / src_path.name
+    shutil.copytree(src_path, dest)
+    return str(dest)
 
 
 def request_json(
@@ -266,55 +277,66 @@ def main() -> int:
         raise RuntimeError("provide either --repo-path or --existing-repo-id")
 
     token = ensure_auth(cfg.base_url, cfg.password)
+    cleanup_dirs: list[Path] = []
     if cfg.existing_repo_id:
         existing_repo = get_repo(cfg.base_url, token, cfg.existing_repo_id)
         classic_repo = existing_repo
         understanding_repo = existing_repo
     else:
-        classic_repo = add_repo(cfg.base_url, token, cfg.classic_name, cfg.repo_path)
-        understanding_repo = add_repo(cfg.base_url, token, cfg.understanding_name, cfg.repo_path)
+        classic_path = make_repo_copy(cfg.repo_path, "classic")
+        understanding_path = make_repo_copy(cfg.repo_path, "understanding")
+        cleanup_dirs.extend([Path(classic_path).parent, Path(understanding_path).parent])
+        classic_repo = add_repo(cfg.base_url, token, cfg.classic_name, classic_path)
+        understanding_repo = add_repo(cfg.base_url, token, cfg.understanding_name, understanding_path)
         set_repo_mode(cfg.base_url, token, classic_repo["id"], "CLASSIC")
         set_repo_mode(cfg.base_url, token, understanding_repo["id"], "UNDERSTANDING_FIRST")
 
-    results: dict[str, Any] = {"classic_repo": classic_repo, "understanding_repo": understanding_repo}
+    try:
+        results: dict[str, Any] = {
+            "classic_repo": classic_repo,
+            "understanding_repo": understanding_repo,
+        }
 
-    runs = [
-        ("classic_cold", classic_repo["id"], "CLASSIC"),
-        ("understanding_cold", understanding_repo["id"], "UNDERSTANDING_FIRST"),
-    ]
-    if args.single_mode == "CLASSIC":
-        runs = [("classic_cold", classic_repo["id"], "CLASSIC")]
-    elif args.single_mode == "UNDERSTANDING_FIRST":
-        runs = [("understanding_cold", understanding_repo["id"], "UNDERSTANDING_FIRST")]
+        runs = [
+            ("classic_cold", classic_repo["id"], "CLASSIC"),
+            ("understanding_cold", understanding_repo["id"], "UNDERSTANDING_FIRST"),
+        ]
+        if args.single_mode == "CLASSIC":
+            runs = [("classic_cold", classic_repo["id"], "CLASSIC")]
+        elif args.single_mode == "UNDERSTANDING_FIRST":
+            runs = [("understanding_cold", understanding_repo["id"], "UNDERSTANDING_FIRST")]
 
-    for label, repo_id, mode in runs:
-        started = time.time()
-        artifact = generate_cliff_notes(cfg.base_url, token, repo_id, cfg.audience, cfg.depth, mode)
-        final_artifact, history = wait_for_artifact(cfg.base_url, token, artifact["id"], cfg.timeout_secs)
-        results[label] = summarize_artifact(final_artifact, time.time() - started, history)
+        for label, repo_id, mode in runs:
+            started = time.time()
+            artifact = generate_cliff_notes(cfg.base_url, token, repo_id, cfg.audience, cfg.depth, mode)
+            final_artifact, history = wait_for_artifact(cfg.base_url, token, artifact["id"], cfg.timeout_secs)
+            results[label] = summarize_artifact(final_artifact, time.time() - started, history)
 
-    if not args.skip_warm and args.single_mode in (None, "UNDERSTANDING_FIRST"):
-        if not cfg.sql_url or not cfg.surreal_db:
-            raise RuntimeError("warm rerun requires --sql-url and --surreal-db")
-        cold_id = results["understanding_cold"]["artifact_id"]
-        results["warm_delete_sql_result"] = surreal_sql(
-            cfg,
-            f"DELETE FROM ca_knowledge_artifact WHERE id = type::thing('ca_knowledge_artifact', '{cold_id}');",
-        )[:400]
-        started = time.time()
-        artifact = generate_cliff_notes(
-            cfg.base_url,
-            token,
-            understanding_repo["id"],
-            cfg.audience,
-            cfg.depth,
-            "UNDERSTANDING_FIRST",
-        )
-        final_artifact, history = wait_for_artifact(cfg.base_url, token, artifact["id"], cfg.timeout_secs)
-        results["understanding_warm"] = summarize_artifact(final_artifact, time.time() - started, history)
+        if not args.skip_warm and args.single_mode in (None, "UNDERSTANDING_FIRST"):
+            if not cfg.sql_url or not cfg.surreal_db:
+                raise RuntimeError("warm rerun requires --sql-url and --surreal-db")
+            cold_id = results["understanding_cold"]["artifact_id"]
+            results["warm_delete_sql_result"] = surreal_sql(
+                cfg,
+                f"DELETE FROM ca_knowledge_artifact WHERE id = type::thing('ca_knowledge_artifact', '{cold_id}');",
+            )[:400]
+            started = time.time()
+            artifact = generate_cliff_notes(
+                cfg.base_url,
+                token,
+                understanding_repo["id"],
+                cfg.audience,
+                cfg.depth,
+                "UNDERSTANDING_FIRST",
+            )
+            final_artifact, history = wait_for_artifact(cfg.base_url, token, artifact["id"], cfg.timeout_secs)
+            results["understanding_warm"] = summarize_artifact(final_artifact, time.time() - started, history)
 
-    print(json.dumps(results, indent=2))
-    return 0
+        print(json.dumps(results, indent=2))
+        return 0
+    finally:
+        for path in cleanup_dirs:
+            shutil.rmtree(path, ignore_errors=True)
 
 
 if __name__ == "__main__":
