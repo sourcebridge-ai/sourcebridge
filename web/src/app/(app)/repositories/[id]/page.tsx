@@ -363,6 +363,45 @@ function understandingHighlightSections(understanding: RepositoryUnderstanding |
   return ordered;
 }
 
+function sectionRefinementLabel(section: KnowledgeSection): string | null {
+  const status = (section.refinementStatus || "").trim().toLowerCase();
+  if (status === "deep") return "Deepened";
+  if (status === "light") return "Refined";
+  if (status === "first_pass") return "First pass";
+  return null;
+}
+
+function sectionRefinementClass(section: KnowledgeSection): string {
+  const status = (section.refinementStatus || "").trim().toLowerCase();
+  if (status === "deep") {
+    return "rounded-full border border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/10 px-2 py-0.5 text-xs font-medium text-[var(--accent-primary)]";
+  }
+  if (status === "light") {
+    return "rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 py-0.5 text-xs font-medium text-[var(--text-primary)]";
+  }
+  return "rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-0.5 text-xs font-medium text-[var(--text-tertiary)]";
+}
+
+function artifactRefinementSummary(artifact: KnowledgeArtifact | null | undefined): string | null {
+  if (!artifact?.sections?.length) return null;
+  let refined = 0;
+  let deepened = 0;
+  for (const section of artifact.sections) {
+    const status = (section.refinementStatus || "").trim().toLowerCase();
+    if (status === "deep") {
+      deepened++;
+      continue;
+    }
+    if (status === "light") {
+      refined++;
+    }
+  }
+  const parts: string[] = [];
+  if (refined > 0) parts.push(`${refined} refined`);
+  if (deepened > 0) parts.push(`${deepened} deepened`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 function renderKnowledgeProgress(artifact: KnowledgeArtifact, waitingLabel: string, job?: RepoJobView | null) {
   const liveJob = job && (job.status === "pending" || job.status === "generating") ? job : null;
   const heartbeat = liveJob ? formatHeartbeatAge(liveJob.updated_at) : null;
@@ -2634,6 +2673,11 @@ export default function RepositoryDetailPage() {
                                   Understanding revision {currentCliffNotes.understandingRevisionFp.slice(0, 12)}
                                 </p>
                               ) : null}
+                              {artifactRefinementSummary(currentCliffNotes) ? (
+                                <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                                  {artifactRefinementSummary(currentCliffNotes)}
+                                </p>
+                              ) : null}
                             </div>
                             <div className="flex gap-2">
                               <Button variant="secondary" size="sm" onClick={handleGenerateCliffNotes} disabled={knowledgeLoading || isCliffNotesGenerating}>
@@ -2687,6 +2731,9 @@ export default function RepositoryDetailPage() {
                                     ) : null}
                                   </div>
                                   <div className="flex items-center gap-2">
+                                    {sectionRefinementLabel(section) ? (
+                                      <span className={sectionRefinementClass(section)}>{sectionRefinementLabel(section)}</span>
+                                    ) : null}
                                     <span className={confidenceClass(section.confidence)}>{section.confidence}</span>
                                     {section.inferred ? <span className="text-xs text-[var(--text-tertiary)]">inferred</span> : null}
                                   </div>
