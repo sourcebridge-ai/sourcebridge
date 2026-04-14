@@ -31,6 +31,9 @@ func (r *Resolver) withJobMetadata(
 	}
 
 	model := r.Config.LLM.ModelForOperation(operationGroup)
+	if operationGroup == "knowledge" && jobType == "architecture_diagram" && r.Config.LLM.ArchitectureDiagramModel != "" {
+		model = r.Config.LLM.ArchitectureDiagramModel
+	}
 	pairs := []string{
 		"x-sb-llm-provider", r.Config.LLM.Provider,
 		"x-sb-llm-base-url", r.Config.LLM.BaseURL,

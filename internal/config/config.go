@@ -86,17 +86,18 @@ type IndexingConfig struct {
 
 // LLMConfig holds AI/LLM provider settings.
 type LLMConfig struct {
-	Provider       string `mapstructure:"provider"`
-	BaseURL        string `mapstructure:"base_url"`
-	APIKey         string `mapstructure:"api_key"`
-	SummaryModel   string `mapstructure:"summary_model"`   // default model (used for analysis in advanced mode)
-	ReviewModel    string `mapstructure:"review_model"`    // review operations
-	AskModel       string `mapstructure:"ask_model"`       // discussion/Q&A operations
-	KnowledgeModel string `mapstructure:"knowledge_model"` // knowledge generation (cliffNotes, codeTour, etc.)
-	ReportModel    string `mapstructure:"report_model"`    // report generation
-	DraftModel     string `mapstructure:"draft_model"`     // LM Studio only: sent as draft_model per request
-	TimeoutSecs    int    `mapstructure:"timeout_seconds"`
-	AdvancedMode   bool   `mapstructure:"advanced_mode"` // when true, per-operation models are active
+	Provider                 string `mapstructure:"provider"`
+	BaseURL                  string `mapstructure:"base_url"`
+	APIKey                   string `mapstructure:"api_key"`
+	SummaryModel             string `mapstructure:"summary_model"`              // default model (used for analysis in advanced mode)
+	ReviewModel              string `mapstructure:"review_model"`               // review operations
+	AskModel                 string `mapstructure:"ask_model"`                  // discussion/Q&A operations
+	KnowledgeModel           string `mapstructure:"knowledge_model"`            // knowledge generation (cliffNotes, codeTour, etc.)
+	ArchitectureDiagramModel string `mapstructure:"architecture_diagram_model"` // AI architecture diagrams
+	ReportModel              string `mapstructure:"report_model"`               // report generation
+	DraftModel               string `mapstructure:"draft_model"`                // LM Studio only: sent as draft_model per request
+	TimeoutSecs              int    `mapstructure:"timeout_seconds"`
+	AdvancedMode             bool   `mapstructure:"advanced_mode"` // when true, per-operation models are active
 }
 
 // ModelForOperation returns the model to use for a given operation group.
@@ -210,11 +211,12 @@ func Defaults() *Config {
 			SCIPEnabled:    true,
 		},
 		LLM: LLMConfig{
-			Provider:     "anthropic",
-			SummaryModel: "claude-sonnet-4-20250514",
-			ReviewModel:  "claude-sonnet-4-20250514",
-			AskModel:     "claude-sonnet-4-20250514",
-			TimeoutSecs:  30,
+			Provider:                 "anthropic",
+			SummaryModel:             "claude-sonnet-4-20250514",
+			ReviewModel:              "claude-sonnet-4-20250514",
+			AskModel:                 "claude-sonnet-4-20250514",
+			ArchitectureDiagramModel: "",
+			TimeoutSecs:              30,
 		},
 		Linking: LinkingConfig{
 			MinConfidenceUI:        0.5,
@@ -280,6 +282,7 @@ func Load() (*Config, error) {
 	v.SetDefault("llm.base_url", cfg.LLM.BaseURL)
 	v.SetDefault("llm.api_key", "")
 	v.SetDefault("llm.summary_model", cfg.LLM.SummaryModel)
+	v.SetDefault("llm.architecture_diagram_model", cfg.LLM.ArchitectureDiagramModel)
 	v.SetDefault("llm.report_model", cfg.LLM.ReportModel)
 	v.SetDefault("llm.timeout_seconds", cfg.LLM.TimeoutSecs)
 	v.SetDefault("security.jwt_ttl_minutes", cfg.Security.JWTTTLMinutes)
