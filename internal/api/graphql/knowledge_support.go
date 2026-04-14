@@ -701,15 +701,113 @@ func cliffNotesDeepeningTargets(store knowledgepkg.KnowledgeStore, artifact *kno
 	for _, sec := range current {
 		byTitle[sec.Title] = sec
 	}
+	refinementBySectionKey := make(map[string]knowledgepkg.RefinementUnit)
+	for _, unit := range store.GetRefinementUnits(artifact.ID) {
+		if unit.RefinementType != cliffNotesDeepRefinementType {
+			continue
+		}
+		refinementBySectionKey[unit.SectionKey] = unit
+	}
 	var pending []string
 	for _, title := range targets {
 		sec, ok := byTitle[title]
 		if !ok || strings.EqualFold(sec.RefinementStatus, "deep") {
 			continue
 		}
+		if unit, ok := refinementBySectionKey[sec.SectionKey]; ok {
+			switch unit.Status {
+			case knowledgepkg.RefinementQueued, knowledgepkg.RefinementRunning, knowledgepkg.RefinementCompleted:
+				continue
+			}
+		}
 		pending = append(pending, title)
 	}
 	return pending
+}
+
+const cliffNotesDeepRefinementType = "cliff_notes_deep"
+const cliffNotesLightRefinementType = "cliff_notes_light"
+
+func syncCliffNotesRefinementUnits(
+	store knowledgepkg.KnowledgeStore,
+	artifact *knowledgepkg.Artifact,
+	sections []knowledgepkg.Section,
+	understanding *knowledgepkg.RepositoryUnderstanding,
+) {
+	if store == nil || artifact == nil || artifact.Type != knowledgepkg.ArtifactCliffNotes || len(sections) == 0 {
+		return
+	}
+	units := make([]knowledgepkg.RefinementUnit, 0, len(sections))
+	for _, sec := range sections {
+		sectionKey := sec.SectionKey
+		if sectionKey == "" {
+			sectionKey = knowledgepkg.SectionKeyForTitle(sec.Title)
+		}
+		units = append(units, knowledgepkg.RefinementUnit{
+			ArtifactID:         artifact.ID,
+			SectionKey:         sectionKey,
+			SectionTitle:       sec.Title,
+			RefinementType:     cliffNotesLightRefinementType,
+			Status:             knowledgepkg.RefinementCompleted,
+			UnderstandingID:    artifact.UnderstandingID,
+			EvidenceRevisionFP: artifact.UnderstandingRevisionFP,
+			RendererVersion:    knowledgepkg.RendererVersionForArtifact(artifact.Type),
+			Metadata:           cliffNotesSectionMetadataJSON(knowledgepkg.ArtifactCliffNotes, understanding, "light", sec.Title, len(sec.Evidence) > 0),
+		})
+	}
+	_ = store.StoreRefinementUnits(artifact.ID, units)
+}
+
+func markCliffNotesDeepRefinementStatus(
+	store knowledgepkg.KnowledgeStore,
+	artifact *knowledgepkg.Artifact,
+	sections []knowledgepkg.Section,
+	selectedTitles []string,
+	status knowledgepkg.RefinementStatus,
+	lastError string,
+) {
+	if store == nil || artifact == nil || artifact.Type != knowledgepkg.ArtifactCliffNotes || len(selectedTitles) == 0 {
+		return
+	}
+	byTitle := make(map[string]knowledgepkg.Section, len(sections))
+	for _, sec := range sections {
+		byTitle[sec.Title] = sec
+	}
+	existingAttempts := make(map[string]int)
+	for _, unit := range store.GetRefinementUnits(artifact.ID) {
+		if unit.RefinementType != cliffNotesDeepRefinementType {
+			continue
+		}
+		existingAttempts[unit.SectionKey] = unit.AttemptCount
+	}
+	units := make([]knowledgepkg.RefinementUnit, 0, len(selectedTitles))
+	for _, title := range selectedTitles {
+		sec, ok := byTitle[title]
+		if !ok {
+			continue
+		}
+		sectionKey := sec.SectionKey
+		if sectionKey == "" {
+			sectionKey = knowledgepkg.SectionKeyForTitle(sec.Title)
+		}
+		attempts := existingAttempts[sectionKey]
+		if status == knowledgepkg.RefinementRunning {
+			attempts++
+		}
+		units = append(units, knowledgepkg.RefinementUnit{
+			ArtifactID:         artifact.ID,
+			SectionKey:         sectionKey,
+			SectionTitle:       sec.Title,
+			RefinementType:     cliffNotesDeepRefinementType,
+			Status:             status,
+			AttemptCount:       attempts,
+			UnderstandingID:    artifact.UnderstandingID,
+			EvidenceRevisionFP: artifact.UnderstandingRevisionFP,
+			RendererVersion:    knowledgepkg.RendererVersionForArtifact(artifact.Type),
+			LastError:          strings.TrimSpace(lastError),
+		})
+	}
+	_ = store.StoreRefinementUnits(artifact.ID, units)
 }
 
 func understandingScopeForArtifact(scope knowledgepkg.ArtifactScope) knowledgepkg.ArtifactScope {
@@ -1450,6 +1548,8 @@ func (r *Resolver) enqueueCliffNotesDeepening(
 	if artifact.GenerationMode == knowledgepkg.GenerationModeClassic {
 		return nil
 	}
+	currentSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
+	markCliffNotesDeepRefinementStatus(r.KnowledgeStore, artifact, currentSections, selectedTitles, knowledgepkg.RefinementQueued, "")
 	req := &llm.EnqueueRequest{
 		Subsystem:      llm.SubsystemKnowledge,
 		JobType:        "cliff_notes_deepen",
@@ -1462,6 +1562,7 @@ func (r *Resolver) enqueueCliffNotesDeepening(
 		MaxAttempts:    1,
 		RunWithContext: func(runCtx context.Context, rt llm.Runtime) error {
 			rt.ReportProgress(0.05, "deepening", "Deepening critical cliff note sections")
+			markCliffNotesDeepRefinementStatus(r.KnowledgeStore, artifact, r.KnowledgeStore.GetKnowledgeSections(artifact.ID), selectedTitles, knowledgepkg.RefinementRunning, "")
 			bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "cliff_notes_deepen")
 			bgCtx = withCliffNotesRenderMetadata(bgCtx, true, selectedTitles)
 			resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
@@ -1474,6 +1575,7 @@ func (r *Resolver) enqueueCliffNotesDeepening(
 				SnapshotJson:   string(snapshotJSON),
 			})
 			if err != nil {
+				markCliffNotesDeepRefinementStatus(r.KnowledgeStore, artifact, r.KnowledgeStore.GetKnowledgeSections(artifact.ID), selectedTitles, knowledgepkg.RefinementFailed, err.Error())
 				return err
 			}
 			incoming := make([]knowledgepkg.Section, 0, len(resp.Sections))
@@ -1496,8 +1598,10 @@ func (r *Resolver) enqueueCliffNotesDeepening(
 			}
 			merged := knowledgepkg.MergeSectionsByTitle(r.KnowledgeStore.GetKnowledgeSections(artifact.ID), incoming, selected)
 			if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, merged); err != nil {
+				markCliffNotesDeepRefinementStatus(r.KnowledgeStore, artifact, r.KnowledgeStore.GetKnowledgeSections(artifact.ID), selectedTitles, knowledgepkg.RefinementFailed, err.Error())
 				return err
 			}
+			markCliffNotesDeepRefinementStatus(r.KnowledgeStore, artifact, merged, selectedTitles, knowledgepkg.RefinementCompleted, "")
 			rt.ReportProgress(1.0, "ready", "Section deepening complete")
 			return nil
 		},

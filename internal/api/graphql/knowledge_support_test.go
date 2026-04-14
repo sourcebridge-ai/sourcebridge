@@ -145,3 +145,81 @@ func TestCliffNotesSectionMetadataJSON(t *testing.T) {
 		t.Fatalf("unexpected renderer version %q", meta.RendererVersion)
 	}
 }
+
+func TestCliffNotesDeepeningTargetsSkipsQueuedRunningAndCompletedUnits(t *testing.T) {
+	store := knowledgepkg.NewMemStore()
+	artifact, err := store.StoreKnowledgeArtifact(&knowledgepkg.Artifact{
+		RepositoryID: "repo-1",
+		Type:         knowledgepkg.ArtifactCliffNotes,
+		Audience:     knowledgepkg.AudienceDeveloper,
+		Depth:        knowledgepkg.DepthDeep,
+		Scope:        &knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository},
+		Status:       knowledgepkg.StatusReady,
+	})
+	if err != nil {
+		t.Fatalf("StoreKnowledgeArtifact: %v", err)
+	}
+	sections := []knowledgepkg.Section{
+		{Title: "Architecture Overview", SectionKey: "architecture_overview", RefinementStatus: "light"},
+		{Title: "External Dependencies", SectionKey: "external_dependencies", RefinementStatus: "light"},
+		{Title: "Core System Flows", SectionKey: "core_system_flows", RefinementStatus: "light"},
+		{Title: "Complexity & Risk Areas", SectionKey: "complexity_risk_areas", RefinementStatus: "light"},
+	}
+	if err := store.StoreKnowledgeSections(artifact.ID, sections); err != nil {
+		t.Fatalf("StoreKnowledgeSections: %v", err)
+	}
+	if err := store.StoreRefinementUnits(artifact.ID, []knowledgepkg.RefinementUnit{
+		{SectionKey: "architecture_overview", SectionTitle: "Architecture Overview", RefinementType: cliffNotesDeepRefinementType, Status: knowledgepkg.RefinementQueued},
+		{SectionKey: "external_dependencies", SectionTitle: "External Dependencies", RefinementType: cliffNotesDeepRefinementType, Status: knowledgepkg.RefinementRunning},
+		{SectionKey: "core_system_flows", SectionTitle: "Core System Flows", RefinementType: cliffNotesDeepRefinementType, Status: knowledgepkg.RefinementCompleted},
+	}); err != nil {
+		t.Fatalf("StoreRefinementUnits: %v", err)
+	}
+
+	targets := cliffNotesDeepeningTargets(store, artifact)
+	if len(targets) != 1 || targets[0] != "Complexity & Risk Areas" {
+		t.Fatalf("unexpected deepening targets: %#v", targets)
+	}
+}
+
+func TestMarkCliffNotesDeepRefinementStatusTracksAttempts(t *testing.T) {
+	store := knowledgepkg.NewMemStore()
+	artifact, err := store.StoreKnowledgeArtifact(&knowledgepkg.Artifact{
+		ID:                      "artifact-1",
+		RepositoryID:            "repo-1",
+		Type:                    knowledgepkg.ArtifactCliffNotes,
+		Audience:                knowledgepkg.AudienceDeveloper,
+		Depth:                   knowledgepkg.DepthDeep,
+		Status:                  knowledgepkg.StatusReady,
+		UnderstandingID:         "u-1",
+		UnderstandingRevisionFP: "rev-1",
+	})
+	if err != nil {
+		t.Fatalf("StoreKnowledgeArtifact: %v", err)
+	}
+	sections := []knowledgepkg.Section{
+		{Title: "Core System Flows", SectionKey: "core_system_flows", RefinementStatus: "light"},
+	}
+	if err := store.StoreKnowledgeSections(artifact.ID, sections); err != nil {
+		t.Fatalf("StoreKnowledgeSections: %v", err)
+	}
+
+	markCliffNotesDeepRefinementStatus(store, artifact, sections, []string{"Core System Flows"}, knowledgepkg.RefinementQueued, "")
+	markCliffNotesDeepRefinementStatus(store, artifact, sections, []string{"Core System Flows"}, knowledgepkg.RefinementRunning, "")
+	markCliffNotesDeepRefinementStatus(store, artifact, sections, []string{"Core System Flows"}, knowledgepkg.RefinementFailed, "boom")
+
+	units := store.GetRefinementUnits(artifact.ID)
+	if len(units) != 1 {
+		t.Fatalf("expected 1 refinement unit, got %d", len(units))
+	}
+	unit := units[0]
+	if unit.Status != knowledgepkg.RefinementFailed {
+		t.Fatalf("expected failed status, got %q", unit.Status)
+	}
+	if unit.AttemptCount != 1 {
+		t.Fatalf("expected attempt count 1, got %d", unit.AttemptCount)
+	}
+	if unit.LastError != "boom" {
+		t.Fatalf("expected last error boom, got %q", unit.LastError)
+	}
+}

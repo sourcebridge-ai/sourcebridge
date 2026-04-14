@@ -29,6 +29,8 @@ type KnowledgeStore interface {
 
 	StoreKnowledgeSections(artifactID string, sections []Section) error
 	GetKnowledgeSections(artifactID string) []Section
+	StoreRefinementUnits(artifactID string, units []RefinementUnit) error
+	GetRefinementUnits(artifactID string) []RefinementUnit
 
 	StoreKnowledgeEvidence(sectionID string, evidence []Evidence) error
 	GetKnowledgeEvidence(sectionID string) []Evidence

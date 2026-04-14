@@ -20,6 +20,7 @@ type MemStore struct {
 	evidence       map[string][]Evidence               // sectionID -> []Evidence
 	understandings map[string]*RepositoryUnderstanding // understandingID -> RepositoryUnderstanding
 	dependencies   map[string][]ArtifactDependency     // artifactID -> []ArtifactDependency
+	refinements    map[string][]RefinementUnit         // artifactID -> []RefinementUnit
 }
 
 // NewMemStore creates a new in-memory knowledge store.
@@ -30,6 +31,7 @@ func NewMemStore() *MemStore {
 		evidence:       make(map[string][]Evidence),
 		understandings: make(map[string]*RepositoryUnderstanding),
 		dependencies:   make(map[string][]ArtifactDependency),
+		refinements:    make(map[string][]RefinementUnit),
 	}
 }
 
@@ -339,6 +341,7 @@ func (s *MemStore) DeleteKnowledgeArtifact(id string) error {
 		delete(s.evidence, sec.ID)
 	}
 	delete(s.sections, id)
+	delete(s.refinements, id)
 	delete(s.artifacts, id)
 	return nil
 }
@@ -422,6 +425,55 @@ func (s *MemStore) GetKnowledgeSections(artifactID string) []Section {
 	return s.loadSectionsLocked(artifactID)
 }
 
+func (s *MemStore) StoreRefinementUnits(artifactID string, units []RefinementUnit) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.artifacts[artifactID]; !ok {
+		return fmt.Errorf("artifact %s not found", artifactID)
+	}
+	now := time.Now()
+	existing := s.refinements[artifactID]
+	index := make(map[string]int, len(existing))
+	for i, unit := range existing {
+		index[refinementKey(unit.SectionKey, unit.RefinementType)] = i
+	}
+	for _, unit := range units {
+		if unit.ID == "" {
+			unit.ID = uuid.New().String()
+		}
+		unit.ArtifactID = artifactID
+		if unit.CreatedAt.IsZero() {
+			unit.CreatedAt = now
+		}
+		if unit.UpdatedAt.IsZero() {
+			unit.UpdatedAt = now
+		}
+		key := refinementKey(unit.SectionKey, unit.RefinementType)
+		if idx, ok := index[key]; ok {
+			if existing[idx].CreatedAt.IsZero() {
+				existing[idx].CreatedAt = unit.CreatedAt
+			}
+			unit.CreatedAt = existing[idx].CreatedAt
+			existing[idx] = unit
+			continue
+		}
+		index[key] = len(existing)
+		existing = append(existing, unit)
+	}
+	s.refinements[artifactID] = existing
+	return nil
+}
+
+func (s *MemStore) GetRefinementUnits(artifactID string) []RefinementUnit {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	units := s.refinements[artifactID]
+	out := make([]RefinementUnit, len(units))
+	copy(out, units)
+	return out
+}
+
 func (s *MemStore) StoreKnowledgeEvidence(sectionID string, evidence []Evidence) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -476,6 +528,10 @@ func (s *MemStore) GetArtifactDependencies(artifactID string) []ArtifactDependen
 	out := make([]ArtifactDependency, len(raw))
 	copy(out, raw)
 	return out
+}
+
+func refinementKey(sectionKey, refinementType string) string {
+	return sectionKey + "\x00" + refinementType
 }
 
 func (s *MemStore) loadSectionsLocked(artifactID string) []Section {

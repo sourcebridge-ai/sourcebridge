@@ -330,6 +330,35 @@ type Section struct {
 	Evidence         []Evidence      `json:"evidence,omitempty"`
 }
 
+type RefinementStatus string
+
+const (
+	RefinementQueued    RefinementStatus = "queued"
+	RefinementRunning   RefinementStatus = "running"
+	RefinementCompleted RefinementStatus = "completed"
+	RefinementFailed    RefinementStatus = "failed"
+)
+
+// RefinementUnit is a durable unit of artifact-improvement work. The first
+// implementation tracks section-level cliff-notes refinement so retries and
+// background deepening can resume selectively instead of restarting blindly.
+type RefinementUnit struct {
+	ID                 string           `json:"id"`
+	ArtifactID         string           `json:"artifact_id"`
+	SectionKey         string           `json:"section_key"`
+	SectionTitle       string           `json:"section_title"`
+	RefinementType     string           `json:"refinement_type"`
+	Status             RefinementStatus `json:"status"`
+	AttemptCount       int              `json:"attempt_count"`
+	UnderstandingID    string           `json:"understanding_id,omitempty"`
+	EvidenceRevisionFP string           `json:"evidence_revision_fp,omitempty"`
+	RendererVersion    string           `json:"renderer_version,omitempty"`
+	LastError          string           `json:"last_error,omitempty"`
+	Metadata           string           `json:"metadata,omitempty"`
+	CreatedAt          time.Time        `json:"created_at"`
+	UpdatedAt          time.Time        `json:"updated_at"`
+}
+
 // Evidence is a traceable reference from a section back to a source artifact.
 type Evidence struct {
 	ID         string             `json:"id"`

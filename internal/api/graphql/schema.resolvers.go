@@ -1809,6 +1809,7 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 			slog.Error("failed to store cliff notes sections", "artifact_id", artifact.ID, "error", err)
 			return err
 		}
+		syncCliffNotesRefinementUnits(r.KnowledgeStore, artifact, sections, understanding)
 		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "persist", "persist_sections_completed", "Stored cliff note sections", map[string]any{
 			"section_count": len(sections),
 		})
@@ -2841,6 +2842,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
 				return err
 			}
+			syncCliffNotesRefinementUnits(r.KnowledgeStore, existing, sections, understanding)
 			if existing.GenerationMode != knowledgepkg.GenerationModeClassic && existing.Depth != knowledgepkg.DepthSummary {
 				if targets := cliffNotesDeepeningTargets(r.KnowledgeStore, existing); len(targets) > 0 {
 					if err := r.enqueueCliffNotesDeepening(repo, existing, scope, snap.SourceRevision, snapJSON, targets); err != nil {

@@ -186,6 +186,42 @@ func (r *surrealArtifactDependency) toDependency() knowledge.ArtifactDependency 
 	}
 }
 
+type surrealRefinementUnit struct {
+	ID                 *models.RecordID `json:"id,omitempty"`
+	ArtifactID         string           `json:"artifact_id"`
+	SectionKey         string           `json:"section_key"`
+	SectionTitle       string           `json:"section_title"`
+	RefinementType     string           `json:"refinement_type"`
+	Status             string           `json:"status"`
+	AttemptCount       int              `json:"attempt_count"`
+	UnderstandingID    string           `json:"understanding_id"`
+	EvidenceRevisionFP string           `json:"evidence_revision_fp"`
+	RendererVersion    string           `json:"renderer_version"`
+	LastError          string           `json:"last_error"`
+	Metadata           string           `json:"metadata"`
+	CreatedAt          surrealTime      `json:"created_at"`
+	UpdatedAt          surrealTime      `json:"updated_at"`
+}
+
+func (r *surrealRefinementUnit) toRefinementUnit() knowledge.RefinementUnit {
+	return knowledge.RefinementUnit{
+		ID:                 recordIDString(r.ID),
+		ArtifactID:         r.ArtifactID,
+		SectionKey:         r.SectionKey,
+		SectionTitle:       r.SectionTitle,
+		RefinementType:     r.RefinementType,
+		Status:             knowledge.RefinementStatus(r.Status),
+		AttemptCount:       r.AttemptCount,
+		UnderstandingID:    r.UnderstandingID,
+		EvidenceRevisionFP: r.EvidenceRevisionFP,
+		RendererVersion:    r.RendererVersion,
+		LastError:          r.LastError,
+		Metadata:           r.Metadata,
+		CreatedAt:          r.CreatedAt.Time,
+		UpdatedAt:          r.UpdatedAt.Time,
+	}
+}
+
 type surrealKnowledgeEvidence struct {
 	ID         *models.RecordID `json:"id,omitempty"`
 	SectionID  string           `json:"section_id"`
@@ -669,6 +705,78 @@ func (s *SurrealStore) GetKnowledgeSections(artifactID string) []knowledge.Secti
 		sections = append(sections, sec)
 	}
 	return sections
+}
+
+func (s *SurrealStore) StoreRefinementUnits(artifactID string, units []knowledge.RefinementUnit) error {
+	db := s.client.DB()
+	if db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	if s.GetKnowledgeArtifact(artifactID) == nil {
+		return fmt.Errorf("artifact %s not found", artifactID)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for i, unit := range units {
+		unitID := unit.ID
+		if unitID == "" {
+			unitID = uuid.New().String()
+		}
+		if _, err := surrealdb.Query[interface{}](ctx(), db,
+			`UPSERT ca_knowledge_refinement SET
+				id = type::thing('ca_knowledge_refinement', $id),
+				artifact_id = $artifact_id,
+				section_key = $section_key,
+				section_title = $section_title,
+				refinement_type = $refinement_type,
+				status = $status,
+				attempt_count = $attempt_count,
+				understanding_id = $understanding_id,
+				evidence_revision_fp = $evidence_revision_fp,
+				renderer_version = $renderer_version,
+				last_error = $last_error,
+				metadata = $metadata,
+				created_at = IF created_at = NONE OR created_at = NULL THEN <datetime>$now ELSE created_at END,
+				updated_at = <datetime>$now
+			WHERE artifact_id = $artifact_id
+			  AND section_key = $section_key
+			  AND refinement_type = $refinement_type`,
+			map[string]any{
+				"id":                   unitID,
+				"artifact_id":          artifactID,
+				"section_key":          unit.SectionKey,
+				"section_title":        unit.SectionTitle,
+				"refinement_type":      unit.RefinementType,
+				"status":               string(unit.Status),
+				"attempt_count":        unit.AttemptCount,
+				"understanding_id":     unit.UnderstandingID,
+				"evidence_revision_fp": unit.EvidenceRevisionFP,
+				"renderer_version":     unit.RendererVersion,
+				"last_error":           unit.LastError,
+				"metadata":             unit.Metadata,
+				"now":                  now,
+			}); err != nil {
+			return fmt.Errorf("store refinement unit %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func (s *SurrealStore) GetRefinementUnits(artifactID string) []knowledge.RefinementUnit {
+	db := s.client.DB()
+	if db == nil {
+		return nil
+	}
+	rows, err := queryOne[[]surrealRefinementUnit](ctx(), db,
+		"SELECT * FROM ca_knowledge_refinement WHERE artifact_id = $artifact_id ORDER BY section_title ASC, refinement_type ASC",
+		map[string]any{"artifact_id": artifactID})
+	if err != nil {
+		return nil
+	}
+	units := make([]knowledge.RefinementUnit, 0, len(rows))
+	for _, row := range rows {
+		units = append(units, row.toRefinementUnit())
+	}
+	return units
 }
 
 func (s *SurrealStore) StoreArtifactDependencies(artifactID string, dependencies []knowledge.ArtifactDependency) error {
