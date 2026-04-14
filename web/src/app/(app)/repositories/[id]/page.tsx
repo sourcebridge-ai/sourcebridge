@@ -482,6 +482,12 @@ function repoJobStatusLabel(job: RepoJobView | null | undefined): string | null 
   if (job.status === "generating") {
     const heartbeat = formatHeartbeatAge(job.updated_at);
     const elapsed = formatElapsedMs(job.elapsed_ms);
+    if (job.progress_phase === "deepening") {
+      if (heartbeat && elapsed) return `Improving in background · alive ${heartbeat} · elapsed ${elapsed}`;
+      if (heartbeat) return `Improving in background · alive ${heartbeat}`;
+      if (elapsed) return `Improving in background · elapsed ${elapsed}`;
+      return "Improving in background";
+    }
     if (job.progress >= 0.6 && job.progress < 0.96) {
       if (heartbeat && elapsed) return `Building summary tree · alive ${heartbeat} · elapsed ${elapsed}`;
       if (heartbeat) return `Building summary tree · alive ${heartbeat}`;
@@ -2649,6 +2655,9 @@ export default function RepositoryDetailPage() {
                               <div className="flex items-center gap-2">
                                 {isCliffNotesGenerating ? (
                                   <span className={artifactStatusClass}>{knowledgeQueueLabel(currentCliffNotes)}</span>
+                                ) : null}
+                                {currentCliffNotesJob?.status === "generating" && currentCliffNotesJob.progress_phase === "deepening" ? (
+                                  <span className={artifactStatusClass}>Improving in background</span>
                                 ) : null}
                                 {currentCliffNotes.stale ? <span className={artifactStatusClass}>Stale</span> : null}
                                 {currentCliffNotes.refreshAvailable ? <span className={artifactStatusClass}>Refresh available</span> : null}
