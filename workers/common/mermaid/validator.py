@@ -11,6 +11,7 @@ _NODE_RE = re.compile(r'^\s*([A-Za-z0-9_]+)\s*\[\s*"([^"]+)"\s*\]\s*$')
 _SUBGRAPH_RE = re.compile(r'^\s*subgraph\s+([A-Za-z0-9_]+)\s*\[\s*"([^"]+)"\s*\]\s*$')
 _EDGE_RE = re.compile(r'^\s*([A-Za-z0-9_]+)\s*-->\s*(?:\|"[^"]*"\|\s*)?([A-Za-z0-9_]+)\s*$')
 _INLINE_NODE_RE = re.compile(r'([A-Za-z0-9_]+)\s*\[\s*"([^"]+)"\s*\]')
+_QUOTED_EDGE_LABEL_RE = re.compile(r'(-->\s*)\|"([^"]+)"\|')
 
 
 @dataclass
@@ -73,6 +74,20 @@ def _rename_conflicting_subgraphs(lines: list[str]) -> tuple[list[str], list[str
     return repaired, rename_notes
 
 
+def _normalize_edge_labels(lines: list[str]) -> tuple[list[str], list[str]]:
+    repaired: list[str] = []
+    notes: list[str] = []
+    changed = False
+    for line in lines:
+        updated = _QUOTED_EDGE_LABEL_RE.sub(r"\1|\2|", line)
+        if updated != line:
+            changed = True
+        repaired.append(updated)
+    if changed:
+        notes.append("normalized quoted edge labels")
+    return repaired, notes
+
+
 def validate_and_repair_mermaid(raw: str) -> MermaidValidationResult:
     extracted = extract_mermaid_block(raw).strip()
     normalized = _normalize_mermaid(raw)
@@ -82,6 +97,8 @@ def validate_and_repair_mermaid(raw: str) -> MermaidValidationResult:
     original = normalized
     lines = normalized.splitlines()
     lines, repairs = _rename_conflicting_subgraphs(lines)
+    lines, edge_repairs = _normalize_edge_labels(lines)
+    repairs.extend(edge_repairs)
     normalized = "\n".join(lines).strip()
 
     if not normalized.startswith("flowchart"):

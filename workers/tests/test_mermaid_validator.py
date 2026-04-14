@@ -29,3 +29,15 @@ def test_validate_and_repair_mermaid_renames_conflicting_subgraph_ids():
     assert result.validation_status == "repaired"
     assert "api_group" in result.mermaid_source
     assert ("api", "worker") in infer_edge_labels(result)
+
+
+def test_validate_and_repair_mermaid_normalizes_quoted_edge_labels():
+    result = validate_and_repair_mermaid(
+        """flowchart TD
+        api["api"] -->|"31 calls"| db["db"]
+        """
+    )
+
+    assert result.validation_status == "repaired"
+    assert '-->|31 calls|' in result.mermaid_source
+    assert '"31 calls"' not in result.mermaid_source
