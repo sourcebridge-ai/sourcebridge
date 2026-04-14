@@ -683,6 +683,7 @@ export const KNOWLEDGE_ARTIFACTS_QUERY = gql`
         title
         content
         summary
+        metadata
         sectionKey
         refinementStatus
         confidence
@@ -838,6 +839,47 @@ export const GENERATE_LEARNING_PATH_MUTATION = gql`
         content
         summary
         confidence
+        orderIndex
+        evidence {
+          id
+          sourceType
+          filePath
+          lineStart
+          lineEnd
+          rationale
+        }
+      }
+    }
+  }
+`;
+
+export const GENERATE_ARCHITECTURE_DIAGRAM_MUTATION = gql`
+  mutation GenerateArchitectureDiagram($input: GenerateArchitectureDiagramInput!) {
+    generateArchitectureDiagram(input: $input) {
+      id
+      repositoryId
+      type
+      audience
+      depth
+      status
+      progress
+      progressPhase
+      progressMessage
+      stale
+      errorCode
+      errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
+      generatedAt
+      sections {
+        id
+        title
+        content
+        summary
+        metadata
+        confidence
+        inferred
         orderIndex
         evidence {
           id

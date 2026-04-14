@@ -1,8 +1,13 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { useQuery } from "urql";
-import { ARCHITECTURE_DIAGRAM_QUERY } from "@/lib/graphql/queries";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery } from "urql";
+import {
+  ARCHITECTURE_DIAGRAM_QUERY,
+  GENERATE_ARCHITECTURE_DIAGRAM_MUTATION,
+  KNOWLEDGE_ARTIFACTS_QUERY,
+  REFRESH_KNOWLEDGE_ARTIFACT_MUTATION,
+} from "@/lib/graphql/queries";
 import { Panel } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
 
@@ -25,17 +30,57 @@ interface ArchitectureDiagramProps {
   onModuleClick?: (modulePath: string) => void;
 }
 
+type DiagramViewMode = "DETERMINISTIC" | "AI";
+
+interface AIDiagramSection {
+  content: string;
+  metadata?: string | null;
+}
+
+interface AIDiagramArtifact {
+  id: string;
+  type: string;
+  status: string;
+  progress?: number | null;
+  progressMessage?: string | null;
+  stale?: boolean | null;
+  errorMessage?: string | null;
+  refreshAvailable?: boolean | null;
+  understandingId?: string | null;
+  updatedAt: string;
+  sections?: AIDiagramSection[] | null;
+}
+
+function parseArchitectureMetadata(metadata?: string | null): {
+  validationStatus?: string;
+  repairSummary?: string;
+  inferredEdges?: string[];
+} {
+  if (!metadata) return {};
+  try {
+    const parsed = JSON.parse(metadata);
+    return {
+      validationStatus: parsed.validation_status,
+      repairSummary: parsed.repair_summary,
+      inferredEdges: Array.isArray(parsed.inferred_edges) ? parsed.inferred_edges : [],
+    };
+  } catch {
+    return {};
+  }
+}
+
 export function ArchitectureDiagram({
   repositoryId,
   onModuleClick,
 }: ArchitectureDiagramProps) {
+  const [viewMode, setViewMode] = useState<DiagramViewMode>("DETERMINISTIC");
   const [level, setLevel] = useState<"MODULE" | "FILE">("MODULE");
   const [moduleFilter, setModuleFilter] = useState<string | null>(null);
   const [moduleDepth, setModuleDepth] = useState(1);
   const [copied, setCopied] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [result] = useQuery({
+  const [deterministicResult] = useQuery({
     query: ARCHITECTURE_DIAGRAM_QUERY,
     variables: {
       repoId: repositoryId,
@@ -45,11 +90,31 @@ export function ArchitectureDiagram({
     },
   });
 
-  const diagram = result.data?.architectureDiagram;
+  const [artifactsResult] = useQuery({
+    query: KNOWLEDGE_ARTIFACTS_QUERY,
+    variables: {
+      repositoryId,
+    },
+  });
 
-  // Render Mermaid
+  const [, generateArchitectureDiagram] = useMutation(GENERATE_ARCHITECTURE_DIAGRAM_MUTATION);
+  const [, refreshArtifact] = useMutation(REFRESH_KNOWLEDGE_ARTIFACT_MUTATION);
+
+  const deterministicDiagram = deterministicResult.data?.architectureDiagram;
+  const aiArtifact = useMemo(() => {
+    const artifacts: AIDiagramArtifact[] = artifactsResult.data?.knowledgeArtifacts ?? [];
+    return artifacts
+      .filter((artifact) => artifact.type === "ARCHITECTURE_DIAGRAM")
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] ?? null;
+  }, [artifactsResult.data]);
+  const aiSection = aiArtifact?.sections?.[0] ?? null;
+  const aiMetadata = parseArchitectureMetadata(aiSection?.metadata);
+
+  const currentMermaidSource =
+    viewMode === "AI" ? aiSection?.content ?? "" : deterministicDiagram?.mermaidSource ?? "";
+
   useEffect(() => {
-    if (!diagram?.mermaidSource || !containerRef.current) return;
+    if (!currentMermaidSource || !containerRef.current) return;
     let cancelled = false;
 
     (async () => {
@@ -63,18 +128,19 @@ export function ArchitectureDiagram({
 
       if (cancelled) return;
       const id = `arch-${repositoryId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}-${Date.now()}`;
-      const { svg } = await mermaid.render(id, diagram.mermaidSource);
+      const { svg } = await mermaid.render(id, currentMermaidSource);
       if (!cancelled && containerRef.current) {
         containerRef.current.innerHTML = svg;
-        // Make nodes clickable
-        containerRef.current.querySelectorAll<HTMLElement>(".node").forEach((node) => {
-          node.style.cursor = "pointer";
-          node.addEventListener("click", () => {
-            const nodeId = node.id;
-            const path = nodeId.replace(/^flowchart-/, "").replace(/-\d+$/, "").replace(/_/g, "/");
-            handleNodeClick(path);
+        if (viewMode === "DETERMINISTIC") {
+          containerRef.current.querySelectorAll<HTMLElement>(".node").forEach((node) => {
+            node.style.cursor = "pointer";
+            node.addEventListener("click", () => {
+              const nodeId = node.id;
+              const path = nodeId.replace(/^flowchart-/, "").replace(/-\d+$/, "").replace(/_/g, "/");
+              handleNodeClick(path);
+            });
           });
-        });
+        }
       }
     })();
 
@@ -82,7 +148,7 @@ export function ArchitectureDiagram({
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [diagram?.mermaidSource, repositoryId]);
+  }, [currentMermaidSource, repositoryId, viewMode]);
 
   const handleNodeClick = useCallback(
     (nodePath: string) => {
@@ -97,97 +163,163 @@ export function ArchitectureDiagram({
   );
 
   const handleCopyMermaid = useCallback(() => {
-    if (diagram?.mermaidSource) {
-      navigator.clipboard.writeText(diagram.mermaidSource);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }, [diagram?.mermaidSource]);
+    if (!currentMermaidSource) return;
+    navigator.clipboard.writeText(currentMermaidSource);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [currentMermaidSource]);
 
   const handleBackToModules = useCallback(() => {
     setLevel("MODULE");
     setModuleFilter(null);
   }, []);
 
-  if (result.fetching) {
+  const handleGenerateAIDiagram = useCallback(async () => {
+    if (aiArtifact?.id && (aiArtifact.refreshAvailable || aiArtifact.stale || aiArtifact.status === "FAILED")) {
+      await refreshArtifact({ id: aiArtifact.id });
+      return;
+    }
+    await generateArchitectureDiagram({
+      input: {
+        repositoryId,
+        audience: "DEVELOPER",
+        depth: "MEDIUM",
+      },
+    });
+  }, [aiArtifact?.id, aiArtifact?.refreshAvailable, aiArtifact?.stale, aiArtifact?.status, generateArchitectureDiagram, refreshArtifact, repositoryId]);
+
+  if (deterministicResult.fetching && !deterministicDiagram) {
     return (
       <Panel>
-        <div className="flex h-64 items-center justify-center">
-          <div className="text-sm text-[var(--text-secondary)]">
-            Generating architecture diagram...
-          </div>
+        <div className="flex h-64 items-center justify-center text-sm text-[var(--text-secondary)]">
+          Generating architecture diagram...
         </div>
       </Panel>
     );
   }
 
-  if (!diagram || result.error) {
+  if (!deterministicDiagram || deterministicResult.error) {
     return (
       <Panel>
-        <div className="flex h-64 items-center justify-center">
-          <div className="text-sm text-[var(--text-secondary)]">
-            {result.error
-              ? "Failed to generate diagram."
-              : "No symbol graph available. Index this repository first."}
-          </div>
+        <div className="flex h-64 items-center justify-center text-sm text-[var(--text-secondary)]">
+          {deterministicResult.error
+            ? "Failed to generate deterministic diagram."
+            : "No symbol graph available. Index this repository first."}
         </div>
       </Panel>
     );
   }
+
+  const aiBusy = aiArtifact?.status === "PENDING" || aiArtifact?.status === "GENERATING";
 
   return (
     <div className="space-y-4">
-      {/* Controls bar */}
-      <div className="flex items-center gap-3">
-        {level === "FILE" && (
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] p-1">
+          <button
+            type="button"
+            onClick={() => setViewMode("DETERMINISTIC")}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium ${viewMode === "DETERMINISTIC" ? "bg-[var(--accent-primary)] text-[var(--accent-contrast)]" : "text-[var(--text-secondary)]"}`}
+          >
+            Graph
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("AI")}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium ${viewMode === "AI" ? "bg-[var(--accent-primary)] text-[var(--accent-contrast)]" : "text-[var(--text-secondary)]"}`}
+          >
+            AI Diagram
+          </button>
+        </div>
+        {viewMode === "DETERMINISTIC" && level === "FILE" && (
           <Button variant="ghost" size="sm" onClick={handleBackToModules}>
             Back to Modules
           </Button>
         )}
-        {level === "FILE" && moduleFilter && (
-          <span className="text-xs font-medium text-[var(--text-primary)]">
-            {moduleFilter}
-          </span>
+        {viewMode === "DETERMINISTIC" && level === "FILE" && moduleFilter && (
+          <span className="text-xs font-medium text-[var(--text-primary)]">{moduleFilter}</span>
         )}
         <div className="flex-1" />
-        {diagram.truncated && (
+        {viewMode === "DETERMINISTIC" && deterministicDiagram.truncated && (
           <span className="text-xs text-[var(--text-tertiary)]">
-            Showing {diagram.shownModules} of {diagram.totalModules}
+            Showing {deterministicDiagram.shownModules} of {deterministicDiagram.totalModules}
           </span>
         )}
-        <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-          Depth
-          <select
-            value={moduleDepth}
-            onChange={(e) => setModuleDepth(Number(e.target.value))}
-            className="rounded border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 py-1 text-xs"
-          >
-            {[1, 2, 3].map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Button variant="secondary" size="sm" onClick={handleCopyMermaid}>
+        {viewMode === "DETERMINISTIC" && (
+          <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+            Depth
+            <select
+              value={moduleDepth}
+              onChange={(e) => setModuleDepth(Number(e.target.value))}
+              className="rounded border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 py-1 text-xs"
+            >
+              {[1, 2, 3].map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {viewMode === "AI" && (
+          <Button variant="secondary" size="sm" onClick={handleGenerateAIDiagram}>
+            {aiBusy ? "Generating…" : aiArtifact?.id ? "Refresh AI Diagram" : "Generate AI Diagram"}
+          </Button>
+        )}
+        <Button variant="secondary" size="sm" onClick={handleCopyMermaid} disabled={!currentMermaidSource}>
           {copied ? "Copied!" : "Copy Mermaid"}
         </Button>
       </div>
 
-      {/* Diagram container */}
+      {viewMode === "AI" && (
+        <Panel>
+          {!aiArtifact ? (
+            <div className="text-sm text-[var(--text-secondary)]">
+              Generate the AI diagram to compare the grounded deterministic graph with an understanding-first Mermaid view.
+            </div>
+          ) : aiBusy ? (
+            <div className="space-y-2 text-sm text-[var(--text-secondary)]">
+              <div>{aiArtifact.progressMessage || "Generating AI architecture diagram..."}</div>
+              <div>{Math.round((aiArtifact.progress || 0) * 100)}%</div>
+            </div>
+          ) : aiArtifact.status === "FAILED" ? (
+            <div className="space-y-2 text-sm text-[var(--text-secondary)]">
+              <div>AI diagram generation failed.</div>
+              {aiArtifact.errorMessage && <div>{aiArtifact.errorMessage}</div>}
+            </div>
+          ) : (
+            <div className="space-y-2 text-sm text-[var(--text-secondary)]">
+              {aiMetadata.validationStatus && (
+                <div>Validation: <span className="text-[var(--text-primary)]">{aiMetadata.validationStatus}</span></div>
+              )}
+              {aiMetadata.repairSummary && <div>Repair: {aiMetadata.repairSummary}</div>}
+              {aiMetadata.inferredEdges && aiMetadata.inferredEdges.length > 0 && (
+                <div>Inferred edges: {aiMetadata.inferredEdges.length}</div>
+              )}
+              {aiArtifact.understandingId && <div>Backed by repository understanding.</div>}
+            </div>
+          )}
+        </Panel>
+      )}
+
       <Panel className="overflow-auto">
-        <div
-          ref={containerRef}
-          className="min-h-[400px] w-full [&_svg]:mx-auto [&_svg]:max-h-[70vh]"
-          data-testid="architecture-diagram"
-        />
+        {currentMermaidSource ? (
+          <div
+            ref={containerRef}
+            className="min-h-[400px] w-full [&_svg]:mx-auto [&_svg]:max-h-[70vh]"
+            data-testid="architecture-diagram"
+          />
+        ) : (
+          <div className="flex h-64 items-center justify-center text-sm text-[var(--text-secondary)]">
+            {viewMode === "AI" ? "No AI diagram generated yet." : "No diagram available."}
+          </div>
+        )}
       </Panel>
 
-      {/* Module metadata table */}
-      {diagram.modules.length > 0 && (
+      {viewMode === "DETERMINISTIC" && deterministicDiagram.modules.length > 0 && (
         <Panel>
           <h4 className="mb-3 text-sm font-medium text-[var(--text-primary)]">
-            {level === "MODULE" ? "Modules" : "Files"} ({diagram.modules.length})
+            {level === "MODULE" ? "Modules" : "Files"} ({deterministicDiagram.modules.length})
           </h4>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -202,7 +334,7 @@ export function ArchitectureDiagram({
                 </tr>
               </thead>
               <tbody>
-                {diagram.modules.map((mod: DiagramModuleNode) => (
+                {deterministicDiagram.modules.map((mod: DiagramModuleNode) => (
                   <tr
                     key={mod.path}
                     className="cursor-pointer border-b border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]"

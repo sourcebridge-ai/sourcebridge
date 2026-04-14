@@ -141,6 +141,7 @@ type surrealKnowledgeSection struct {
 	Title            string           `json:"title"`
 	Content          string           `json:"content"`
 	Summary          string           `json:"summary"`
+	Metadata         string           `json:"metadata"`
 	Confidence       string           `json:"confidence"`
 	Inferred         bool             `json:"inferred"`
 	OrderIndex       int              `json:"order_index"`
@@ -155,6 +156,7 @@ func (r *surrealKnowledgeSection) toSection() knowledge.Section {
 		Title:            r.Title,
 		Content:          r.Content,
 		Summary:          r.Summary,
+		Metadata:         r.Metadata,
 		Confidence:       knowledge.ConfidenceLevel(r.Confidence),
 		Inferred:         r.Inferred,
 		OrderIndex:       r.OrderIndex,
@@ -622,6 +624,7 @@ func (s *SurrealStore) StoreKnowledgeSections(artifactID string, sections []know
 				title = $title,
 				content = $content,
 				summary = $summary,
+				metadata = $metadata,
 				confidence = $confidence,
 				inferred = $inferred,
 				order_index = $order_index,
@@ -633,6 +636,7 @@ func (s *SurrealStore) StoreKnowledgeSections(artifactID string, sections []know
 				"title":             sec.Title,
 				"content":           sec.Content,
 				"summary":           sec.Summary,
+				"metadata":          sec.Metadata,
 				"confidence":        string(sec.Confidence),
 				"inferred":          sec.Inferred,
 				"order_index":       i,

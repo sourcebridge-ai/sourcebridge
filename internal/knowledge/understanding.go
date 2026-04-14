@@ -38,6 +38,8 @@ func RendererVersionForArtifact(t ArtifactType) string {
 	switch t {
 	case ArtifactCliffNotes:
 		return "cliff_notes:v2"
+	case ArtifactArchitectureDiagram:
+		return "architecture_diagram:v1"
 	case ArtifactLearningPath:
 		return "learning_path:v1"
 	case ArtifactCodeTour:

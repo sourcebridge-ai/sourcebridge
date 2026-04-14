@@ -13,10 +13,11 @@ import (
 type ArtifactType string
 
 const (
-	ArtifactCliffNotes    ArtifactType = "cliff_notes"
-	ArtifactLearningPath  ArtifactType = "learning_path"
-	ArtifactCodeTour      ArtifactType = "code_tour"
-	ArtifactWorkflowStory ArtifactType = "workflow_story"
+	ArtifactCliffNotes          ArtifactType = "cliff_notes"
+	ArtifactArchitectureDiagram ArtifactType = "architecture_diagram"
+	ArtifactLearningPath        ArtifactType = "learning_path"
+	ArtifactCodeTour            ArtifactType = "code_tour"
+	ArtifactWorkflowStory       ArtifactType = "workflow_story"
 	// Reserved but deferred to enterprise.
 	ArtifactSlideOutline        ArtifactType = "slide_outline"
 	ArtifactAudioBriefingScript ArtifactType = "audio_briefing_script"
@@ -321,6 +322,7 @@ type Section struct {
 	Title            string          `json:"title"`
 	Content          string          `json:"content"`
 	Summary          string          `json:"summary,omitempty"`
+	Metadata         string          `json:"metadata,omitempty"`
 	Confidence       ConfidenceLevel `json:"confidence"`
 	Inferred         bool            `json:"inferred"`
 	OrderIndex       int             `json:"order_index"`

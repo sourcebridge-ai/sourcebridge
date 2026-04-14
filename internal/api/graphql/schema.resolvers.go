@@ -1869,6 +1869,161 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 	return mapKnowledgeArtifact(artifact), nil
 }
 
+// GenerateArchitectureDiagram is the resolver for the generateArchitectureDiagram field.
+func (r *mutationResolver) GenerateArchitectureDiagram(ctx context.Context, input GenerateArchitectureDiagramInput) (*KnowledgeArtifact, error) {
+	if r.Worker == nil {
+		return nil, fmt.Errorf("AI features are unavailable — worker not connected")
+	}
+	if r.KnowledgeStore == nil {
+		return nil, fmt.Errorf("knowledge store not configured")
+	}
+
+	repo := r.getStore(ctx).GetRepository(input.RepositoryID)
+	if repo == nil {
+		return nil, fmt.Errorf("repository %s not found", input.RepositoryID)
+	}
+
+	audience := knowledgeAudienceValue(input.Audience)
+	depth := knowledgeDepthValue(input.Depth)
+	key := knowledgepkg.ArtifactKey{
+		RepositoryID: repo.ID,
+		Type:         knowledgepkg.ArtifactArchitectureDiagram,
+		Audience:     audience,
+		Depth:        depth,
+		Scope:        knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository},
+	}.Normalized()
+	generationMode := knowledgepkg.GenerationModeUnderstandingFirst
+
+	if existing := r.KnowledgeStore.GetArtifactByKeyAndMode(key, generationMode); existing != nil {
+		if existing.Status == knowledgepkg.StatusReady && !existing.Stale {
+			return mapKnowledgeArtifact(existing), nil
+		}
+		if isInFlightGeneration(existing) {
+			return mapKnowledgeArtifact(existing), nil
+		}
+		if existing.Status == knowledgepkg.StatusFailed || existing.Stale ||
+			existing.Status == knowledgepkg.StatusGenerating || existing.Status == knowledgepkg.StatusPending {
+			_ = r.KnowledgeStore.DeleteKnowledgeArtifact(existing.ID)
+		}
+	}
+
+	assembler := knowledgepkg.NewAssembler(r.getStore(ctx))
+	repoRoot, repoRootErr := resolveRepoSourcePath(repo)
+	if repoRootErr != nil {
+		slog.Warn("architecture diagram: repo source unavailable, docs will be omitted from snapshot",
+			"repo_id", repo.ID, "error", repoRootErr)
+	}
+	snap, err := assembler.Assemble(repo.ID, repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to assemble knowledge snapshot: %w", err)
+	}
+	snapJSON, err := json.Marshal(snap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize snapshot: %w", err)
+	}
+	scaffoldJSON, err := buildArchitectureDiagramScaffold(r.getStore(ctx), repo.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build architecture scaffold: %w", err)
+	}
+
+	artifact, created, err := r.KnowledgeStore.ClaimArtifactWithMode(key, snap.SourceRevision, generationMode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to claim knowledge artifact: %w", err)
+	}
+	if !created {
+		return mapKnowledgeArtifact(artifact), nil
+	}
+	artifact.GenerationMode = generationMode
+	syncArtifactExecutionMetadata(r.KnowledgeStore, artifact)
+	store := r.getStore(ctx)
+
+	err = r.enqueueKnowledgeJob(artifact, "architecture_diagram", len(snapJSON), func(runCtx context.Context, rt llm.Runtime) error {
+		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
+		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
+
+		enrichedSnapJSON := snapJSON
+		if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, artifact, snap.SourceRevision, snapJSON); err != nil {
+			return err
+		} else {
+			if reused {
+				rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+				_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.12, "understanding", "Using cached repository understanding")
+			}
+			if understanding != nil {
+				if enriched, ok := enrichSnapshotWithUnderstanding(enrichedSnapJSON, understanding); ok {
+					enrichedSnapJSON = enriched
+				}
+			}
+		}
+		if enriched, ok := enrichSnapshotWithArchitectureScaffold(enrichedSnapJSON, scaffoldJSON); ok {
+			enrichedSnapJSON = enriched
+		}
+
+		stopProgress := r.startProgressTicker(rt, artifact.ID)
+		resp, err := r.Worker.GenerateArchitectureDiagram(
+			r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "architecture_diagram"),
+			&knowledgev1.GenerateArchitectureDiagramRequest{
+				RepositoryId:             repo.ID,
+				RepositoryName:           repo.Name,
+				Audience:                 string(audience),
+				Depth:                    string(depth),
+				SnapshotJson:             string(enrichedSnapJSON),
+				DeterministicDiagramJson: string(scaffoldJSON),
+			},
+		)
+		stopProgress()
+		if err != nil {
+			slog.Error("architecture diagram generation failed", "artifact_id", artifact.ID, "error", err)
+			return err
+		}
+
+		if resp.Usage != nil {
+			store.StoreLLMUsage(&graphstore.LLMUsageRecord{
+				RepoID:       repo.ID,
+				Provider:     "llm",
+				Model:        resp.Usage.Model,
+				Operation:    resp.Usage.Operation,
+				InputTokens:  int(resp.Usage.InputTokens),
+				OutputTokens: int(resp.Usage.OutputTokens),
+			})
+			rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
+		}
+
+		rt.ReportProgress(0.96, "llm", "LLM completed, persisting diagram")
+		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.8, "llm", "LLM completed, persisting diagram")
+
+		sections := []knowledgepkg.Section{{
+			Title:            "AI Architecture Diagram",
+			SectionKey:       "ai_architecture_diagram",
+			Content:          resp.MermaidSource,
+			Summary:          resp.DiagramSummary,
+			Metadata:         architectureDiagramMetadataJSON(resp),
+			Confidence:       knowledgepkg.ConfidenceMedium,
+			Inferred:         len(resp.InferredEdges) > 0,
+			RefinementStatus: "light",
+		}}
+		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
+			return err
+		}
+		storedSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
+		if len(storedSections) > 0 && len(resp.Evidence) > 0 {
+			if err := r.KnowledgeStore.StoreKnowledgeEvidence(storedSections[0].ID, mapProtoEvidence(resp.Evidence)); err != nil {
+				return err
+			}
+		}
+		if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusReady); err != nil {
+			return err
+		}
+		rt.ReportProgress(1.0, "ready", "AI architecture diagram ready")
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("enqueue architecture diagram job: %w", err)
+	}
+
+	return mapKnowledgeArtifact(artifact), nil
+}
+
 // GenerateLearningPath is the resolver for the generateLearningPath field.
 func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input GenerateLearningPathInput) (*KnowledgeArtifact, error) {
 	if r.Worker == nil {
@@ -2681,6 +2836,55 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 						slog.Warn("failed to enqueue refreshed cliff notes deepening", "artifact_id", existing.ID, "error", err)
 					}
 				}
+			}
+		case knowledgepkg.ArtifactArchitectureDiagram:
+			enrichedSnapJSON := snapJSON
+			if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, existing, snap.SourceRevision, snapJSON); err != nil {
+				return err
+			} else {
+				if reused {
+					rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+					_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(existing.ID, 0.12, "understanding", "Using cached repository understanding")
+				}
+				if understanding != nil {
+					if enriched, ok := enrichSnapshotWithUnderstanding(enrichedSnapJSON, understanding); ok {
+						enrichedSnapJSON = enriched
+					}
+				}
+			}
+			scaffoldJSON, err := buildArchitectureDiagramScaffold(r.getStore(ctx), repo.ID)
+			if err != nil {
+				return err
+			}
+			if enriched, ok := enrichSnapshotWithArchitectureScaffold(enrichedSnapJSON, scaffoldJSON); ok {
+				enrichedSnapJSON = enriched
+			}
+			resp, err := r.Worker.GenerateArchitectureDiagram(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "architecture_diagram"), &knowledgev1.GenerateArchitectureDiagramRequest{
+				RepositoryId:             repo.ID,
+				RepositoryName:           repo.Name,
+				Audience:                 string(existing.Audience),
+				Depth:                    string(existing.Depth),
+				SnapshotJson:             string(enrichedSnapJSON),
+				DeterministicDiagramJson: string(scaffoldJSON),
+			})
+			if err != nil {
+				slog.Error("refresh architecture diagram failed", "artifact_id", existing.ID, "error", err)
+				return err
+			}
+			persistUsage(resp.Usage)
+			sections := []knowledgepkg.Section{{
+				Title:            "AI Architecture Diagram",
+				SectionKey:       "ai_architecture_diagram",
+				Content:          resp.MermaidSource,
+				Summary:          resp.DiagramSummary,
+				Metadata:         architectureDiagramMetadataJSON(resp),
+				Confidence:       knowledgepkg.ConfidenceMedium,
+				Inferred:         len(resp.InferredEdges) > 0,
+				RefinementStatus: "light",
+				Evidence:         mapProtoEvidence(resp.Evidence),
+			}}
+			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
+				return err
 			}
 		case knowledgepkg.ArtifactLearningPath:
 			enrichedSnapJSON := snapJSON

@@ -785,19 +785,19 @@ func mapEffectiveSettings(eff *comprehension.EffectiveSettings) *EffectiveCompre
 	}
 
 	result := &EffectiveComprehensionSettings{
-		ScopeType:               string(eff.ScopeType),
-		ScopeKey:                eff.ScopeKey,
-		StrategyPreferenceChain: eff.StrategyPreferenceChain,
+		ScopeType:                      string(eff.ScopeType),
+		ScopeKey:                       eff.ScopeKey,
+		StrategyPreferenceChain:        eff.StrategyPreferenceChain,
 		KnowledgeGenerationModeDefault: mapGenerationMode(knowledgepkg.GenerationMode(eff.KnowledgeGenerationModeDefault)),
-		ModelID:                 eff.ModelID,
-		MaxConcurrency:          eff.MaxConcurrency,
-		MaxPromptTokens:         eff.MaxPromptTokens,
-		LeafBudgetTokens:        eff.LeafBudgetTokens,
-		RefinePassEnabled:       refine,
-		LongContextMaxTokens:    eff.LongContextMaxTokens,
-		GraphragEntityTypes:     eff.GraphRAGEntityTypes,
-		CacheEnabled:            cache,
-		AllowUnsafeCombinations: unsafe,
+		ModelID:                        eff.ModelID,
+		MaxConcurrency:                 eff.MaxConcurrency,
+		MaxPromptTokens:                eff.MaxPromptTokens,
+		LeafBudgetTokens:               eff.LeafBudgetTokens,
+		RefinePassEnabled:              refine,
+		LongContextMaxTokens:           eff.LongContextMaxTokens,
+		GraphragEntityTypes:            eff.GraphRAGEntityTypes,
+		CacheEnabled:                   cache,
+		AllowUnsafeCombinations:        unsafe,
 	}
 
 	for field, scope := range eff.InheritedFrom {
@@ -924,6 +924,7 @@ func mapKnowledgeSection(s *knowledgepkg.Section) *KnowledgeSection {
 		Title:            s.Title,
 		Content:          s.Content,
 		Summary:          ptrString(s.Summary),
+		Metadata:         ptrString(s.Metadata),
 		Confidence:       mapKnowledgeConfidence(s.Confidence),
 		Inferred:         s.Inferred,
 		OrderIndex:       s.OrderIndex,
@@ -995,6 +996,8 @@ func mapArtifactType(t knowledgepkg.ArtifactType) KnowledgeArtifactType {
 	switch t {
 	case knowledgepkg.ArtifactCliffNotes:
 		return KnowledgeArtifactTypeCliffNotes
+	case knowledgepkg.ArtifactArchitectureDiagram:
+		return KnowledgeArtifactTypeArchitectureDiagram
 	case knowledgepkg.ArtifactLearningPath:
 		return KnowledgeArtifactTypeLearningPath
 	case knowledgepkg.ArtifactCodeTour:

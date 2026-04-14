@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 
@@ -34,16 +35,17 @@ from workers.comprehension.renderers import CliffNotesRenderer
 from workers.comprehension.selector import SelectionResult, StrategySelector
 from workers.comprehension.single_shot import SingleShotConfig, SingleShotStrategy
 from workers.comprehension.strategy import ComprehensionStrategy
+from workers.knowledge.architecture_diagram import generate_architecture_diagram
 from workers.knowledge.code_tour import generate_code_tour
 from workers.knowledge.explain_system import explain_system
+from workers.knowledge.job_logs import JobLogMetadata, SurrealJobLogger
+from workers.knowledge.job_state import JobStateMetadata, SurrealJobStateUpdater
 from workers.knowledge.learning_path import generate_learning_path
 from workers.knowledge.retrieval import (
     build_overview_query,
     retrieve_relevant_snapshot,
 )
 from workers.knowledge.snapshot_truncate import condense_snapshot
-from workers.knowledge.job_logs import JobLogMetadata, SurrealJobLogger
-from workers.knowledge.job_state import JobStateMetadata, SurrealJobStateUpdater
 from workers.knowledge.summary_nodes import SurrealSummaryNodeCache
 from workers.knowledge.types import CliffNotesResult
 from workers.knowledge.workflow_story import generate_workflow_story
@@ -593,8 +595,9 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             )
 
         async def persist_stage(stage: str, tree) -> None:
+            cached_nodes_loaded = len(cached_tree.nodes) if cached_tree is not None else 0
             if self._summary_node_cache is None:
-                await sync_resume_state(tree, cached_nodes_loaded=len(cached_tree.nodes) if cached_tree is not None else 0)
+                await sync_resume_state(tree, cached_nodes_loaded=cached_nodes_loaded)
                 return
             try:
                 await self._summary_node_cache.store_tree(tree, stage=stage)
@@ -606,7 +609,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     stage=stage,
                     error=str(exc),
                 )
-            await sync_resume_state(tree, cached_nodes_loaded=len(cached_tree.nodes) if cached_tree is not None else 0)
+            await sync_resume_state(tree, cached_nodes_loaded=cached_nodes_loaded)
 
         async def persist_node(stage: str, tree, node) -> None:
             if self._summary_node_cache is None:
@@ -713,7 +716,10 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             else:
                 tree = await strategy.build_tree(corpus)
                 diagnostics = strategy.diagnostics()
-                await sync_resume_state(tree, cached_nodes_loaded=len(cached_tree.nodes) if cached_tree is not None else 0)
+                await sync_resume_state(
+                    tree,
+                    cached_nodes_loaded=len(cached_tree.nodes) if cached_tree is not None else 0,
+                )
 
             log.info(
                 "cliff_notes_hierarchical_tree_built",
@@ -1057,6 +1063,97 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             await job_logger.close()
         return response
 
+    async def GenerateArchitectureDiagram(  # noqa: N802
+        self,
+        request: knowledge_pb2.GenerateArchitectureDiagramRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> knowledge_pb2.GenerateArchitectureDiagramResponse:
+        """Generate an AI-authored Mermaid architecture diagram."""
+        log.info(
+            "generate_architecture_diagram",
+            repository_id=request.repository_id,
+            audience=request.audience,
+            depth=request.depth,
+        )
+
+        if not request.snapshot_json:
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "snapshot_json is required",
+            )
+            return  # type: ignore[return-value]
+
+        audience = request.audience or "developer"
+        depth = request.depth or "medium"
+        query = build_overview_query(request.repository_name, "architecture_diagram")
+        snapshot = await self._prepare_snapshot(request.snapshot_json, query)
+
+        provider, model_override = self._resolve_request_provider(context)
+        job_logger = self._resolve_job_logger(context)
+        if job_logger is not None:
+            await job_logger.info(
+                phase="snapshot",
+                event="generate_architecture_diagram_started",
+                message="Architecture diagram request received by worker",
+                payload={"repository_id": request.repository_id, "depth": depth, "audience": audience},
+            )
+        try:
+            result, usage = await generate_architecture_diagram(
+                provider=provider,
+                repository_name=request.repository_name,
+                audience=audience,
+                depth=depth,
+                snapshot_json=snapshot,
+                deterministic_diagram_json=request.deterministic_diagram_json,
+                model_override=model_override,
+            )
+        except Exception as exc:
+            if job_logger is not None:
+                await job_logger.error(
+                    phase="failed",
+                    event="generate_architecture_diagram_failed",
+                    message="Architecture diagram generation failed in worker",
+                    payload={"error": str(exc)},
+                )
+                await job_logger.close()
+            log.error("generate_architecture_diagram_failed", error=str(exc))
+            await context.abort(
+                grpc.StatusCode.INTERNAL,
+                f"Architecture diagram generation failed: {exc}",
+            )
+
+        evidence = []
+        for ev in result.get("evidence", []):
+            evidence.append(
+                knowledge_pb2.KnowledgeEvidence(
+                    source_type=ev.source_type,
+                    source_id=ev.source_id,
+                    file_path=ev.file_path,
+                    line_start=ev.line_start,
+                    line_end=ev.line_end,
+                    rationale=ev.rationale,
+                )
+            )
+        response = knowledge_pb2.GenerateArchitectureDiagramResponse(
+            mermaid_source=str(result.get("mermaid_source", "")),
+            raw_mermaid_source=str(result.get("raw_mermaid_source", "")),
+            validation_status=str(result.get("validation_status", "")),
+            repair_summary=str(result.get("repair_summary", "")),
+            diagram_summary=str(result.get("diagram_summary", "")),
+            evidence=evidence,
+            inferred_edges=[str(item) for item in result.get("inferred_edges", [])],
+            usage=_llm_usage_proto(usage),
+        )
+        if job_logger is not None:
+            await job_logger.info(
+                phase="ready",
+                event="generate_architecture_diagram_completed",
+                message="Architecture diagram response ready",
+                payload={"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
+            )
+            await job_logger.close()
+        return response
+
     async def GenerateWorkflowStory(  # noqa: N802
         self,
         request: knowledge_pb2.GenerateWorkflowStoryRequest,
@@ -1094,7 +1191,11 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 phase="snapshot",
                 event="generate_workflow_story_started",
                 message="Workflow story request received by worker",
-                payload={"repository_id": request.repository_id, "scope_type": scope_type, "scope_path": request.scope_path},
+                payload={
+                    "repository_id": request.repository_id,
+                    "scope_type": scope_type,
+                    "scope_path": request.scope_path,
+                },
             )
         try:
             result, usage = await generate_workflow_story(
@@ -1159,7 +1260,11 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 phase="ready",
                 event="generate_workflow_story_completed",
                 message="Workflow story response ready",
-                payload={"sections": len(sections), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
+                payload={
+                    "sections": len(sections),
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                },
             )
             await job_logger.close()
         return response
@@ -1349,17 +1454,13 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             # Parse repo data and section definitions from JSON
             repo_data = None
             if request.repo_data_json:
-                try:
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
                     repo_data = json.loads(request.repo_data_json)
-                except (json.JSONDecodeError, TypeError):
-                    pass
 
             section_defs = None
             if request.section_definitions_json:
-                try:
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
                     section_defs = json.loads(request.section_definitions_json)
-                except (json.JSONDecodeError, TypeError):
-                    pass
 
             # Run deep analysis if requested and clone paths are available
             if repo_data and getattr(request, "analysis_depth", "") == "deep":

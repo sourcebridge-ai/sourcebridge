@@ -45,6 +45,11 @@ class KnowledgeServiceStub(object):
                 request_serializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateLearningPathRequest.SerializeToString,
                 response_deserializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateLearningPathResponse.FromString,
                 _registered_method=True)
+        self.GenerateArchitectureDiagram = channel.unary_unary(
+                '/sourcebridge.knowledge.v1.KnowledgeService/GenerateArchitectureDiagram',
+                request_serializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateArchitectureDiagramRequest.SerializeToString,
+                response_deserializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateArchitectureDiagramResponse.FromString,
+                _registered_method=True)
         self.GenerateWorkflowStory = channel.unary_unary(
                 '/sourcebridge.knowledge.v1.KnowledgeService/GenerateWorkflowStory',
                 request_serializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateWorkflowStoryRequest.SerializeToString,
@@ -80,6 +85,13 @@ class KnowledgeServiceServicer(object):
 
     def GenerateLearningPath(self, request, context):
         """GenerateLearningPath produces a guided learning path for a repository.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GenerateArchitectureDiagram(self, request, context):
+        """GenerateArchitectureDiagram produces an AI-authored Mermaid architecture diagram.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -125,6 +137,11 @@ def add_KnowledgeServiceServicer_to_server(servicer, server):
                     servicer.GenerateLearningPath,
                     request_deserializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateLearningPathRequest.FromString,
                     response_serializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateLearningPathResponse.SerializeToString,
+            ),
+            'GenerateArchitectureDiagram': grpc.unary_unary_rpc_method_handler(
+                    servicer.GenerateArchitectureDiagram,
+                    request_deserializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateArchitectureDiagramRequest.FromString,
+                    response_serializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateArchitectureDiagramResponse.SerializeToString,
             ),
             'GenerateWorkflowStory': grpc.unary_unary_rpc_method_handler(
                     servicer.GenerateWorkflowStory,
@@ -202,6 +219,33 @@ class KnowledgeService(object):
             '/sourcebridge.knowledge.v1.KnowledgeService/GenerateLearningPath',
             knowledge_dot_v1_dot_knowledge__pb2.GenerateLearningPathRequest.SerializeToString,
             knowledge_dot_v1_dot_knowledge__pb2.GenerateLearningPathResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GenerateArchitectureDiagram(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sourcebridge.knowledge.v1.KnowledgeService/GenerateArchitectureDiagram',
+            knowledge_dot_v1_dot_knowledge__pb2.GenerateArchitectureDiagramRequest.SerializeToString,
+            knowledge_dot_v1_dot_knowledge__pb2.GenerateArchitectureDiagramResponse.FromString,
             options,
             channel_credentials,
             insecure,

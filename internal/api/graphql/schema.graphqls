@@ -127,6 +127,7 @@ type Mutation {
 
   # Knowledge engine mutations
   generateCliffNotes(input: GenerateCliffNotesInput!): KnowledgeArtifact!
+  generateArchitectureDiagram(input: GenerateArchitectureDiagramInput!): KnowledgeArtifact!
   generateLearningPath(input: GenerateLearningPathInput!): KnowledgeArtifact!
   generateCodeTour(input: GenerateCodeTourInput!): KnowledgeArtifact!
   generateWorkflowStory(input: GenerateWorkflowStoryInput!): KnowledgeArtifact!
@@ -415,6 +416,12 @@ input GenerateLearningPathInput {
   focusArea: String
 }
 
+input GenerateArchitectureDiagramInput {
+  repositoryId: ID!
+  audience: KnowledgeAudience
+  depth: KnowledgeDepth
+}
+
 input GenerateCodeTourInput {
   repositoryId: ID!
   audience: KnowledgeAudience
@@ -631,6 +638,7 @@ type PlatformStats {
 
 enum KnowledgeArtifactType {
   CLIFF_NOTES
+  ARCHITECTURE_DIAGRAM
   LEARNING_PATH
   CODE_TOUR
   WORKFLOW_STORY
@@ -791,6 +799,7 @@ type KnowledgeSection {
   title: String!
   content: String!
   summary: String
+  metadata: String
   confidence: KnowledgeConfidence!
   inferred: Boolean!
   orderIndex: Int!

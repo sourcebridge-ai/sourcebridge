@@ -421,6 +421,7 @@ type ComplexityRoot struct {
 		Evidence         func(childComplexity int) int
 		ID               func(childComplexity int) int
 		Inferred         func(childComplexity int) int
+		Metadata         func(childComplexity int) int
 		OrderIndex       func(childComplexity int) int
 		RefinementStatus func(childComplexity int) int
 		SectionKey       func(childComplexity int) int
@@ -488,6 +489,7 @@ type ComplexityRoot struct {
 		DismissDiscoveredRequirement      func(childComplexity int, id string, reason *string) int
 		EnrichRequirement                 func(childComplexity int, requirementID string) int
 		ExplainSystem                     func(childComplexity int, input ExplainSystemInput) int
+		GenerateArchitectureDiagram       func(childComplexity int, input GenerateArchitectureDiagramInput) int
 		GenerateCliffNotes                func(childComplexity int, input GenerateCliffNotesInput) int
 		GenerateCodeTour                  func(childComplexity int, input GenerateCodeTourInput) int
 		GenerateLearningPath              func(childComplexity int, input GenerateLearningPathInput) int
@@ -815,6 +817,7 @@ type MutationResolver interface {
 	UnlinkRepos(ctx context.Context, linkID string) (bool, error)
 	DetectContracts(ctx context.Context, repoID string) (bool, error)
 	GenerateCliffNotes(ctx context.Context, input GenerateCliffNotesInput) (*KnowledgeArtifact, error)
+	GenerateArchitectureDiagram(ctx context.Context, input GenerateArchitectureDiagramInput) (*KnowledgeArtifact, error)
 	GenerateLearningPath(ctx context.Context, input GenerateLearningPathInput) (*KnowledgeArtifact, error)
 	GenerateCodeTour(ctx context.Context, input GenerateCodeTourInput) (*KnowledgeArtifact, error)
 	GenerateWorkflowStory(ctx context.Context, input GenerateWorkflowStoryInput) (*KnowledgeArtifact, error)
@@ -2802,6 +2805,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.KnowledgeSection.Inferred(childComplexity), true
 
+	case "KnowledgeSection.metadata":
+		if e.complexity.KnowledgeSection.Metadata == nil {
+			break
+		}
+
+		return e.complexity.KnowledgeSection.Metadata(childComplexity), true
+
 	case "KnowledgeSection.orderIndex":
 		if e.complexity.KnowledgeSection.OrderIndex == nil {
 			break
@@ -3225,6 +3235,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.ExplainSystem(childComplexity, args["input"].(ExplainSystemInput)), true
+
+	case "Mutation.generateArchitectureDiagram":
+		if e.complexity.Mutation.GenerateArchitectureDiagram == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_generateArchitectureDiagram_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.GenerateArchitectureDiagram(childComplexity, args["input"].(GenerateArchitectureDiagramInput)), true
 
 	case "Mutation.generateCliffNotes":
 		if e.complexity.Mutation.GenerateCliffNotes == nil {
@@ -5040,6 +5062,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputDiscussCodeInput,
 		ec.unmarshalInputExecutionPathInput,
 		ec.unmarshalInputExplainSystemInput,
+		ec.unmarshalInputGenerateArchitectureDiagramInput,
 		ec.unmarshalInputGenerateCliffNotesInput,
 		ec.unmarshalInputGenerateCodeTourInput,
 		ec.unmarshalInputGenerateLearningPathInput,
@@ -5569,6 +5592,34 @@ func (ec *executionContext) field_Mutation_explainSystem_argsInput(
 	}
 
 	var zeroVal ExplainSystemInput
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_generateArchitectureDiagram_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_generateArchitectureDiagram_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_generateArchitectureDiagram_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (GenerateArchitectureDiagramInput, error) {
+	if _, ok := rawArgs["input"]; !ok {
+		var zeroVal GenerateArchitectureDiagramInput
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNGenerateArchitectureDiagramInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐGenerateArchitectureDiagramInput(ctx, tmp)
+	}
+
+	var zeroVal GenerateArchitectureDiagramInput
 	return zeroVal, nil
 }
 
@@ -19506,6 +19557,8 @@ func (ec *executionContext) fieldContext_KnowledgeArtifact_sections(_ context.Co
 				return ec.fieldContext_KnowledgeSection_content(ctx, field)
 			case "summary":
 				return ec.fieldContext_KnowledgeSection_summary(ctx, field)
+			case "metadata":
+				return ec.fieldContext_KnowledgeSection_metadata(ctx, field)
 			case "confidence":
 				return ec.fieldContext_KnowledgeSection_confidence(ctx, field)
 			case "inferred":
@@ -20361,6 +20414,47 @@ func (ec *executionContext) _KnowledgeSection_summary(ctx context.Context, field
 }
 
 func (ec *executionContext) fieldContext_KnowledgeSection_summary(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "KnowledgeSection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _KnowledgeSection_metadata(ctx context.Context, field graphql.CollectedField, obj *KnowledgeSection) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_KnowledgeSection_metadata(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Metadata, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_KnowledgeSection_metadata(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "KnowledgeSection",
 		Field:      field,
@@ -23776,6 +23870,111 @@ func (ec *executionContext) fieldContext_Mutation_generateCliffNotes(ctx context
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_generateCliffNotes_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_generateArchitectureDiagram(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_generateArchitectureDiagram(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().GenerateArchitectureDiagram(rctx, fc.Args["input"].(GenerateArchitectureDiagramInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*KnowledgeArtifact)
+	fc.Result = res
+	return ec.marshalNKnowledgeArtifact2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐKnowledgeArtifact(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_generateArchitectureDiagram(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_KnowledgeArtifact_id(ctx, field)
+			case "repositoryId":
+				return ec.fieldContext_KnowledgeArtifact_repositoryId(ctx, field)
+			case "type":
+				return ec.fieldContext_KnowledgeArtifact_type(ctx, field)
+			case "audience":
+				return ec.fieldContext_KnowledgeArtifact_audience(ctx, field)
+			case "depth":
+				return ec.fieldContext_KnowledgeArtifact_depth(ctx, field)
+			case "scope":
+				return ec.fieldContext_KnowledgeArtifact_scope(ctx, field)
+			case "status":
+				return ec.fieldContext_KnowledgeArtifact_status(ctx, field)
+			case "progress":
+				return ec.fieldContext_KnowledgeArtifact_progress(ctx, field)
+			case "progressPhase":
+				return ec.fieldContext_KnowledgeArtifact_progressPhase(ctx, field)
+			case "progressMessage":
+				return ec.fieldContext_KnowledgeArtifact_progressMessage(ctx, field)
+			case "sourceRevision":
+				return ec.fieldContext_KnowledgeArtifact_sourceRevision(ctx, field)
+			case "stale":
+				return ec.fieldContext_KnowledgeArtifact_stale(ctx, field)
+			case "generatedAt":
+				return ec.fieldContext_KnowledgeArtifact_generatedAt(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_KnowledgeArtifact_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_KnowledgeArtifact_updatedAt(ctx, field)
+			case "errorCode":
+				return ec.fieldContext_KnowledgeArtifact_errorCode(ctx, field)
+			case "errorMessage":
+				return ec.fieldContext_KnowledgeArtifact_errorMessage(ctx, field)
+			case "generationMode":
+				return ec.fieldContext_KnowledgeArtifact_generationMode(ctx, field)
+			case "rendererVersion":
+				return ec.fieldContext_KnowledgeArtifact_rendererVersion(ctx, field)
+			case "understandingId":
+				return ec.fieldContext_KnowledgeArtifact_understandingId(ctx, field)
+			case "understandingRevisionFp":
+				return ec.fieldContext_KnowledgeArtifact_understandingRevisionFp(ctx, field)
+			case "refreshAvailable":
+				return ec.fieldContext_KnowledgeArtifact_refreshAvailable(ctx, field)
+			case "dependencies":
+				return ec.fieldContext_KnowledgeArtifact_dependencies(ctx, field)
+			case "sections":
+				return ec.fieldContext_KnowledgeArtifact_sections(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type KnowledgeArtifact", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_generateArchitectureDiagram_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -37305,6 +37504,47 @@ func (ec *executionContext) unmarshalInputExplainSystemInput(ctx context.Context
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputGenerateArchitectureDiagramInput(ctx context.Context, obj any) (GenerateArchitectureDiagramInput, error) {
+	var it GenerateArchitectureDiagramInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"repositoryId", "audience", "depth"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "repositoryId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("repositoryId"))
+			data, err := ec.unmarshalNID2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RepositoryID = data
+		case "audience":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("audience"))
+			data, err := ec.unmarshalOKnowledgeAudience2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐKnowledgeAudience(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Audience = data
+		case "depth":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("depth"))
+			data, err := ec.unmarshalOKnowledgeDepth2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐKnowledgeDepth(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Depth = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputGenerateCliffNotesInput(ctx context.Context, obj any) (GenerateCliffNotesInput, error) {
 	var it GenerateCliffNotesInput
 	asMap := map[string]any{}
@@ -40289,6 +40529,8 @@ func (ec *executionContext) _KnowledgeSection(ctx context.Context, sel ast.Selec
 			}
 		case "summary":
 			out.Values[i] = ec._KnowledgeSection_summary(ctx, field, obj)
+		case "metadata":
+			out.Values[i] = ec._KnowledgeSection_metadata(ctx, field, obj)
 		case "confidence":
 			out.Values[i] = ec._KnowledgeSection_confidence(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -40796,6 +41038,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "generateCliffNotes":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_generateCliffNotes(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "generateArchitectureDiagram":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_generateArchitectureDiagram(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -44628,6 +44877,11 @@ func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.S
 		}
 	}
 	return graphql.WrapContextMarshaler(ctx, res)
+}
+
+func (ec *executionContext) unmarshalNGenerateArchitectureDiagramInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐGenerateArchitectureDiagramInput(ctx context.Context, v any) (GenerateArchitectureDiagramInput, error) {
+	res, err := ec.unmarshalInputGenerateArchitectureDiagramInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalNGenerateCliffNotesInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐGenerateCliffNotesInput(ctx context.Context, v any) (GenerateCliffNotesInput, error) {

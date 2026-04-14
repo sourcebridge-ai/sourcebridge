@@ -324,6 +324,12 @@ type FileDiff struct {
 	Deletions int        `json:"deletions"`
 }
 
+type GenerateArchitectureDiagramInput struct {
+	RepositoryID string             `json:"repositoryId"`
+	Audience     *KnowledgeAudience `json:"audience,omitempty"`
+	Depth        *KnowledgeDepth    `json:"depth,omitempty"`
+}
+
 type GenerateCliffNotesInput struct {
 	RepositoryID   string                   `json:"repositoryId"`
 	Audience       *KnowledgeAudience       `json:"audience,omitempty"`
@@ -474,6 +480,7 @@ type KnowledgeSection struct {
 	Title            string               `json:"title"`
 	Content          string               `json:"content"`
 	Summary          *string              `json:"summary,omitempty"`
+	Metadata         *string              `json:"metadata,omitempty"`
 	Confidence       KnowledgeConfidence  `json:"confidence"`
 	Inferred         bool                 `json:"inferred"`
 	OrderIndex       int                  `json:"orderIndex"`
@@ -1252,14 +1259,16 @@ func (e KnowledgeArtifactStatus) MarshalJSON() ([]byte, error) {
 type KnowledgeArtifactType string
 
 const (
-	KnowledgeArtifactTypeCliffNotes    KnowledgeArtifactType = "CLIFF_NOTES"
-	KnowledgeArtifactTypeLearningPath  KnowledgeArtifactType = "LEARNING_PATH"
-	KnowledgeArtifactTypeCodeTour      KnowledgeArtifactType = "CODE_TOUR"
-	KnowledgeArtifactTypeWorkflowStory KnowledgeArtifactType = "WORKFLOW_STORY"
+	KnowledgeArtifactTypeCliffNotes          KnowledgeArtifactType = "CLIFF_NOTES"
+	KnowledgeArtifactTypeArchitectureDiagram KnowledgeArtifactType = "ARCHITECTURE_DIAGRAM"
+	KnowledgeArtifactTypeLearningPath        KnowledgeArtifactType = "LEARNING_PATH"
+	KnowledgeArtifactTypeCodeTour            KnowledgeArtifactType = "CODE_TOUR"
+	KnowledgeArtifactTypeWorkflowStory       KnowledgeArtifactType = "WORKFLOW_STORY"
 )
 
 var AllKnowledgeArtifactType = []KnowledgeArtifactType{
 	KnowledgeArtifactTypeCliffNotes,
+	KnowledgeArtifactTypeArchitectureDiagram,
 	KnowledgeArtifactTypeLearningPath,
 	KnowledgeArtifactTypeCodeTour,
 	KnowledgeArtifactTypeWorkflowStory,
@@ -1267,7 +1276,7 @@ var AllKnowledgeArtifactType = []KnowledgeArtifactType{
 
 func (e KnowledgeArtifactType) IsValid() bool {
 	switch e {
-	case KnowledgeArtifactTypeCliffNotes, KnowledgeArtifactTypeLearningPath, KnowledgeArtifactTypeCodeTour, KnowledgeArtifactTypeWorkflowStory:
+	case KnowledgeArtifactTypeCliffNotes, KnowledgeArtifactTypeArchitectureDiagram, KnowledgeArtifactTypeLearningPath, KnowledgeArtifactTypeCodeTour, KnowledgeArtifactTypeWorkflowStory:
 		return true
 	}
 	return false

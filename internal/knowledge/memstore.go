@@ -361,6 +361,12 @@ func (s *MemStore) SupersedeArtifact(id string, sections []Section) error {
 		}
 		sec.ArtifactID = id
 		sec.OrderIndex = i
+		if sec.SectionKey == "" {
+			sec.SectionKey = SectionKeyForTitle(sec.Title)
+		}
+		if sec.RefinementStatus == "" {
+			sec.RefinementStatus = "light"
+		}
 		stored[i] = sec
 	}
 	s.sections[id] = stored

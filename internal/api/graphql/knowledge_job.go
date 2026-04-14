@@ -104,6 +104,8 @@ func knowledgeJobConcurrencyLimit(jobType string) int {
 	switch knowledgeJobBaseType(jobType) {
 	case "cliff_notes":
 		return knowledgeJobEnvLimit(jobType, "SOURCEBRIDGE_KNOWLEDGE_CLIFF_NOTES_MAX_CONCURRENCY", 1)
+	case "architecture_diagram":
+		return knowledgeJobEnvLimit(jobType, "SOURCEBRIDGE_KNOWLEDGE_CLIFF_NOTES_MAX_CONCURRENCY", 1)
 	case "build_repository_understanding":
 		return knowledgeJobEnvLimit(jobType, "SOURCEBRIDGE_KNOWLEDGE_CLIFF_NOTES_MAX_CONCURRENCY", 1)
 	case "learning_path":

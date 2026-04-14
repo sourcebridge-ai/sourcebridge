@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	knowledgev1 "github.com/sourcebridge/sourcebridge/gen/go/knowledge/v1"
+	"github.com/sourcebridge/sourcebridge/internal/architecture"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
@@ -25,6 +26,108 @@ type repositoryUnderstandingMetadata struct {
 type cliffNotesRenderPlan struct {
 	RenderOnly            bool
 	SelectedSectionTitles []string
+}
+
+type architectureDiagramScaffold struct {
+	Level         string                            `json:"level"`
+	MermaidSource string                            `json:"mermaid_source"`
+	Modules       []architectureDiagramScaffoldNode `json:"modules"`
+}
+
+type architectureDiagramScaffoldNode struct {
+	Path          string   `json:"path"`
+	FilePaths     []string `json:"file_paths,omitempty"`
+	OutboundPaths []string `json:"outbound_paths,omitempty"`
+}
+
+type architectureDiagramSectionMetadata struct {
+	RawMermaidSource string   `json:"raw_mermaid_source,omitempty"`
+	ValidationStatus string   `json:"validation_status,omitempty"`
+	RepairSummary    string   `json:"repair_summary,omitempty"`
+	InferredEdges    []string `json:"inferred_edges,omitempty"`
+}
+
+func buildArchitectureDiagramScaffold(store graphstore.GraphStore, repoID string) ([]byte, error) {
+	if store == nil || strings.TrimSpace(repoID) == "" {
+		return nil, nil
+	}
+	result, err := architecture.BuildDiagram(store, architecture.DiagramOpts{
+		RepoID:      repoID,
+		Level:       "MODULE",
+		ModuleDepth: 2,
+		MaxNodes:    14,
+	})
+	if err != nil {
+		return nil, err
+	}
+	fileBuckets := map[string][]string{}
+	for _, file := range store.GetFiles(repoID) {
+		module := architecture.ModuleFromPath(file.Path, 2)
+		fileBuckets[module] = append(fileBuckets[module], file.Path)
+	}
+	payload := architectureDiagramScaffold{
+		Level:         result.Level,
+		MermaidSource: result.MermaidSource,
+		Modules:       make([]architectureDiagramScaffoldNode, 0, len(result.Modules)),
+	}
+	for _, mod := range result.Modules {
+		files := append([]string(nil), fileBuckets[mod.Path]...)
+		sort.Strings(files)
+		if len(files) > 4 {
+			files = files[:4]
+		}
+		outbound := make([]string, 0, len(mod.OutboundEdges))
+		for _, edge := range mod.OutboundEdges {
+			outbound = append(outbound, edge.TargetPath)
+		}
+		sort.Strings(outbound)
+		payload.Modules = append(payload.Modules, architectureDiagramScaffoldNode{
+			Path:          mod.Path,
+			FilePaths:     files,
+			OutboundPaths: outbound,
+		})
+	}
+	return json.Marshal(payload)
+}
+
+func enrichSnapshotWithArchitectureScaffold(snapshotJSON []byte, scaffoldJSON []byte) ([]byte, bool) {
+	if len(snapshotJSON) == 0 || len(scaffoldJSON) == 0 {
+		return snapshotJSON, false
+	}
+	var snapMap map[string]any
+	if err := json.Unmarshal(snapshotJSON, &snapMap); err != nil {
+		return snapshotJSON, false
+	}
+	var scaffold map[string]any
+	if err := json.Unmarshal(scaffoldJSON, &scaffold); err != nil {
+		return snapshotJSON, false
+	}
+	snapMap["_architecture_baseline"] = scaffold
+	enriched, err := json.Marshal(snapMap)
+	if err != nil {
+		return snapshotJSON, false
+	}
+	return enriched, true
+}
+
+func architectureDiagramMetadataJSON(resp *knowledgev1.GenerateArchitectureDiagramResponse) string {
+	if resp == nil {
+		return ""
+	}
+	meta := architectureDiagramSectionMetadata{
+		RawMermaidSource: strings.TrimSpace(resp.RawMermaidSource),
+		ValidationStatus: strings.TrimSpace(resp.ValidationStatus),
+		RepairSummary:    strings.TrimSpace(resp.RepairSummary),
+		InferredEdges:    append([]string(nil), resp.InferredEdges...),
+	}
+	if meta.RawMermaidSource == "" && meta.ValidationStatus == "" && meta.RepairSummary == "" && len(meta.InferredEdges) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func cliffNotesDeepeningTargets(store knowledgepkg.KnowledgeStore, artifact *knowledgepkg.Artifact) []string {
