@@ -9,7 +9,6 @@ import {
   Panel as FlowPanel,
   useNodesState,
   useEdgesState,
-  addEdge,
   MarkerType,
   type Node,
   type Edge,
@@ -196,7 +195,6 @@ function layoutNodes(diagramNodes: DiagramNode[], groups: DiagramGroup[]): FlowN
 
 function diagramNodeToFlowNode(n: DiagramNode, pos: { x: number; y: number }, parentId?: string): FlowNode {
   const colors = kindColors[n.kind] || kindColors.component;
-  const prov = provenanceBadge[n.provenance];
 
   return {
     id: n.id,
@@ -544,7 +542,7 @@ export function DiagramEditor({ repositoryId, onClose, onSave }: DiagramEditorPr
             style={{ backgroundColor: "#1a1a1a", border: "1px solid #333" }}
             maskColor="rgba(0,0,0,0.7)"
             nodeColor={(n) => {
-              const kind = String((n.data as FlowNodeData)?.kind || "component");
+              const kind = String(n.data?.kind || "component");
               return kindColors[kind]?.border || "#6b7280";
             }}
           />
@@ -607,7 +605,7 @@ export function DiagramEditor({ repositoryId, onClose, onSave }: DiagramEditorPr
               <label className="block text-xs text-neutral-400 mb-1">Label</label>
               <input
                 type="text"
-                value={(selectedNodeData.data as any).label || ""}
+                value={selectedNodeData.data.label || ""}
                 onChange={(e) => updateNodeLabel(selectedNodeData.id, e.target.value)}
                 className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm text-neutral-200"
               />
@@ -616,7 +614,7 @@ export function DiagramEditor({ repositoryId, onClose, onSave }: DiagramEditorPr
             <div>
               <label className="block text-xs text-neutral-400 mb-1">Kind</label>
               <select
-                value={(selectedNodeData.data as any).kind || "component"}
+                value={selectedNodeData.data.kind || "component"}
                 onChange={(e) => updateNodeKind(selectedNodeData.id, e.target.value)}
                 className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-sm text-neutral-200"
               >
@@ -628,26 +626,26 @@ export function DiagramEditor({ repositoryId, onClose, onSave }: DiagramEditorPr
               </select>
             </div>
 
-            {(selectedNodeData.data as any).provenance && (
+            {selectedNodeData.data.provenance && (
               <div>
                 <label className="block text-xs text-neutral-400 mb-1">Provenance</label>
                 <span
                   className="inline-block px-2 py-0.5 rounded text-xs"
                   style={{
-                    backgroundColor: provenanceBadge[(selectedNodeData.data as any).provenance]?.color + "20",
-                    color: provenanceBadge[(selectedNodeData.data as any).provenance]?.color,
+                    backgroundColor: provenanceBadge[selectedNodeData.data.provenance]?.color + "20",
+                    color: provenanceBadge[selectedNodeData.data.provenance]?.color,
                   }}
                 >
-                  {provenanceBadge[(selectedNodeData.data as any).provenance]?.label || (selectedNodeData.data as any).provenance}
+                  {provenanceBadge[selectedNodeData.data.provenance]?.label || selectedNodeData.data.provenance}
                 </span>
               </div>
             )}
 
-            {((selectedNodeData.data as any).symbolCount ?? 0) > 0 && (
+            {(selectedNodeData.data.symbolCount ?? 0) > 0 && (
               <div className="text-xs text-neutral-400">
-                {(selectedNodeData.data as any).symbolCount} symbols
-                {((selectedNodeData.data as any).fileCount ?? 0) > 0 &&
-                  ` / ${(selectedNodeData.data as any).fileCount} files`}
+                {selectedNodeData.data.symbolCount} symbols
+                {(selectedNodeData.data.fileCount ?? 0) > 0 &&
+                  ` / ${selectedNodeData.data.fileCount} files`}
               </div>
             )}
 
