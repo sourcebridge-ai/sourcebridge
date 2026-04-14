@@ -3268,6 +3268,9 @@ func (r *queryResolver) Repositories(ctx context.Context) ([]*Repository, error)
 		repo := mapRepository(gr)
 		_, reqCount := store.GetRequirements(gr.ID, 0, 0)
 		repo.RequirementCount = reqCount
+		if r.KnowledgeStore != nil {
+			repo.RepositoryUnderstanding = mapRepositoryUnderstanding(r.KnowledgeStore.GetRepositoryUnderstanding(gr.ID, knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository}))
+		}
 		repos = append(repos, repo)
 	}
 	return repos, nil
@@ -3288,6 +3291,9 @@ func (r *queryResolver) Repository(ctx context.Context, id string) (*Repository,
 	_, reqCount := store.GetRequirements(gr.ID, 0, 0)
 	repo.RequirementCount = reqCount
 	populateRepositoryDetails(repo, store)
+	if r.KnowledgeStore != nil {
+		repo.RepositoryUnderstanding = mapRepositoryUnderstanding(r.KnowledgeStore.GetRepositoryUnderstanding(gr.ID, knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository}))
+	}
 	return repo, nil
 }
 
