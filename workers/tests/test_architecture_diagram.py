@@ -58,3 +58,38 @@ async def test_generate_architecture_diagram_retries_invalid_mermaid() -> None:
     assert "retry regenerated invalid Mermaid" in result["repair_summary"]
     assert usage.input_tokens == 200
     assert usage.output_tokens == 100
+
+
+async def test_generate_architecture_diagram_falls_back_to_system_view() -> None:
+    provider = _SequenceProvider(
+        [
+            "This is not mermaid.",
+            "Still not mermaid.",
+        ]
+    )
+    snapshot_json = """{
+      "system_components": [
+        {"id": "user_interfaces", "label": "User Interfaces", "kind": "interface"},
+        {"id": "api_auth", "label": "API & Auth", "kind": "service"},
+        {"id": "persistence", "label": "Persistence", "kind": "storage"}
+      ],
+      "system_flows": [
+        {"source_id": "user_interfaces", "target_id": "api_auth", "summary": "primary flow"},
+        {"source_id": "api_auth", "target_id": "persistence", "summary": "major flow"}
+      ]
+    }"""
+    result, usage = await generate_architecture_diagram(
+        provider,
+        repository_name="Example Repo",
+        audience="developer",
+        depth="medium",
+        snapshot_json=snapshot_json,
+        deterministic_diagram_json='{"modules":[{"path":"internal/api","outbound_paths":["internal/db"]}]}',
+        model_override="test-model",
+    )
+
+    assert len(provider.calls) == 2
+    assert 'user["User"]' in result["mermaid_source"]
+    assert 'user_interfaces["User Interfaces"]' in result["mermaid_source"]
+    assert "fell back to deterministic system view" in result["repair_summary"]
+    assert usage.input_tokens == 200

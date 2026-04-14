@@ -64,6 +64,60 @@ def _deterministic_edges(scaffold_json: str) -> set[tuple[str, str]]:
     return edges
 
 
+def _system_view_fallback_mermaid(snapshot_json: str) -> str | None:
+    try:
+        payload = json.loads(snapshot_json)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    components = payload.get("system_components") or []
+    flows = payload.get("system_flows") or []
+    if not isinstance(components, list) or not components:
+        return None
+
+    lines: list[str] = ["flowchart LR"]
+    component_ids: set[str] = set()
+    interface_present = False
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        comp_id = str(component.get("id", "")).strip()
+        label = str(component.get("label", "")).strip()
+        if not comp_id or not label:
+            continue
+        component_ids.add(comp_id)
+        if component.get("kind") == "interface":
+            interface_present = True
+        node_id = comp_id
+        lines.append(f'    {node_id}["{label}"]')
+
+    if not component_ids:
+        return None
+    if interface_present:
+        lines.insert(1, '    user["User"]')
+        lines.insert(2, "    user --> user_interfaces")
+
+    seen_edges: set[tuple[str, str]] = set()
+    for flow in flows:
+        if not isinstance(flow, dict):
+            continue
+        src = str(flow.get("source_id", "")).strip()
+        tgt = str(flow.get("target_id", "")).strip()
+        if not src or not tgt or src == tgt:
+            continue
+        if src not in component_ids or tgt not in component_ids:
+            continue
+        edge = (src, tgt)
+        if edge in seen_edges:
+            continue
+        seen_edges.add(edge)
+        summary = str(flow.get("summary", "")).strip()
+        if summary:
+            lines.append(f"    {src} -->|{summary}| {tgt}")
+        else:
+            lines.append(f"    {src} --> {tgt}")
+    return "\n".join(lines)
+
+
 async def generate_architecture_diagram(
     provider: LLMProvider,
     repository_name: str,
@@ -126,7 +180,6 @@ async def generate_architecture_diagram(
             ),
             context="architecture_diagram:repository_retry",
         )
-        validation = validate_and_repair_mermaid(retry_response.content)
         usage = LLMUsageRecord(
             provider=retry_response.provider_name or response.provider_name or "llm",
             model=retry_response.model or response.model,
@@ -135,10 +188,27 @@ async def generate_architecture_diagram(
             operation="architecture_diagram",
             entity_name=repository_name,
         )
-        repair_summary = validation.repair_summary.strip()
-        validation.repair_summary = "; ".join(
-            part for part in [repair_summary, f"retry regenerated invalid Mermaid: {exc}"] if part
-        )
+        try:
+            validation = validate_and_repair_mermaid(retry_response.content)
+            repair_summary = validation.repair_summary.strip()
+            validation.repair_summary = "; ".join(
+                part for part in [repair_summary, f"retry regenerated invalid Mermaid: {exc}"] if part
+            )
+        except ValueError as retry_exc:
+            fallback = _system_view_fallback_mermaid(snapshot_json)
+            if not fallback:
+                raise retry_exc
+            validation = validate_and_repair_mermaid(fallback)
+            repair_summary = validation.repair_summary.strip()
+            validation.repair_summary = "; ".join(
+                part
+                for part in [
+                    repair_summary,
+                    f"retry regenerated invalid Mermaid: {exc}",
+                    f"fell back to deterministic system view: {retry_exc}",
+                ]
+                if part
+            )
     deterministic_edges = _deterministic_edges(deterministic_diagram_json)
     ai_edges = infer_edge_labels(validation)
     inferred_edges = sorted(f"{src} -> {tgt}" for src, tgt in ai_edges if (src, tgt) not in deterministic_edges)
