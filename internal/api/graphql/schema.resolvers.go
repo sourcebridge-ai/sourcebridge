@@ -3268,9 +3268,6 @@ func (r *queryResolver) Repositories(ctx context.Context) ([]*Repository, error)
 		repo := mapRepository(gr)
 		_, reqCount := store.GetRequirements(gr.ID, 0, 0)
 		repo.RequirementCount = reqCount
-		if r.KnowledgeStore != nil {
-			repo.RepositoryUnderstanding = mapRepositoryUnderstanding(r.KnowledgeStore.GetRepositoryUnderstanding(gr.ID, knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository}))
-		}
 		repos = append(repos, repo)
 	}
 	return repos, nil
@@ -3291,9 +3288,6 @@ func (r *queryResolver) Repository(ctx context.Context, id string) (*Repository,
 	_, reqCount := store.GetRequirements(gr.ID, 0, 0)
 	repo.RequirementCount = reqCount
 	populateRepositoryDetails(repo, store)
-	if r.KnowledgeStore != nil {
-		repo.RepositoryUnderstanding = mapRepositoryUnderstanding(r.KnowledgeStore.GetRepositoryUnderstanding(gr.ID, knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository}))
-	}
 	return repo, nil
 }
 
@@ -4179,6 +4173,18 @@ func (r *repositoryResolver) UnderstandingScore(ctx context.Context, obj *Reposi
 	score := graphstore.ComputeUnderstandingScore(store, newKnowledgeFreshnessProvider(r.KnowledgeStore), obj.ID)
 	store.CacheUnderstandingScore(obj.ID, score.Overall)
 	return mapUnderstandingScore(score), nil
+}
+
+// RepositoryUnderstanding is the resolver for the repositoryUnderstanding field.
+func (r *repositoryResolver) RepositoryUnderstanding(ctx context.Context, obj *Repository, scopeType *KnowledgeScopeType, scopePath *string) (*RepositoryUnderstanding, error) {
+	if r.KnowledgeStore == nil || obj == nil {
+		return nil, nil
+	}
+	scope, err := artifactScopeFromInput(scopeType, scopePath)
+	if err != nil {
+		return nil, err
+	}
+	return mapRepositoryUnderstanding(r.KnowledgeStore.GetRepositoryUnderstanding(obj.ID, scope)), nil
 }
 
 // Mutation returns MutationResolver implementation.
