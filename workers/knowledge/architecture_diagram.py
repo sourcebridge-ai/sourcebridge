@@ -16,6 +16,7 @@ from workers.common.mermaid.validator import infer_edge_labels, validate_and_rep
 from workers.knowledge.prompts.architecture_diagram import (
     ARCHITECTURE_DIAGRAM_SYSTEM,
     build_architecture_diagram_prompt,
+    build_architecture_diagram_retry_prompt,
 )
 from workers.knowledge.types import EvidenceRef
 from workers.reasoning.types import LLMUsageRecord
@@ -96,8 +97,48 @@ async def generate_architecture_diagram(
         ),
         context="architecture_diagram:repository",
     )
-
-    validation = validate_and_repair_mermaid(response.content)
+    usage = LLMUsageRecord(
+        provider=response.provider_name or "llm",
+        model=response.model,
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
+        operation="architecture_diagram",
+        entity_name=repository_name,
+    )
+    try:
+        validation = validate_and_repair_mermaid(response.content)
+    except ValueError as exc:
+        retry_prompt = build_architecture_diagram_retry_prompt(
+            repository_name,
+            audience,
+            depth,
+            deterministic_diagram_json,
+            response.content,
+        )
+        retry_response: LLMResponse = require_nonempty(
+            await complete_with_optional_model(
+                provider,
+                retry_prompt,
+                system=ARCHITECTURE_DIAGRAM_SYSTEM,
+                temperature=0.0,
+                max_tokens=3072,
+                model=model_override,
+            ),
+            context="architecture_diagram:repository_retry",
+        )
+        validation = validate_and_repair_mermaid(retry_response.content)
+        usage = LLMUsageRecord(
+            provider=retry_response.provider_name or response.provider_name or "llm",
+            model=retry_response.model or response.model,
+            input_tokens=response.input_tokens + retry_response.input_tokens,
+            output_tokens=response.output_tokens + retry_response.output_tokens,
+            operation="architecture_diagram",
+            entity_name=repository_name,
+        )
+        repair_summary = validation.repair_summary.strip()
+        validation.repair_summary = "; ".join(
+            part for part in [repair_summary, f"retry regenerated invalid Mermaid: {exc}"] if part
+        )
     deterministic_edges = _deterministic_edges(deterministic_diagram_json)
     ai_edges = infer_edge_labels(validation)
     inferred_edges = sorted(f"{src} -> {tgt}" for src, tgt in ai_edges if (src, tgt) not in deterministic_edges)
@@ -117,4 +158,4 @@ async def generate_architecture_diagram(
         "evidence": _build_evidence(deterministic_diagram_json),
         "inferred_edges": inferred_edges,
     }
-    return result, response.usage
+    return result, usage

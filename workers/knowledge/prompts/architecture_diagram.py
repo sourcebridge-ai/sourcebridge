@@ -41,3 +41,32 @@ Deterministic scaffold JSON:
 Bounded architecture context JSON:
 {architecture_context_json}
 """
+
+
+def build_architecture_diagram_retry_prompt(
+    repository_name: str,
+    audience: str,
+    depth: str,
+    deterministic_diagram_json: str,
+    invalid_output: str,
+) -> str:
+    return f"""\
+The previous attempt to generate an architecture diagram for "{repository_name}" was invalid Mermaid.
+
+Target audience: {audience}
+Depth: {depth}
+
+You must return a single valid Mermaid flowchart only.
+Requirements:
+- Start with `flowchart LR` or `flowchart TD`
+- Define explicit nodes or subgraphs
+- Preserve the deterministic scaffold structure
+- Omit uncertain edges instead of guessing
+- No prose, no Markdown fences, no explanation
+
+Deterministic scaffold JSON:
+{deterministic_diagram_json}
+
+Invalid previous output:
+{invalid_output}
+"""
