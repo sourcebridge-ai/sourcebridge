@@ -87,6 +87,7 @@ def _system_view_fallback_mermaid(snapshot_json: str) -> str | None:
     lines: list[str] = ["flowchart LR"]
     component_ids: set[str] = set()
     interface_present = False
+    labels_by_id: dict[str, str] = {}
     for component in components:
         if not isinstance(component, dict):
             continue
@@ -95,16 +96,39 @@ def _system_view_fallback_mermaid(snapshot_json: str) -> str | None:
         if not comp_id or not label:
             continue
         component_ids.add(comp_id)
+        labels_by_id[comp_id] = label
         if component.get("kind") == "interface":
             interface_present = True
-        node_id = comp_id
-        lines.append(f'    {node_id}["{label}"]')
 
     if not component_ids:
         return None
+    group_specs = [
+        ("interfaces", "Interfaces", ["user_interfaces"]),
+        ("core_platform", "Core Platform", ["api_auth", "knowledge_orchestration", "code_graph_index"]),
+        ("execution", "Execution", ["background_workers"]),
+        ("storage_external", "Storage & External", ["repository_access", "persistence", "llm_provider"]),
+    ]
+
     if interface_present:
-        lines.insert(1, '    user["User"]')
-        lines.insert(2, "    user --> user_interfaces")
+        lines.append('    user["User"]')
+    for group_id, group_label, members in group_specs:
+        members = [member for member in members if member in component_ids]
+        if not members:
+            continue
+        lines.append(f'    subgraph {group_id}["{group_label}"]')
+        for member in members:
+            lines.append(f'        {member}["{labels_by_id[member]}"]')
+        lines.append("    end")
+    lines.extend([
+        "    classDef primary fill:#1f3b5b,stroke:#9fd3ff,color:#f5fbff,stroke-width:2px;",
+        "    classDef support fill:#263238,stroke:#90a4ae,color:#f5f7fa,stroke-width:1px;",
+        "    classDef external fill:#3f2f21,stroke:#f2c078,color:#fff7ea,stroke-width:1px;",
+        "    class user,user_interfaces,api_auth,knowledge_orchestration,background_workers primary;",
+        "    class code_graph_index,repository_access,persistence support;",
+        "    class llm_provider external;",
+    ])
+    if interface_present:
+        lines.append("    user --> user_interfaces")
 
     seen_edges: set[tuple[str, str]] = set()
     for flow in flows:

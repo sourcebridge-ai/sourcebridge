@@ -91,6 +91,8 @@ async def test_generate_architecture_diagram_falls_back_to_system_view() -> None
     assert len(provider.calls) == 2
     assert 'user["User"]' in result["mermaid_source"]
     assert 'user_interfaces["User Interfaces"]' in result["mermaid_source"]
+    assert 'subgraph interfaces["Interfaces"]' in result["mermaid_source"]
+    assert "classDef primary" in result["mermaid_source"]
     assert "fell back to deterministic system view" in result["repair_summary"]
     assert usage.input_tokens == 200
 

@@ -289,6 +289,9 @@ export function ArchitectureDiagram({
             </div>
           ) : (
             <div className="space-y-2 text-sm text-[var(--text-secondary)]">
+              <div className="text-[var(--text-primary)]">
+                This view highlights the primary request path through SourceBridge, then shows the supporting knowledge, storage, repository, and LLM dependencies around it.
+              </div>
               {aiMetadata.validationStatus && (
                 <div>Validation: <span className="text-[var(--text-primary)]">{aiMetadata.validationStatus}</span></div>
               )}
