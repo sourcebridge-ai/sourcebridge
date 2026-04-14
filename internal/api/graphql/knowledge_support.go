@@ -61,12 +61,27 @@ type architectureDiagramPromptBundle struct {
 	DocumentationHighlights []architectureDiagramDocHighlight `json:"documentation_highlights,omitempty"`
 	RepositoryUnderstanding []map[string]string               `json:"repository_understanding,omitempty"`
 	CliffNotesHighlights    []map[string]string               `json:"cliff_notes_highlights,omitempty"`
+	SystemComponents        []architectureSystemComponent     `json:"system_components,omitempty"`
+	SystemFlows             []architectureSystemFlow          `json:"system_flows,omitempty"`
 	DeterministicScaffold   architectureDiagramScaffold       `json:"deterministic_scaffold"`
 }
 
 type architectureDiagramDocHighlight struct {
 	Path    string `json:"path"`
 	Content string `json:"content,omitempty"`
+}
+
+type architectureSystemComponent struct {
+	ID          string   `json:"id"`
+	Label       string   `json:"label"`
+	Kind        string   `json:"kind"`
+	ModulePaths []string `json:"module_paths,omitempty"`
+}
+
+type architectureSystemFlow struct {
+	SourceID string `json:"source_id"`
+	TargetID string `json:"target_id"`
+	Summary  string `json:"summary,omitempty"`
 }
 
 func buildArchitectureDiagramScaffold(store graphstore.GraphStore, repoID string) ([]byte, error) {
@@ -189,7 +204,108 @@ func buildArchitectureDiagramPromptBundle(
 			return nil, fmt.Errorf("unmarshal architecture scaffold: %w", err)
 		}
 	}
+	bundle.SystemComponents, bundle.SystemFlows = architectureDiagramSystemView(bundle.DeterministicScaffold)
 	return json.Marshal(bundle)
+}
+
+func architectureDiagramSystemView(
+	scaffold architectureDiagramScaffold,
+) ([]architectureSystemComponent, []architectureSystemFlow) {
+	if len(scaffold.Modules) == 0 {
+		return nil, nil
+	}
+	componentOrder := []architectureSystemComponent{
+		{ID: "user_interfaces", Label: "User Interfaces", Kind: "interface"},
+		{ID: "api_auth", Label: "API & Auth", Kind: "service"},
+		{ID: "knowledge_orchestration", Label: "Knowledge Orchestration", Kind: "orchestration"},
+		{ID: "background_workers", Label: "Background Workers", Kind: "worker"},
+		{ID: "code_graph_index", Label: "Code Graph & Index", Kind: "analysis"},
+		{ID: "repository_access", Label: "Repository Access", Kind: "integration"},
+		{ID: "persistence", Label: "Persistence", Kind: "storage"},
+		{ID: "configuration", Label: "Configuration", Kind: "support"},
+		{ID: "supporting", Label: "Supporting Services", Kind: "support"},
+	}
+	componentByID := make(map[string]*architectureSystemComponent, len(componentOrder))
+	for i := range componentOrder {
+		componentByID[componentOrder[i].ID] = &componentOrder[i]
+	}
+	moduleToComponent := make(map[string]string, len(scaffold.Modules))
+	for _, mod := range scaffold.Modules {
+		componentID := architectureComponentForModule(mod.Path)
+		moduleToComponent[mod.Path] = componentID
+		component := componentByID[componentID]
+		component.ModulePaths = append(component.ModulePaths, mod.Path)
+	}
+	flowCounts := make(map[string]int)
+	for _, mod := range scaffold.Modules {
+		srcID := moduleToComponent[mod.Path]
+		for _, outbound := range mod.OutboundPaths {
+			tgtID := architectureComponentForModule(outbound)
+			if srcID == "" || tgtID == "" || srcID == tgtID {
+				continue
+			}
+			flowCounts[srcID+"->"+tgtID]++
+		}
+	}
+	components := make([]architectureSystemComponent, 0, len(componentOrder))
+	for _, component := range componentOrder {
+		if len(component.ModulePaths) == 0 {
+			continue
+		}
+		sort.Strings(component.ModulePaths)
+		components = append(components, component)
+	}
+	flows := make([]architectureSystemFlow, 0, len(flowCounts))
+	for key, count := range flowCounts {
+		parts := strings.SplitN(key, "->", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		summary := "primary flow"
+		if count > 3 {
+			summary = "major flow"
+		}
+		flows = append(flows, architectureSystemFlow{
+			SourceID: parts[0],
+			TargetID: parts[1],
+			Summary:  summary,
+		})
+	}
+	sort.Slice(flows, func(i, j int) bool {
+		if flows[i].SourceID == flows[j].SourceID {
+			return flows[i].TargetID < flows[j].TargetID
+		}
+		return flows[i].SourceID < flows[j].SourceID
+	})
+	return components, flows
+}
+
+func architectureComponentForModule(modulePath string) string {
+	modulePath = strings.Trim(strings.TrimSpace(modulePath), "/")
+	switch {
+	case modulePath == "", modulePath == ".", modulePath == "root":
+		return "supporting"
+	case modulePath == "cmd", strings.HasPrefix(modulePath, "cmd/"), modulePath == "cli", strings.HasPrefix(modulePath, "cli/"), modulePath == "web", strings.HasPrefix(modulePath, "web/"), modulePath == "plugins", strings.HasPrefix(modulePath, "plugins/"):
+		return "user_interfaces"
+	case modulePath == "internal/api", strings.HasPrefix(modulePath, "internal/api/"), modulePath == "internal/auth", strings.HasPrefix(modulePath, "internal/auth/"):
+		return "api_auth"
+	case modulePath == "internal/knowledge", strings.HasPrefix(modulePath, "internal/knowledge/"):
+		return "knowledge_orchestration"
+	case modulePath == "internal/worker", strings.HasPrefix(modulePath, "internal/worker/"), modulePath == "workers", strings.HasPrefix(modulePath, "workers/"):
+		return "background_workers"
+	case modulePath == "internal/graph", strings.HasPrefix(modulePath, "internal/graph/"), modulePath == "internal/indexer", strings.HasPrefix(modulePath, "internal/indexer/"):
+		return "code_graph_index"
+	case modulePath == "internal/git", strings.HasPrefix(modulePath, "internal/git/"):
+		return "repository_access"
+	case modulePath == "internal/db", strings.HasPrefix(modulePath, "internal/db/"):
+		return "persistence"
+	case modulePath == "internal/config", strings.HasPrefix(modulePath, "internal/config/"):
+		return "configuration"
+	case strings.HasPrefix(modulePath, "tests/"), strings.HasSuffix(modulePath, "/tests"):
+		return "supporting"
+	default:
+		return "supporting"
+	}
 }
 
 func architectureDiagramCapSymbols(in []knowledgepkg.SymbolRef, limit int) []knowledgepkg.SymbolRef {

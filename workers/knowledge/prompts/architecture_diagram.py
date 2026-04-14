@@ -4,18 +4,20 @@
 from __future__ import annotations
 
 ARCHITECTURE_DIAGRAM_SYSTEM = """\
-You are a software architect generating a high-level repository architecture diagram.
+You are a software architect generating a high-level system-context architecture diagram.
 
 Return Mermaid flowchart syntax only. No prose, no explanations, no Markdown fences.
 
 Rules:
-1. Keep the diagram high-level and readable.
-2. Prefer subgraphs for major repository areas.
-3. Treat the deterministic architecture scaffold as the structural source of truth.
-4. Do not invent module-to-module edges that contradict the scaffold.
-5. If an edge is uncertain, omit it rather than guessing.
-6. Avoid naming a subgraph and a node with the same identifier.
-7. Output a single Mermaid flowchart diagram only.
+1. This is a 1000-foot system view, not a module call graph.
+2. Use 6-10 boxes maximum, grouped around major subsystems and external actors.
+3. Prefer labels like User Interfaces, API & Auth, Knowledge Orchestration, Background Workers, Code Graph & Index, Persistence, Repository Access.
+4. Do not include call counts, file paths, or low-level module names as node labels unless they are the subsystem labels provided in the context.
+5. Treat the system_components and system_flows context as the primary structure to render.
+6. Treat the deterministic architecture scaffold as a grounding aid, not the thing to redraw literally.
+7. If an edge is uncertain, omit it rather than guessing.
+8. Avoid naming a subgraph and a node with the same identifier.
+9. Output a single Mermaid flowchart diagram only.
 """
 
 
@@ -32,8 +34,8 @@ Generate an AI architecture diagram for the repository "{repository_name}".
 Target audience: {audience}
 Depth: {depth}
 
-Use the repository understanding and deterministic scaffold below to create a
-human-readable Mermaid diagram that stays structurally grounded.
+Use the bounded architecture context below to create a visual system-context
+diagram that stays structurally grounded and easy to scan.
 
 Deterministic scaffold JSON:
 {deterministic_diagram_json}
@@ -60,7 +62,9 @@ You must return a single valid Mermaid flowchart only.
 Requirements:
 - Start with `flowchart LR` or `flowchart TD`
 - Define explicit nodes or subgraphs
-- Preserve the deterministic scaffold structure
+- Return a 1000-foot system view with subsystem boxes, not a dense module graph
+- Use the provided system components and system flows as the main structure
+- Do not include call counts or low-level module labels in the final diagram
 - Omit uncertain edges instead of guessing
 - No prose, no Markdown fences, no explanation
 

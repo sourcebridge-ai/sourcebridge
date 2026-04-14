@@ -68,4 +68,10 @@ func TestBuildArchitectureDiagramPromptBundleBoundsLargeSnapshotContext(t *testi
 	if bundle.DeterministicScaffold.Level != "MODULE" {
 		t.Fatalf("expected scaffold level MODULE, got %q", bundle.DeterministicScaffold.Level)
 	}
+	if len(bundle.SystemComponents) == 0 {
+		t.Fatal("expected system components")
+	}
+	if len(bundle.SystemFlows) == 0 {
+		t.Fatal("expected system flows")
+	}
 }
