@@ -152,6 +152,43 @@ def _system_view_fallback_mermaid(snapshot_json: str) -> str | None:
     return "\n".join(lines)
 
 
+def _load_system_context(snapshot_json: str) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    try:
+        payload = json.loads(snapshot_json)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return [], []
+    components = payload.get("system_components") or []
+    flows = payload.get("system_flows") or []
+    if not isinstance(components, list):
+        components = []
+    if not isinstance(flows, list):
+        flows = []
+    return components, flows
+
+
+def _system_view_summary(repository_name: str, snapshot_json: str) -> str:
+    components, _ = _load_system_context(snapshot_json)
+    component_ids = {
+        str(component.get("id", "")).strip()
+        for component in components
+        if isinstance(component, dict)
+    }
+    if not component_ids:
+        return f"{repository_name} is shown as a high-level system view."
+    parts = [f"{repository_name} routes user requests through the interfaces and API"]
+    if "knowledge_orchestration" in component_ids:
+        parts.append("hands knowledge generation to the orchestration layer")
+    if "background_workers" in component_ids:
+        parts.append("executes jobs in background workers")
+    if "code_graph_index" in component_ids:
+        parts.append("grounds analysis in the code graph and repository understanding")
+    if "persistence" in component_ids:
+        parts.append("persists artifacts and job state")
+    if "llm_provider" in component_ids:
+        parts.append("and calls the configured LLM provider when synthesis is needed")
+    return ", ".join(parts) + "."
+
+
 def _diagram_quality_issues(mermaid_source: str) -> list[str]:
     issues: list[str] = []
     validation = validate_and_repair_mermaid(mermaid_source)
@@ -229,6 +266,7 @@ async def generate_architecture_diagram(
         operation="architecture_diagram",
         entity_name=repository_name,
     )
+    generation_strategy = "llm"
     try:
         validation = validate_and_repair_mermaid(response.content)
     except ValueError as exc:
@@ -269,6 +307,7 @@ async def generate_architecture_diagram(
             if not fallback:
                 raise retry_exc
             validation = validate_and_repair_mermaid(fallback)
+            generation_strategy = "fallback"
             repair_summary = validation.repair_summary.strip()
             validation.repair_summary = "; ".join(
                 part
@@ -322,6 +361,7 @@ async def generate_architecture_diagram(
             if not fallback:
                 raise quality_exc
             validation = validate_and_repair_mermaid(fallback)
+            generation_strategy = "fallback"
             repair_summary = validation.repair_summary.strip()
             validation.repair_summary = "; ".join(
                 part
@@ -335,20 +375,24 @@ async def generate_architecture_diagram(
     deterministic_edges = _deterministic_edges(deterministic_diagram_json)
     ai_edges = infer_edge_labels(validation)
     inferred_edges = sorted(f"{src} -> {tgt}" for src, tgt in ai_edges if (src, tgt) not in deterministic_edges)
-    if inferred_edges and validation.validation_status == "valid":
+    if inferred_edges and validation.validation_status == "valid" and generation_strategy == "llm":
         validation.validation_status = "repaired"
+        generation_strategy = "repaired"
         repair_summary = validation.repair_summary.strip()
         validation.repair_summary = "; ".join(
             part for part in [repair_summary, "flagged inferred edges outside deterministic scaffold"] if part
         )
+    elif validation.validation_status == "repaired" and generation_strategy == "llm":
+        generation_strategy = "repaired"
 
     result = {
         "mermaid_source": validation.mermaid_source,
         "raw_mermaid_source": validation.raw_mermaid_source,
         "validation_status": validation.validation_status,
         "repair_summary": validation.repair_summary,
-        "diagram_summary": f"AI-authored architecture diagram for {repository_name}",
+        "diagram_summary": _system_view_summary(repository_name, snapshot_json),
         "evidence": _build_evidence(deterministic_diagram_json),
         "inferred_edges": inferred_edges,
+        "generation_strategy": generation_strategy,
     }
     return result, usage

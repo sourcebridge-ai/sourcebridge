@@ -94,6 +94,8 @@ async def test_generate_architecture_diagram_falls_back_to_system_view() -> None
     assert 'subgraph interfaces["Interfaces"]' in result["mermaid_source"]
     assert "classDef primary" in result["mermaid_source"]
     assert "fell back to deterministic system view" in result["repair_summary"]
+    assert result["generation_strategy"] == "fallback"
+    assert "routes user requests through the interfaces and API" in result["diagram_summary"]
     assert usage.input_tokens == 200
 
 
@@ -147,5 +149,6 @@ background_workers -->|stores artifacts and job state| persistence""",
     assert len(provider.calls) == 2
     assert "primary flow" not in result["mermaid_source"]
     assert "regenerated diagram to satisfy system-view quality gate" in result["repair_summary"]
+    assert result["generation_strategy"] == "repaired"
     assert usage.input_tokens == 200
     assert usage.output_tokens == 100

@@ -1942,6 +1942,7 @@ func (r *mutationResolver) GenerateArchitectureDiagram(ctx context.Context, inpu
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
 
 		architecturePromptJSON := snapJSON
+		var architectureBundle architectureDiagramPromptBundle
 		var understandingForDiagram *knowledgepkg.RepositoryUnderstanding
 		if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, artifact, snap.SourceRevision, snapJSON); err != nil {
 			return err
@@ -1956,6 +1957,9 @@ func (r *mutationResolver) GenerateArchitectureDiagram(ctx context.Context, inpu
 			return err
 		} else {
 			architecturePromptJSON = promptJSON
+			if err := json.Unmarshal(promptJSON, &architectureBundle); err != nil {
+				return fmt.Errorf("failed to unmarshal architecture prompt bundle: %w", err)
+			}
 		}
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
@@ -1996,7 +2000,7 @@ func (r *mutationResolver) GenerateArchitectureDiagram(ctx context.Context, inpu
 			SectionKey:       "ai_architecture_diagram",
 			Content:          resp.MermaidSource,
 			Summary:          resp.DiagramSummary,
-			Metadata:         architectureDiagramMetadataJSON(resp),
+			Metadata:         architectureDiagramMetadataJSON(resp, &architectureBundle),
 			Confidence:       knowledgepkg.ConfidenceMedium,
 			Inferred:         len(resp.InferredEdges) > 0,
 			RefinementStatus: "light",
@@ -2852,10 +2856,14 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			if err != nil {
 				return err
 			}
+			var architectureBundle architectureDiagramPromptBundle
 			if promptJSON, err := buildArchitectureDiagramPromptBundle(r.KnowledgeStore, repo.ID, existing.Audience, snap, understandingForDiagram, scaffoldJSON); err != nil {
 				return err
 			} else {
 				architecturePromptJSON = promptJSON
+				if err := json.Unmarshal(promptJSON, &architectureBundle); err != nil {
+					return fmt.Errorf("failed to unmarshal architecture prompt bundle: %w", err)
+				}
 			}
 			resp, err := r.Worker.GenerateArchitectureDiagram(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "architecture_diagram"), &knowledgev1.GenerateArchitectureDiagramRequest{
 				RepositoryId:             repo.ID,
@@ -2875,7 +2883,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				SectionKey:       "ai_architecture_diagram",
 				Content:          resp.MermaidSource,
 				Summary:          resp.DiagramSummary,
-				Metadata:         architectureDiagramMetadataJSON(resp),
+				Metadata:         architectureDiagramMetadataJSON(resp, &architectureBundle),
 				Confidence:       knowledgepkg.ConfidenceMedium,
 				Inferred:         len(resp.InferredEdges) > 0,
 				RefinementStatus: "light",

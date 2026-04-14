@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	knowledgev1 "github.com/sourcebridge/sourcebridge/gen/go/knowledge/v1"
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
 )
 
@@ -79,5 +80,49 @@ func TestBuildArchitectureDiagramPromptBundleBoundsLargeSnapshotContext(t *testi
 		if flow.Summary == "primary flow" || flow.Summary == "major flow" {
 			t.Fatalf("expected semantic flow label, got %q", flow.Summary)
 		}
+	}
+}
+
+func TestArchitectureDiagramMetadataIncludesExecutionViewAndStrategy(t *testing.T) {
+	bundle := architectureDiagramPromptBundle{
+		SystemComponents: []architectureSystemComponent{
+			{ID: "user_interfaces", Label: "User Interfaces"},
+			{ID: "api_auth", Label: "API & Auth"},
+			{ID: "knowledge_orchestration", Label: "Knowledge Orchestration"},
+			{ID: "background_workers", Label: "Background Workers"},
+			{ID: "code_graph_index", Label: "Code Graph & Index"},
+			{ID: "repository_access", Label: "Repository Access"},
+			{ID: "persistence", Label: "Persistence"},
+			{ID: "llm_provider", Label: "LLM Provider"},
+		},
+	}
+	resp := &knowledgev1.GenerateArchitectureDiagramResponse{
+		MermaidSource:     "flowchart LR\napi-->worker",
+		RawMermaidSource:  "flowchart LR\napi-->worker",
+		ValidationStatus:  "repaired",
+		RepairSummary:     "fell back to deterministic system view: invalid Mermaid",
+		DiagramSummary:    "SourceBridge routes user requests through the interfaces and API, hands knowledge generation to the orchestration layer, executes jobs in background workers, grounds analysis in the code graph and repository understanding, persists artifacts and job state, and calls the configured LLM provider when synthesis is needed.",
+		InferredEdges:     []string{"api -> worker"},
+	}
+
+	raw := architectureDiagramMetadataJSON(resp, &bundle)
+	if raw == "" {
+		t.Fatal("expected metadata JSON")
+	}
+	var meta architectureDiagramSectionMetadata
+	if err := json.Unmarshal([]byte(raw), &meta); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if meta.GenerationStrategy != "fallback" {
+		t.Fatalf("expected fallback generation strategy, got %q", meta.GenerationStrategy)
+	}
+	if !strings.Contains(meta.ExecutionMermaid, "subgraph request_path") {
+		t.Fatalf("expected execution mermaid in metadata, got %q", meta.ExecutionMermaid)
+	}
+	if !strings.Contains(meta.ExecutionSummary, "background workers execute generation jobs") {
+		t.Fatalf("unexpected execution summary %q", meta.ExecutionSummary)
+	}
+	if !strings.Contains(meta.SystemSummary, "SourceBridge routes user requests") {
+		t.Fatalf("unexpected system summary %q", meta.SystemSummary)
 	}
 }

@@ -31,6 +31,7 @@ interface ArchitectureDiagramProps {
 }
 
 type DiagramViewMode = "DETERMINISTIC" | "AI";
+type AIDiagramFocus = "SYSTEM" | "EXECUTION";
 
 interface AIDiagramSection {
   content: string;
@@ -55,6 +56,10 @@ function parseArchitectureMetadata(metadata?: string | null): {
   validationStatus?: string;
   repairSummary?: string;
   inferredEdges?: string[];
+  generationStrategy?: string;
+  executionMermaidSource?: string;
+  executionSummary?: string;
+  systemSummary?: string;
 } {
   if (!metadata) return {};
   try {
@@ -63,6 +68,10 @@ function parseArchitectureMetadata(metadata?: string | null): {
       validationStatus: parsed.validation_status,
       repairSummary: parsed.repair_summary,
       inferredEdges: Array.isArray(parsed.inferred_edges) ? parsed.inferred_edges : [],
+      generationStrategy: parsed.generation_strategy,
+      executionMermaidSource: parsed.execution_mermaid_source,
+      executionSummary: parsed.execution_summary,
+      systemSummary: parsed.system_summary,
     };
   } catch {
     return {};
@@ -74,10 +83,12 @@ export function ArchitectureDiagram({
   onModuleClick,
 }: ArchitectureDiagramProps) {
   const [viewMode, setViewMode] = useState<DiagramViewMode>("DETERMINISTIC");
+  const [aiFocus, setAIFocus] = useState<AIDiagramFocus>("SYSTEM");
   const [level, setLevel] = useState<"MODULE" | "FILE">("MODULE");
   const [moduleFilter, setModuleFilter] = useState<string | null>(null);
   const [moduleDepth, setModuleDepth] = useState(1);
   const [copied, setCopied] = useState(false);
+  const [renderError, setRenderError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [deterministicResult] = useQuery({
@@ -110,36 +121,52 @@ export function ArchitectureDiagram({
   const aiSection = aiArtifact?.sections?.[0] ?? null;
   const aiMetadata = parseArchitectureMetadata(aiSection?.metadata);
 
+  const aiSystemMermaidSource = aiSection?.content ?? "";
+  const aiExecutionMermaidSource = aiMetadata.executionMermaidSource ?? "";
   const currentMermaidSource =
-    viewMode === "AI" ? aiSection?.content ?? "" : deterministicDiagram?.mermaidSource ?? "";
+    viewMode === "AI"
+      ? (aiFocus === "EXECUTION" ? aiExecutionMermaidSource : aiSystemMermaidSource)
+      : deterministicDiagram?.mermaidSource ?? "";
+  const currentAICaption =
+    aiFocus === "EXECUTION"
+      ? aiMetadata.executionSummary || "This view follows the request-to-worker execution path and the supporting systems around it."
+      : aiMetadata.systemSummary || aiSection?.summary || "This view highlights the main system context for the repository.";
 
   useEffect(() => {
     if (!currentMermaidSource || !containerRef.current) return;
     let cancelled = false;
 
     (async () => {
-      const mermaid = (await import("mermaid")).default;
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: "dark",
-        flowchart: { curve: "basis", padding: 16 },
-        securityLevel: "loose",
-      });
+      try {
+        setRenderError(null);
+        const mermaid = (await import("mermaid")).default;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: "dark",
+          flowchart: { curve: "basis", padding: 16 },
+          securityLevel: "loose",
+        });
 
-      if (cancelled) return;
-      const id = `arch-${repositoryId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}-${Date.now()}`;
-      const { svg } = await mermaid.render(id, currentMermaidSource);
-      if (!cancelled && containerRef.current) {
-        containerRef.current.innerHTML = svg;
-        if (viewMode === "DETERMINISTIC") {
-          containerRef.current.querySelectorAll<HTMLElement>(".node").forEach((node) => {
-            node.style.cursor = "pointer";
-            node.addEventListener("click", () => {
-              const nodeId = node.id;
-              const path = nodeId.replace(/^flowchart-/, "").replace(/-\d+$/, "").replace(/_/g, "/");
-              handleNodeClick(path);
+        if (cancelled) return;
+        const id = `arch-${repositoryId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}-${Date.now()}`;
+        const { svg } = await mermaid.render(id, currentMermaidSource);
+        if (!cancelled && containerRef.current) {
+          containerRef.current.innerHTML = svg;
+          if (viewMode === "DETERMINISTIC") {
+            containerRef.current.querySelectorAll<HTMLElement>(".node").forEach((node) => {
+              node.style.cursor = "pointer";
+              node.addEventListener("click", () => {
+                const nodeId = node.id;
+                const path = nodeId.replace(/^flowchart-/, "").replace(/-\d+$/, "").replace(/_/g, "/");
+                handleNodeClick(path);
+              });
             });
-          });
+          }
+        }
+      } catch (error) {
+        if (!cancelled && containerRef.current) {
+          containerRef.current.innerHTML = "";
+          setRenderError(error instanceof Error ? error.message : "Failed to render Mermaid diagram.");
         }
       }
     })();
@@ -147,8 +174,7 @@ export function ArchitectureDiagram({
     return () => {
       cancelled = true;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentMermaidSource, repositoryId, viewMode]);
+  }, [currentMermaidSource, repositoryId, viewMode, handleNodeClick]);
 
   const handleNodeClick = useCallback(
     (nodePath: string) => {
@@ -288,17 +314,45 @@ export function ArchitectureDiagram({
               {aiArtifact.errorMessage && <div>{aiArtifact.errorMessage}</div>}
             </div>
           ) : (
-            <div className="space-y-2 text-sm text-[var(--text-secondary)]">
-              <div className="text-[var(--text-primary)]">
-                This view highlights the primary request path through SourceBridge, then shows the supporting knowledge, storage, repository, and LLM dependencies around it.
+            <div className="space-y-3 text-sm text-[var(--text-secondary)]">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] p-1">
+                  <button
+                    type="button"
+                    onClick={() => setAIFocus("SYSTEM")}
+                    className={`rounded-full px-3 py-1.5 text-xs font-medium ${aiFocus === "SYSTEM" ? "bg-[var(--accent-primary)] text-[var(--accent-contrast)]" : "text-[var(--text-secondary)]"}`}
+                  >
+                    System View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAIFocus("EXECUTION")}
+                    className={`rounded-full px-3 py-1.5 text-xs font-medium ${aiFocus === "EXECUTION" ? "bg-[var(--accent-primary)] text-[var(--accent-contrast)]" : "text-[var(--text-secondary)]"}`}
+                    disabled={!aiExecutionMermaidSource}
+                  >
+                    Execution View
+                  </button>
+                </div>
+                <span className="rounded-full border border-[var(--border-default)] px-2.5 py-1 text-xs text-[var(--text-primary)]">
+                  {aiMetadata.generationStrategy === "fallback"
+                    ? "Deterministic fallback"
+                    : aiMetadata.generationStrategy === "repaired"
+                      ? "Repaired AI output"
+                      : "Model-generated"}
+                </span>
+                {aiMetadata.validationStatus && (
+                  <span className="rounded-full border border-[var(--border-default)] px-2.5 py-1 text-xs text-[var(--text-primary)]">
+                    Validation: {aiMetadata.validationStatus}
+                  </span>
+                )}
+                {aiMetadata.inferredEdges && aiMetadata.inferredEdges.length > 0 && (
+                  <span className="rounded-full border border-[var(--border-default)] px-2.5 py-1 text-xs text-[var(--text-primary)]">
+                    Inferred edges: {aiMetadata.inferredEdges.length}
+                  </span>
+                )}
               </div>
-              {aiMetadata.validationStatus && (
-                <div>Validation: <span className="text-[var(--text-primary)]">{aiMetadata.validationStatus}</span></div>
-              )}
+              <div className="text-[var(--text-primary)]">{currentAICaption}</div>
               {aiMetadata.repairSummary && <div>Repair: {aiMetadata.repairSummary}</div>}
-              {aiMetadata.inferredEdges && aiMetadata.inferredEdges.length > 0 && (
-                <div>Inferred edges: {aiMetadata.inferredEdges.length}</div>
-              )}
               {aiArtifact.understandingId && <div>Backed by repository understanding.</div>}
             </div>
           )}
@@ -306,7 +360,11 @@ export function ArchitectureDiagram({
       )}
 
       <Panel className="overflow-auto">
-        {currentMermaidSource ? (
+        {renderError ? (
+          <div className="flex min-h-[180px] items-center justify-center text-sm text-[var(--text-secondary)]">
+            {renderError}
+          </div>
+        ) : currentMermaidSource ? (
           <div
             ref={containerRef}
             className="min-h-[400px] w-full [&_svg]:mx-auto [&_svg]:max-h-[70vh]"

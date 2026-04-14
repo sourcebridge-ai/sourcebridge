@@ -41,10 +41,14 @@ type architectureDiagramScaffoldNode struct {
 }
 
 type architectureDiagramSectionMetadata struct {
-	RawMermaidSource string   `json:"raw_mermaid_source,omitempty"`
-	ValidationStatus string   `json:"validation_status,omitempty"`
-	RepairSummary    string   `json:"repair_summary,omitempty"`
-	InferredEdges    []string `json:"inferred_edges,omitempty"`
+	RawMermaidSource     string   `json:"raw_mermaid_source,omitempty"`
+	ValidationStatus     string   `json:"validation_status,omitempty"`
+	RepairSummary        string   `json:"repair_summary,omitempty"`
+	InferredEdges        []string `json:"inferred_edges,omitempty"`
+	GenerationStrategy   string   `json:"generation_strategy,omitempty"`
+	ExecutionMermaid     string   `json:"execution_mermaid_source,omitempty"`
+	ExecutionSummary     string   `json:"execution_summary,omitempty"`
+	SystemSummary        string   `json:"system_summary,omitempty"`
 }
 
 type architectureDiagramPromptBundle struct {
@@ -147,17 +151,28 @@ func enrichSnapshotWithArchitectureScaffold(snapshotJSON []byte, scaffoldJSON []
 	return enriched, true
 }
 
-func architectureDiagramMetadataJSON(resp *knowledgev1.GenerateArchitectureDiagramResponse) string {
-	if resp == nil {
+func architectureDiagramMetadataJSON(resp *knowledgev1.GenerateArchitectureDiagramResponse, bundle *architectureDiagramPromptBundle) string {
+	if resp == nil || bundle == nil {
 		return ""
 	}
 	meta := architectureDiagramSectionMetadata{
-		RawMermaidSource: strings.TrimSpace(resp.RawMermaidSource),
-		ValidationStatus: strings.TrimSpace(resp.ValidationStatus),
-		RepairSummary:    strings.TrimSpace(resp.RepairSummary),
-		InferredEdges:    append([]string(nil), resp.InferredEdges...),
+		RawMermaidSource:   strings.TrimSpace(resp.RawMermaidSource),
+		ValidationStatus:   strings.TrimSpace(resp.ValidationStatus),
+		RepairSummary:      strings.TrimSpace(resp.RepairSummary),
+		InferredEdges:      append([]string(nil), resp.InferredEdges...),
+		GenerationStrategy: architectureDiagramGenerationStrategy(resp),
+		ExecutionMermaid:   buildArchitectureExecutionViewMermaid(*bundle),
+		ExecutionSummary:   buildArchitectureExecutionSummary(*bundle),
+		SystemSummary:      strings.TrimSpace(resp.DiagramSummary),
 	}
-	if meta.RawMermaidSource == "" && meta.ValidationStatus == "" && meta.RepairSummary == "" && len(meta.InferredEdges) == 0 {
+	if meta.RawMermaidSource == "" &&
+		meta.ValidationStatus == "" &&
+		meta.RepairSummary == "" &&
+		len(meta.InferredEdges) == 0 &&
+		meta.GenerationStrategy == "" &&
+		meta.ExecutionMermaid == "" &&
+		meta.ExecutionSummary == "" &&
+		meta.SystemSummary == "" {
 		return ""
 	}
 	raw, err := json.Marshal(meta)
@@ -165,6 +180,21 @@ func architectureDiagramMetadataJSON(resp *knowledgev1.GenerateArchitectureDiagr
 		return ""
 	}
 	return string(raw)
+}
+
+func architectureDiagramGenerationStrategy(resp *knowledgev1.GenerateArchitectureDiagramResponse) string {
+	if resp == nil {
+		return ""
+	}
+	repairSummary := strings.ToLower(strings.TrimSpace(resp.GetRepairSummary()))
+	switch {
+	case strings.Contains(repairSummary, "fell back to deterministic system view"):
+		return "fallback"
+	case strings.TrimSpace(resp.GetValidationStatus()) == "repaired":
+		return "repaired"
+	default:
+		return "llm"
+	}
 }
 
 func buildArchitectureDiagramPromptBundle(
@@ -273,6 +303,99 @@ func architectureDiagramSystemView(
 		flows = append(flows, flow)
 	}
 	return components, flows
+}
+
+func buildArchitectureExecutionViewMermaid(bundle architectureDiagramPromptBundle) string {
+	if len(bundle.SystemComponents) == 0 {
+		return ""
+	}
+	componentsByID := make(map[string]architectureSystemComponent, len(bundle.SystemComponents))
+	for _, component := range bundle.SystemComponents {
+		componentsByID[component.ID] = component
+	}
+	required := []string{
+		"user_interfaces",
+		"api_auth",
+		"knowledge_orchestration",
+		"background_workers",
+	}
+	for _, id := range required {
+		if _, ok := componentsByID[id]; !ok {
+			return ""
+		}
+	}
+	lines := []string{
+		"flowchart TD",
+		`    user["User"]`,
+		`    subgraph request_path["Primary Request Path"]`,
+		`        user_interfaces["User Interfaces"]`,
+		`        api_auth["API & Auth"]`,
+		`        knowledge_orchestration["Knowledge Orchestration"]`,
+		`        background_workers["Background Workers"]`,
+		"    end",
+		`    subgraph supporting_systems["Supporting Systems"]`,
+	}
+	for _, id := range []string{"repository_access", "code_graph_index", "persistence", "llm_provider"} {
+		component, ok := componentsByID[id]
+		if !ok {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf(`        %s["%s"]`, id, component.Label))
+	}
+	lines = append(lines,
+		"    end",
+		"    classDef primary fill:#1f3b5b,stroke:#9fd3ff,color:#f5fbff,stroke-width:2px;",
+		"    classDef support fill:#263238,stroke:#90a4ae,color:#f5f7fa,stroke-width:1px;",
+		"    classDef external fill:#3f2f21,stroke:#f2c078,color:#fff7ea,stroke-width:1px;",
+		"    class user,user_interfaces,api_auth,knowledge_orchestration,background_workers primary;",
+		"    class code_graph_index,repository_access,persistence support;",
+		"    class llm_provider external;",
+		"    user --> user_interfaces",
+		`    user_interfaces -->|HTTP/API requests| api_auth`,
+		`    api_auth -->|routes generation requests| knowledge_orchestration`,
+		`    knowledge_orchestration -->|dispatches jobs| background_workers`,
+	)
+	if _, ok := componentsByID["repository_access"]; ok {
+		lines = append(lines, `    background_workers -->|reads repository snapshots| repository_access`)
+	}
+	if _, ok := componentsByID["code_graph_index"]; ok {
+		lines = append(lines, `    background_workers -->|loads graph and summaries| code_graph_index`)
+	}
+	if _, ok := componentsByID["persistence"]; ok {
+		lines = append(lines,
+			`    background_workers -->|stores artifacts and job state| persistence`,
+			`    api_auth -->|reads and writes metadata| persistence`,
+		)
+	}
+	if _, ok := componentsByID["llm_provider"]; ok {
+		lines = append(lines, `    background_workers -->|calls LLM provider| llm_provider`)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildArchitectureExecutionSummary(bundle architectureDiagramPromptBundle) string {
+	componentsByID := make(map[string]architectureSystemComponent, len(bundle.SystemComponents))
+	for _, component := range bundle.SystemComponents {
+		componentsByID[component.ID] = component
+	}
+	if len(componentsByID) == 0 {
+		return ""
+	}
+	parts := []string{
+		"Requests move from the user interfaces into the API",
+		"the API hands knowledge work to the orchestration layer",
+		"background workers execute generation jobs",
+	}
+	if _, ok := componentsByID["code_graph_index"]; ok {
+		parts = append(parts, "workers ground that work in the code graph and repository understanding")
+	}
+	if _, ok := componentsByID["persistence"]; ok {
+		parts = append(parts, "results and job state are persisted")
+	}
+	if _, ok := componentsByID["llm_provider"]; ok {
+		parts = append(parts, "and the worker calls the configured LLM provider when synthesis is needed")
+	}
+	return strings.Join(parts, ", ") + "."
 }
 
 func architectureComponentForModule(modulePath string) string {
