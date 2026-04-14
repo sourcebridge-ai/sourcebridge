@@ -113,6 +113,7 @@ interface KnowledgeSection {
   title: string;
   content: string;
   summary: string | null;
+  metadata?: string | null;
   sectionKey?: string | null;
   refinementStatus?: string | null;
   confidence: string;
@@ -191,6 +192,15 @@ interface RepositoryUnderstanding {
     filePath?: string | null;
     symbolName?: string | null;
   };
+}
+
+interface CliffNotesSectionMetadata {
+  section_key?: string | null;
+  refinement_tier?: string | null;
+  refined_with_evidence?: boolean | null;
+  evidence_revision_fp?: string | null;
+  renderer_version?: string | null;
+  understanding_id?: string | null;
 }
 
 type RepositoryGenerationMode = "CLASSIC" | "UNDERSTANDING_FIRST";
@@ -400,6 +410,49 @@ function artifactRefinementSummary(artifact: KnowledgeArtifact | null | undefine
   if (refined > 0) parts.push(`${refined} refined`);
   if (deepened > 0) parts.push(`${deepened} deepened`);
   return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function parseCliffNotesSectionMetadata(section: KnowledgeSection): CliffNotesSectionMetadata | null {
+  if (!section.metadata?.trim()) return null;
+  try {
+    const parsed = JSON.parse(section.metadata) as CliffNotesSectionMetadata;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function shortFingerprint(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return trimmed.length > 12 ? trimmed.slice(0, 12) : trimmed;
+}
+
+function renderCliffNotesSectionProvenance(section: KnowledgeSection) {
+  const metadata = parseCliffNotesSectionMetadata(section);
+  if (!metadata) return null;
+  const parts: string[] = [];
+  if (metadata.refined_with_evidence) parts.push("Evidence-backed");
+  if (metadata.refinement_tier?.trim()) parts.push(`Tier ${metadata.refinement_tier.trim()}`);
+  if (metadata.renderer_version?.trim()) parts.push(`Renderer ${metadata.renderer_version.trim()}`);
+  const understanding = shortFingerprint(metadata.understanding_id);
+  if (understanding) parts.push(`Understanding ${understanding}`);
+  const evidenceRevision = shortFingerprint(metadata.evidence_revision_fp);
+  if (evidenceRevision) parts.push(`Evidence rev ${evidenceRevision}`);
+  if (!parts.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--text-tertiary)]">
+      {parts.map((part) => (
+        <span
+          key={part}
+          className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-0.5"
+        >
+          {part}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function renderKnowledgeProgress(artifact: KnowledgeArtifact, waitingLabel: string, job?: RepoJobView | null) {
@@ -1494,6 +1547,7 @@ export default function RepositoryDetailPage() {
         {expandedSection === section.id ? (
           <div className="mt-3">
             <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--text-secondary)]">{section.content}</p>
+            {renderCliffNotesSectionProvenance(section)}
             {section.evidence.length > 0 ? (
               <div className="mt-4 rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
                 <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Evidence</p>
@@ -2750,6 +2804,7 @@ export default function RepositoryDetailPage() {
                                 {expandedSection === section.id && (
                                   <div className="mt-3">
                                     <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--text-secondary)]">{section.content}</p>
+                                    {renderCliffNotesSectionProvenance(section)}
                                     {section.evidence.length > 0 && (
                                       <div className="mt-4 rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
                                         <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Evidence</p>
