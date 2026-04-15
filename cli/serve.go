@@ -104,9 +104,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	_ = db.NewCache(cfg.Storage)
 
 	knowledgeTimeoutProvider := func() time.Duration {
-		if cfg.LLM.TimeoutSecs > 0 {
-			return time.Duration(cfg.LLM.TimeoutSecs) * time.Second
-		}
+		// TimeoutSecs is for individual LLM completions (default 30s).
+		// Knowledge generation is a multi-step pipeline that takes much
+		// longer — use the dedicated constant (default 30 minutes).
 		return worker.TimeoutKnowledgeRepository
 	}
 
