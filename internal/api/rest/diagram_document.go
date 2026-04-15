@@ -192,6 +192,7 @@ func (s *Server) handleImportMermaid(w http.ResponseWriter, r *http.Request) {
 // handleExportDiagramMermaid generates and returns Mermaid source.
 func (s *Server) handleExportDiagramMermaid(w http.ResponseWriter, r *http.Request) {
 	repoID := chi.URLParam(r, "repoId")
+	depth, maxNodes := parseDiagramQueryParams(r)
 	doc := s.diagramStoreForRequest(r).GetDiagramDocument(repoID,
 		architecture.SourceUserEdited,
 		architecture.SourceImportedMermaid,
@@ -200,7 +201,7 @@ func (s *Server) handleExportDiagramMermaid(w http.ResponseWriter, r *http.Reque
 	)
 	if doc == nil {
 		var err error
-		doc, err = s.buildDeterministicDiagramDoc(r, repoID, 1, 30)
+		doc, err = s.buildDeterministicDiagramDoc(r, repoID, depth, maxNodes)
 		if err != nil {
 			http.Error(w, `{"error":"no diagram available"}`, http.StatusNotFound)
 			return
@@ -216,6 +217,7 @@ func (s *Server) handleExportDiagramMermaid(w http.ResponseWriter, r *http.Reque
 // handleExportDiagramJSON exports the structured document as JSON.
 func (s *Server) handleExportDiagramJSON(w http.ResponseWriter, r *http.Request) {
 	repoID := chi.URLParam(r, "repoId")
+	depth, maxNodes := parseDiagramQueryParams(r)
 	doc := s.diagramStoreForRequest(r).GetDiagramDocument(repoID,
 		architecture.SourceUserEdited,
 		architecture.SourceImportedMermaid,
@@ -224,7 +226,7 @@ func (s *Server) handleExportDiagramJSON(w http.ResponseWriter, r *http.Request)
 	)
 	if doc == nil {
 		var err error
-		doc, err = s.buildDeterministicDiagramDoc(r, repoID, 1, 30)
+		doc, err = s.buildDeterministicDiagramDoc(r, repoID, depth, maxNodes)
 		if err != nil {
 			http.Error(w, `{"error":"no diagram available"}`, http.StatusNotFound)
 			return
@@ -294,6 +296,22 @@ func (s *Server) handleDeleteDiagramDocument(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func parseDiagramQueryParams(r *http.Request) (depth int, maxNodes int) {
+	depth = 1
+	if raw := r.URL.Query().Get("depth"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 1 && parsed <= 3 {
+			depth = parsed
+		}
+	}
+	maxNodes = 30
+	if raw := r.URL.Query().Get("max_nodes"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 1 && parsed <= 100 {
+			maxNodes = parsed
+		}
+	}
+	return depth, maxNodes
 }
 
 func (s *Server) buildDeterministicDiagramDoc(r *http.Request, repoID string, depth int, maxNodes int) (*architecture.DiagramDocument, error) {

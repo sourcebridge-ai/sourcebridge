@@ -104,6 +104,7 @@ export function ArchitectureDiagram({
   const [selectedAIComponentId, setSelectedAIComponentId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [structuredMermaid, setStructuredMermaid] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [deterministicResult] = useQuery({
@@ -143,7 +144,7 @@ export function ArchitectureDiagram({
   const currentMermaidSource =
     viewMode === "AI"
       ? (aiFocus === "EXECUTION" ? aiExecutionMermaidSource : aiSystemMermaidSource)
-      : deterministicDiagram?.mermaidSource ?? "";
+      : structuredMermaid || deterministicDiagram?.mermaidSource || "";
   const currentAICaption =
     aiFocus === "EXECUTION"
       ? aiMetadata.executionSummary || "This view follows the request-to-worker execution path and the supporting systems around it."
@@ -166,6 +167,35 @@ export function ArchitectureDiagram({
     setLevel("FILE");
     setModuleFilter(modulePath);
   }, []);
+
+  useEffect(() => {
+    if (viewMode !== "DETERMINISTIC") {
+      return;
+    }
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const params = new URLSearchParams({ depth: String(moduleDepth) });
+        const response = await fetch(`/api/v1/diagrams/${repositoryId}/export/mermaid?${params.toString()}`);
+        if (!response.ok) {
+          throw new Error("Failed to load structured Mermaid");
+        }
+        const mermaid = await response.text();
+        if (!cancelled) {
+          setStructuredMermaid(mermaid);
+        }
+      } catch {
+        if (!cancelled) {
+          setStructuredMermaid(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [moduleDepth, moduleFilter, repositoryId, viewMode]);
 
   useEffect(() => {
     if (!currentMermaidSource || !containerRef.current) return;
