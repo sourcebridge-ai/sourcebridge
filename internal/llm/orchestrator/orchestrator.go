@@ -222,6 +222,13 @@ func (o *Orchestrator) reapStaleJobs() {
 		if job.Status == llm.StatusPending {
 			threshold = stalePendingThreshold
 		}
+		// Jobs waiting for a knowledge generation slot show phase
+		// "queued" or "backoff". They are alive and heartbeating but
+		// blocked behind other jobs. Use the longer pending threshold
+		// so they aren't reaped while legitimately waiting in line.
+		if job.ProgressPhase == "queued" || job.ProgressPhase == "backoff" {
+			threshold = stalePendingThreshold
+		}
 		if age < threshold {
 			continue
 		}
