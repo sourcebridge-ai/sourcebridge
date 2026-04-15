@@ -8,6 +8,10 @@ DISCUSSION_SYSTEM = (
     " in the provided context.\n"
     "Prefer a concise explanation of the specific requested behavior over a broad"
     " repository summary.\n"
+    "Keep the answer compact: usually 3-6 sentences or a short stepwise paragraph,"
+    " not a tutorial.\n"
+    "Do not include markdown headings, fenced code blocks, or long quoted snippets.\n"
+    "Never answer with Mermaid, pseudo-diagrams, or generated source unless the user explicitly asks for it.\n"
     "If the provided evidence is insufficient, say so explicitly.\n\n"
     "Return ONLY valid JSON with these fields:\n"
     '- "answer": string — clear, specific answer to the question\n'
@@ -28,7 +32,9 @@ def build_discussion_prompt(question: str, context_code: str, context_metadata: 
         "Instructions:\n"
         "- Answer the question using only the evidence below.\n"
         "- Focus on the primary implementation path most relevant to the question.\n"
+        "- Mention the request/refresh path when the question asks how something is generated or refreshed.\n"
         "- Cite the most relevant snippets in references.\n"
+        "- Include at least 2 references when the evidence supports them.\n"
         "- Only include related requirements that are explicitly present in the metadata/snippets.\n"
     )
     parts.append(f"Evidence:\n{context_code}")

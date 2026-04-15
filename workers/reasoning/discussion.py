@@ -18,10 +18,17 @@ def _parse_discussion(raw: str) -> DiscussionAnswer:
     refs = data.get("references", [])
     refs = [r for r in refs if isinstance(r, str) and r.strip()] if isinstance(refs, list) else []
 
+    answer_value = data.get("answer", "")
+    if not isinstance(answer_value, str):
+        return DiscussionAnswer(answer=strip_llm_wrapping(raw), references=refs)
+
+    reqs = data.get("related_requirements", [])
+    reqs = [r for r in reqs if isinstance(r, str) and r.strip()] if isinstance(reqs, list) else []
+
     return DiscussionAnswer(
-        answer=data.get("answer", ""),
+        answer=answer_value,
         references=refs,
-        related_requirements=data.get("related_requirements", []),
+        related_requirements=reqs,
     )
 
 
