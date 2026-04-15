@@ -61,10 +61,16 @@ func (m *mockKnowledgeStore) StoreKnowledgeArtifact(a *knowledge.Artifact) (*kno
 func (m *mockKnowledgeStore) ClaimArtifact(key knowledge.ArtifactKey, rev knowledge.SourceRevision) (*knowledge.Artifact, bool, error) {
 	return nil, false, nil
 }
+func (m *mockKnowledgeStore) ClaimArtifactWithMode(key knowledge.ArtifactKey, rev knowledge.SourceRevision, mode knowledge.GenerationMode) (*knowledge.Artifact, bool, error) {
+	return nil, false, nil
+}
 func (m *mockKnowledgeStore) GetKnowledgeArtifact(id string) *knowledge.Artifact {
 	return m.artifacts[id]
 }
 func (m *mockKnowledgeStore) GetArtifactByKey(key knowledge.ArtifactKey) *knowledge.Artifact {
+	return m.GetArtifactByKeyAndMode(key, "")
+}
+func (m *mockKnowledgeStore) GetArtifactByKeyAndMode(key knowledge.ArtifactKey, mode knowledge.GenerationMode) *knowledge.Artifact {
 	key = key.Normalized()
 	for _, a := range m.artifacts {
 		aKey := knowledge.ArtifactKey{
@@ -78,7 +84,8 @@ func (m *mockKnowledgeStore) GetArtifactByKey(key knowledge.ArtifactKey) *knowle
 			aKey.Type == key.Type &&
 			aKey.Audience == key.Audience &&
 			aKey.Depth == key.Depth &&
-			aKey.ScopeKey() == key.ScopeKey() {
+			aKey.ScopeKey() == key.ScopeKey() &&
+			(mode == "" || knowledge.NormalizeGenerationMode(a.GenerationMode) == knowledge.NormalizeGenerationMode(mode)) {
 			return a
 		}
 	}
@@ -124,6 +131,27 @@ func (m *mockKnowledgeStore) StoreKnowledgeEvidence(sectionID string, evidence [
 	return nil
 }
 func (m *mockKnowledgeStore) GetKnowledgeEvidence(sectionID string) []knowledge.Evidence {
+	return nil
+}
+func (m *mockKnowledgeStore) StoreRepositoryUnderstanding(u *knowledge.RepositoryUnderstanding) (*knowledge.RepositoryUnderstanding, error) {
+	return u, nil
+}
+func (m *mockKnowledgeStore) GetRepositoryUnderstanding(repoID string, scope knowledge.ArtifactScope) *knowledge.RepositoryUnderstanding {
+	return nil
+}
+func (m *mockKnowledgeStore) GetRepositoryUnderstandings(repoID string) []*knowledge.RepositoryUnderstanding {
+	return nil
+}
+func (m *mockKnowledgeStore) MarkRepositoryUnderstandingNeedsRefresh(repoID string) error {
+	return nil
+}
+func (m *mockKnowledgeStore) AttachArtifactUnderstanding(artifactID, understandingID, revisionFP string) error {
+	return nil
+}
+func (m *mockKnowledgeStore) StoreArtifactDependencies(artifactID string, dependencies []knowledge.ArtifactDependency) error {
+	return nil
+}
+func (m *mockKnowledgeStore) GetArtifactDependencies(artifactID string) []knowledge.ArtifactDependency {
 	return nil
 }
 

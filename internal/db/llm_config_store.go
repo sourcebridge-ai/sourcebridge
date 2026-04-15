@@ -24,17 +24,18 @@ func NewSurrealLLMConfigStore(client *SurrealDB) *SurrealLLMConfigStore {
 
 // LLMConfigRecord is the persisted LLM configuration.
 type LLMConfigRecord struct {
-	Provider       string `json:"provider"`
-	BaseURL        string `json:"base_url"`
-	APIKey         string `json:"api_key"`
-	SummaryModel   string `json:"summary_model"`
-	ReviewModel    string `json:"review_model"`
-	AskModel       string `json:"ask_model"`
-	KnowledgeModel string `json:"knowledge_model"`
-	ReportModel    string `json:"report_model"`
-	DraftModel     string `json:"draft_model"`
-	TimeoutSecs    int    `json:"timeout_secs"`
-	AdvancedMode   bool   `json:"advanced_mode"`
+	Provider                 string `json:"provider"`
+	BaseURL                  string `json:"base_url"`
+	APIKey                   string `json:"api_key"`
+	SummaryModel             string `json:"summary_model"`
+	ReviewModel              string `json:"review_model"`
+	AskModel                 string `json:"ask_model"`
+	KnowledgeModel           string `json:"knowledge_model"`
+	ArchitectureDiagramModel string `json:"architecture_diagram_model"`
+	ReportModel              string `json:"report_model"`
+	DraftModel               string `json:"draft_model"`
+	TimeoutSecs              int    `json:"timeout_secs"`
+	AdvancedMode             bool   `json:"advanced_mode"`
 }
 
 func (s *SurrealLLMConfigStore) LoadLLMConfig() (*LLMConfigRecord, error) {
@@ -46,7 +47,7 @@ func (s *SurrealLLMConfigStore) LoadLLMConfig() (*LLMConfigRecord, error) {
 	ctx := context.Background()
 
 	raw, err := surrealdb.Query[[]map[string]interface{}](ctx, db,
-		"SELECT provider, base_url, api_key, summary_model, review_model, ask_model, knowledge_model, report_model, draft_model, timeout_secs, advanced_mode FROM ca_llm_config WHERE id = type::thing('ca_llm_config', 'default') LIMIT 1",
+		"SELECT provider, base_url, api_key, summary_model, review_model, ask_model, knowledge_model, architecture_diagram_model, report_model, draft_model, timeout_secs, advanced_mode FROM ca_llm_config WHERE id = type::thing('ca_llm_config', 'default') LIMIT 1",
 		map[string]any{})
 	if err != nil {
 		slog.Warn("surreal llm config load query failed", "error", err)
@@ -69,15 +70,16 @@ func (s *SurrealLLMConfigStore) LoadLLMConfig() (*LLMConfigRecord, error) {
 
 	row := qr.Result[0]
 	rec := &LLMConfigRecord{
-		Provider:       strVal(row, "provider"),
-		BaseURL:        strVal(row, "base_url"),
-		APIKey:         strVal(row, "api_key"),
-		SummaryModel:   strVal(row, "summary_model"),
-		ReviewModel:    strVal(row, "review_model"),
-		AskModel:       strVal(row, "ask_model"),
-		KnowledgeModel: strVal(row, "knowledge_model"),
-		ReportModel:    strVal(row, "report_model"),
-		DraftModel:     strVal(row, "draft_model"),
+		Provider:                 strVal(row, "provider"),
+		BaseURL:                  strVal(row, "base_url"),
+		APIKey:                   strVal(row, "api_key"),
+		SummaryModel:             strVal(row, "summary_model"),
+		ReviewModel:              strVal(row, "review_model"),
+		AskModel:                 strVal(row, "ask_model"),
+		KnowledgeModel:           strVal(row, "knowledge_model"),
+		ArchitectureDiagramModel: strVal(row, "architecture_diagram_model"),
+		ReportModel:              strVal(row, "report_model"),
+		DraftModel:               strVal(row, "draft_model"),
 	}
 	if v, ok := row["timeout_secs"]; ok {
 		switch t := v.(type) {
@@ -115,6 +117,7 @@ func (s *SurrealLLMConfigStore) SaveLLMConfig(rec *LLMConfigRecord) error {
 		DEFINE FIELD IF NOT EXISTS review_model ON ca_llm_config TYPE string;
 		DEFINE FIELD IF NOT EXISTS ask_model ON ca_llm_config TYPE string;
 		DEFINE FIELD IF NOT EXISTS knowledge_model ON ca_llm_config TYPE string;
+		DEFINE FIELD IF NOT EXISTS architecture_diagram_model ON ca_llm_config TYPE string;
 		DEFINE FIELD IF NOT EXISTS report_model ON ca_llm_config TYPE string;
 		DEFINE FIELD IF NOT EXISTS draft_model ON ca_llm_config TYPE string;
 		DEFINE FIELD IF NOT EXISTS timeout_secs ON ca_llm_config TYPE int;
@@ -133,22 +136,24 @@ func (s *SurrealLLMConfigStore) SaveLLMConfig(rec *LLMConfigRecord) error {
 				review_model = $review_model,
 				ask_model = $ask_model,
 				knowledge_model = $knowledge_model,
+				architecture_diagram_model = $architecture_diagram_model,
 				report_model = $report_model,
 				draft_model = $draft_model,
 			timeout_secs = $timeout_secs,
 			advanced_mode = $advanced_mode`,
 		map[string]any{
-			"provider":        rec.Provider,
-			"base_url":        rec.BaseURL,
-			"api_key":         rec.APIKey,
-			"summary_model":   rec.SummaryModel,
-			"review_model":    rec.ReviewModel,
-			"ask_model":       rec.AskModel,
-			"knowledge_model": rec.KnowledgeModel,
-			"report_model":    rec.ReportModel,
-			"draft_model":     rec.DraftModel,
-			"timeout_secs":    rec.TimeoutSecs,
-			"advanced_mode":   rec.AdvancedMode,
+			"provider":                   rec.Provider,
+			"base_url":                   rec.BaseURL,
+			"api_key":                    rec.APIKey,
+			"summary_model":              rec.SummaryModel,
+			"review_model":               rec.ReviewModel,
+			"ask_model":                  rec.AskModel,
+			"knowledge_model":            rec.KnowledgeModel,
+			"architecture_diagram_model": rec.ArchitectureDiagramModel,
+			"report_model":               rec.ReportModel,
+			"draft_model":                rec.DraftModel,
+			"timeout_secs":               rec.TimeoutSecs,
+			"advanced_mode":              rec.AdvancedMode,
 		},
 	)
 	if err != nil {

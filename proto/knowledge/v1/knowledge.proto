@@ -14,6 +14,9 @@ service KnowledgeService {
   // GenerateLearningPath produces a guided learning path for a repository.
   rpc GenerateLearningPath(GenerateLearningPathRequest) returns (GenerateLearningPathResponse);
 
+  // GenerateArchitectureDiagram produces an AI-authored Mermaid architecture diagram.
+  rpc GenerateArchitectureDiagram(GenerateArchitectureDiagramRequest) returns (GenerateArchitectureDiagramResponse);
+
   // GenerateWorkflowStory produces a grounded narrative for how a workflow is used.
   rpc GenerateWorkflowStory(GenerateWorkflowStoryRequest) returns (GenerateWorkflowStoryResponse);
 
@@ -46,6 +49,26 @@ message GenerateCliffNotesResponse {
   CliffNotesDiagnostics diagnostics = 3;
 }
 
+message GenerateArchitectureDiagramRequest {
+  string repository_id = 1;
+  string repository_name = 2;
+  string audience = 3;
+  string depth = 4;
+  string snapshot_json = 5;
+  string deterministic_diagram_json = 6; // JSON-serialized deterministic diagram scaffold
+}
+
+message GenerateArchitectureDiagramResponse {
+  string mermaid_source = 1;
+  string raw_mermaid_source = 2;
+  string validation_status = 3; // "valid", "repaired", "invalid"
+  string repair_summary = 4;
+  string diagram_summary = 5;
+  repeated KnowledgeEvidence evidence = 6;
+  repeated string inferred_edges = 7;
+  sourcebridge.common.v1.LLMUsage usage = 8;
+}
+
 message CliffNotesDiagnostics {
   int32 cached_nodes = 1;
   int32 fallback_count = 2;
@@ -54,6 +77,11 @@ message CliffNotesDiagnostics {
   int32 file_cache_hits = 5;
   int32 package_cache_hits = 6;
   int32 root_cache_hits = 7;
+  int32 total_nodes = 8;
+  string corpus_id = 9;
+  string revision_fp = 10;
+  string strategy = 11;
+  string model_used = 12;
 }
 
 // GenerateLearningPathRequest carries the snapshot for learning path generation.

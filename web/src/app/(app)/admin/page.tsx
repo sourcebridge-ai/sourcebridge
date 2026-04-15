@@ -77,6 +77,7 @@ interface LLMConfigState {
   review_model: string;
   ask_model: string;
   knowledge_model: string;
+  architecture_diagram_model: string;
   report_model?: string;
   draft_model: string;
   timeout_secs: number;
@@ -153,6 +154,7 @@ export default function AdminPage() {
   const [llmReviewModel, setLlmReviewModel] = useState("");
   const [llmAskModel, setLlmAskModel] = useState("");
   const [llmKnowledgeModel, setLlmKnowledgeModel] = useState("");
+  const [llmArchitectureDiagramModel, setLlmArchitectureDiagramModel] = useState("");
   const [llmReportModel, setLlmReportModel] = useState("");
   const [llmTimeoutSecs, setLlmTimeoutSecs] = useState(30);
   const [llmAdvancedMode, setLlmAdvancedMode] = useState(false);
@@ -229,6 +231,7 @@ export default function AdminPage() {
       setLlmReviewModel(llmConfig.review_model || "");
       setLlmAskModel(llmConfig.ask_model || "");
       setLlmKnowledgeModel(llmConfig.knowledge_model || "");
+      setLlmArchitectureDiagramModel(llmConfig.architecture_diagram_model || "");
       setLlmReportModel(llmConfig.report_model || "");
       setLlmTimeoutSecs(llmConfig.timeout_secs || 30);
       setLlmAdvancedMode(llmConfig.advanced_mode || false);
@@ -249,6 +252,7 @@ export default function AdminPage() {
         setLlmReviewModel(defaults.model);
         setLlmAskModel(defaults.model);
         setLlmKnowledgeModel(defaults.model);
+        setLlmArchitectureDiagramModel(defaults.model);
         if (isEnterprise) {
           setLlmReportModel(defaults.model);
         }
@@ -277,6 +281,7 @@ export default function AdminPage() {
         review_model: llmReviewModel,
         ask_model: llmAskModel,
         knowledge_model: llmKnowledgeModel,
+        architecture_diagram_model: llmArchitectureDiagramModel,
         draft_model: llmDraftModel,
         timeout_secs: llmTimeoutSecs,
         advanced_mode: llmAdvancedMode,
@@ -615,6 +620,7 @@ export default function AdminPage() {
                             setLlmReviewModel(e.target.value);
                             setLlmAskModel(e.target.value);
                             setLlmKnowledgeModel(e.target.value);
+                            setLlmArchitectureDiagramModel(e.target.value);
                             if (isEnterprise) {
                               setLlmReportModel(e.target.value);
                             }
@@ -641,6 +647,7 @@ export default function AdminPage() {
                           setLlmReviewModel(e.target.value);
                           setLlmAskModel(e.target.value);
                           setLlmKnowledgeModel(e.target.value);
+                          setLlmArchitectureDiagramModel(e.target.value);
                           if (isEnterprise) {
                             setLlmReportModel(e.target.value);
                           }
@@ -660,6 +667,7 @@ export default function AdminPage() {
                         setLlmReviewModel(e.target.value);
                         setLlmAskModel(e.target.value);
                         setLlmKnowledgeModel(e.target.value);
+                        setLlmArchitectureDiagramModel(e.target.value);
                       }
                     }}
                     placeholder={providerDefaults[llmProvider]?.model || "model name"}
@@ -674,6 +682,50 @@ export default function AdminPage() {
                       : llmModels.length > 0
                         ? `${llmModels.length} model${llmModels.length !== 1 ? "s" : ""} available. Select from the list or type a custom model ID.`
                         : "Used for code summaries, reviews, and chat. All three tasks use the same model by default."}
+                </p>
+              </div>
+
+              <div className={fieldWrapClass}>
+                <label className={labelClass}>Architecture Diagram Model</label>
+                {llmModels.length > 0 ? (
+                  <div className="space-y-2">
+                    <select
+                      value={llmModels.some((m) => m.id === llmArchitectureDiagramModel) ? llmArchitectureDiagramModel : "__custom__"}
+                      onChange={(e) => {
+                        if (e.target.value !== "__custom__") {
+                          setLlmArchitectureDiagramModel(e.target.value);
+                        }
+                      }}
+                      className={selectClass}
+                    >
+                      {!llmModels.some((m) => m.id === llmArchitectureDiagramModel) && llmArchitectureDiagramModel && (
+                        <option value="__custom__">{llmArchitectureDiagramModel} (custom)</option>
+                      )}
+                      {filteredModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name ? `${m.name} (${m.id})` : m.id}{m.context_window ? ` [${formatCtx(m.context_window)}]` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={llmArchitectureDiagramModel}
+                      onChange={(e) => setLlmArchitectureDiagramModel(e.target.value)}
+                      placeholder={llmSummaryModel || "same as default"}
+                      className={monoInputClass}
+                    />
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={llmArchitectureDiagramModel}
+                    onChange={(e) => setLlmArchitectureDiagramModel(e.target.value)}
+                    placeholder={llmSummaryModel || "same as default"}
+                    className={monoInputClass}
+                  />
+                )}
+                <p className={helpTextClass}>
+                  Optional override for AI architecture diagrams. Leave empty to use the main model.
                 </p>
               </div>
 

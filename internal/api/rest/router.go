@@ -368,6 +368,13 @@ func (s *Server) setupRouter() {
 		r.Get("/api/v1/export/requirements", s.handleExportRequirements)
 		r.Get("/api/v1/export/symbols", s.handleExportSymbols)
 		r.Get("/api/v1/export/knowledge/{id}", s.handleExportKnowledgeArtifact)
+
+		// Diagram document API (structured architecture diagrams — read-only in OSS)
+		r.Get("/api/v1/diagrams/{repoId}", s.handleGetDiagramDocument)
+		r.Get("/api/v1/diagrams/{repoId}/structured", s.handleGetStructuredDiagram)
+		r.Post("/api/v1/diagrams/{repoId}/import", s.handleImportMermaid)
+		r.Get("/api/v1/diagrams/{repoId}/export/mermaid", s.handleExportDiagramMermaid)
+		r.Get("/api/v1/diagrams/{repoId}/export/json", s.handleExportDiagramJSON)
 	})
 
 	// MCP (Model Context Protocol) routes

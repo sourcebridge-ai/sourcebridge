@@ -11,8 +11,10 @@ package knowledge
 type KnowledgeStore interface {
 	StoreKnowledgeArtifact(artifact *Artifact) (*Artifact, error)
 	ClaimArtifact(key ArtifactKey, sourceRevision SourceRevision) (*Artifact, bool, error)
+	ClaimArtifactWithMode(key ArtifactKey, sourceRevision SourceRevision, mode GenerationMode) (*Artifact, bool, error)
 	GetKnowledgeArtifact(id string) *Artifact
 	GetArtifactByKey(key ArtifactKey) *Artifact
+	GetArtifactByKeyAndMode(key ArtifactKey, mode GenerationMode) *Artifact
 	GetKnowledgeArtifacts(repoID string) []*Artifact
 	UpdateKnowledgeArtifactStatus(id string, status ArtifactStatus) error
 	SetArtifactFailed(id string, code string, message string) error
@@ -27,7 +29,17 @@ type KnowledgeStore interface {
 
 	StoreKnowledgeSections(artifactID string, sections []Section) error
 	GetKnowledgeSections(artifactID string) []Section
+	StoreRefinementUnits(artifactID string, units []RefinementUnit) error
+	GetRefinementUnits(artifactID string) []RefinementUnit
 
 	StoreKnowledgeEvidence(sectionID string, evidence []Evidence) error
 	GetKnowledgeEvidence(sectionID string) []Evidence
+
+	StoreRepositoryUnderstanding(u *RepositoryUnderstanding) (*RepositoryUnderstanding, error)
+	GetRepositoryUnderstanding(repoID string, scope ArtifactScope) *RepositoryUnderstanding
+	GetRepositoryUnderstandings(repoID string) []*RepositoryUnderstanding
+	MarkRepositoryUnderstandingNeedsRefresh(repoID string) error
+	AttachArtifactUnderstanding(artifactID, understandingID, revisionFP string) error
+	StoreArtifactDependencies(artifactID string, dependencies []ArtifactDependency) error
+	GetArtifactDependencies(artifactID string) []ArtifactDependency
 }

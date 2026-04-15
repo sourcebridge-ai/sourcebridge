@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -20,11 +21,12 @@ import (
 // It bundles the four things the UI needs in one round trip: the system
 // health banner, active jobs, recent terminal jobs, and rollup metrics.
 type monitorActivityResponse struct {
-	Health  monitorHealth         `json:"health"`
-	Active  []monitorJobView      `json:"active"`
-	Recent  []monitorJobView      `json:"recent"`
-	Metrics orchestrator.Snapshot `json:"metrics"`
-	Control monitorQueueControl   `json:"control"`
+	Health  monitorHealth                `json:"health"`
+	Active  []monitorJobView             `json:"active"`
+	Recent  []monitorJobView             `json:"recent"`
+	Metrics orchestrator.Snapshot        `json:"metrics"`
+	Modes   map[string]monitorModeRollup `json:"modes,omitempty"`
+	Control monitorQueueControl          `json:"control"`
 	// Stats is derived queue state that tests and the Monitor header
 	// rely on (max concurrency, current in-flight, pending queue depth).
 	Stats monitorStats `json:"stats"`
@@ -49,10 +51,30 @@ type monitorStats struct {
 	TotalWaiting          int `json:"total_waiting"`
 	MaxConcurrency        int `json:"max_concurrency"`
 	RecentReusedSummaries int `json:"recent_reused_summaries"`
+	ActiveClassic         int `json:"active_classic"`
+	ActiveUnderstanding   int `json:"active_understanding_first"`
+	RecentClassic         int `json:"recent_classic"`
+	RecentUnderstanding   int `json:"recent_understanding_first"`
+	PendingInteractive    int `json:"pending_interactive"`
+	PendingMaintenance    int `json:"pending_maintenance"`
+	PendingPrewarm        int `json:"pending_prewarm"`
 }
 
 type monitorQueueControl struct {
 	IntakePaused bool `json:"intake_paused"`
+}
+
+type monitorModeRollup struct {
+	Total            int     `json:"total"`
+	Succeeded        int     `json:"succeeded"`
+	Failed           int     `json:"failed"`
+	Cancelled        int     `json:"cancelled"`
+	P50LatencyMs     int64   `json:"p50_latency_ms"`
+	P95LatencyMs     int64   `json:"p95_latency_ms"`
+	SuccessRate      float64 `json:"success_rate"`
+	ReusedSummaries  int     `json:"reused_summaries"`
+	CacheHits        int     `json:"cache_hits"`
+	AverageCacheHits float64 `json:"average_cache_hits"`
 }
 
 // monitorJobView is the serialization of an llm.Job for the Monitor page.
@@ -60,41 +82,50 @@ type monitorQueueControl struct {
 // of human-readable fields so the frontend doesn't have to duplicate
 // any of the formatting logic.
 type monitorJobView struct {
-	ID               string     `json:"id"`
-	Subsystem        string     `json:"subsystem"`
-	JobType          string     `json:"job_type"`
-	TargetKey        string     `json:"target_key"`
-	Strategy         string     `json:"strategy,omitempty"`
-	Model            string     `json:"model,omitempty"`
-	Status           string     `json:"status"`
-	Progress         float64    `json:"progress"`
-	ProgressPhase    string     `json:"progress_phase,omitempty"`
-	ProgressMessage  string     `json:"progress_message,omitempty"`
-	ErrorCode        string     `json:"error_code,omitempty"`
-	ErrorMessage     string     `json:"error_message,omitempty"`
-	ErrorTitle       string     `json:"error_title,omitempty"` // human-readable title derived from error_code
-	ErrorHint        string     `json:"error_hint,omitempty"`  // one-sentence remediation
-	RetryCount       int        `json:"retry_count"`
-	MaxAttempts      int        `json:"max_attempts"`
-	AttachedRequests int        `json:"attached_requests"`
-	InputTokens      int        `json:"input_tokens"`
-	OutputTokens     int        `json:"output_tokens"`
-	SnapshotBytes    int        `json:"snapshot_bytes"`
-	ReusedSummaries  int        `json:"reused_summaries"`
-	LeafCacheHits    int        `json:"leaf_cache_hits"`
-	FileCacheHits    int        `json:"file_cache_hits"`
-	PackageCacheHits int        `json:"package_cache_hits"`
-	RootCacheHits    int        `json:"root_cache_hits"`
-	ArtifactID       string     `json:"artifact_id,omitempty"`
-	RepoID           string     `json:"repo_id,omitempty"`
-	ElapsedMs        int64      `json:"elapsed_ms"`
-	QueuePosition    int        `json:"queue_position,omitempty"`
-	QueueDepth       int        `json:"queue_depth,omitempty"`
-	EstimatedWaitMs  int64      `json:"estimated_wait_ms,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	StartedAt        *time.Time `json:"started_at,omitempty"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	ID                  string     `json:"id"`
+	Subsystem           string     `json:"subsystem"`
+	JobType             string     `json:"job_type"`
+	TargetKey           string     `json:"target_key"`
+	Strategy            string     `json:"strategy,omitempty"`
+	Model               string     `json:"model,omitempty"`
+	Priority            string     `json:"priority,omitempty"`
+	GenerationMode      string     `json:"generation_mode,omitempty"`
+	Status              string     `json:"status"`
+	Progress            float64    `json:"progress"`
+	ProgressPhase       string     `json:"progress_phase,omitempty"`
+	ProgressMessage     string     `json:"progress_message,omitempty"`
+	ErrorCode           string     `json:"error_code,omitempty"`
+	ErrorMessage        string     `json:"error_message,omitempty"`
+	ErrorTitle          string     `json:"error_title,omitempty"` // human-readable title derived from error_code
+	ErrorHint           string     `json:"error_hint,omitempty"`  // one-sentence remediation
+	RetryCount          int        `json:"retry_count"`
+	MaxAttempts         int        `json:"max_attempts"`
+	AttachedRequests    int        `json:"attached_requests"`
+	InputTokens         int        `json:"input_tokens"`
+	OutputTokens        int        `json:"output_tokens"`
+	SnapshotBytes       int        `json:"snapshot_bytes"`
+	ReusedSummaries     int        `json:"reused_summaries"`
+	LeafCacheHits       int        `json:"leaf_cache_hits"`
+	FileCacheHits       int        `json:"file_cache_hits"`
+	PackageCacheHits    int        `json:"package_cache_hits"`
+	RootCacheHits       int        `json:"root_cache_hits"`
+	CachedNodesLoaded   int        `json:"cached_nodes_loaded"`
+	TotalNodes          int        `json:"total_nodes"`
+	ResumeStage         string     `json:"resume_stage,omitempty"`
+	SkippedLeafUnits    int        `json:"skipped_leaf_units"`
+	SkippedFileUnits    int        `json:"skipped_file_units"`
+	SkippedPackageUnits int        `json:"skipped_package_units"`
+	SkippedRootUnits    int        `json:"skipped_root_units"`
+	ArtifactID          string     `json:"artifact_id,omitempty"`
+	RepoID              string     `json:"repo_id,omitempty"`
+	ElapsedMs           int64      `json:"elapsed_ms"`
+	QueuePosition       int        `json:"queue_position,omitempty"`
+	QueueDepth          int        `json:"queue_depth,omitempty"`
+	EstimatedWaitMs     int64      `json:"estimated_wait_ms,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	StartedAt           *time.Time `json:"started_at,omitempty"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	CompletedAt         *time.Time `json:"completed_at,omitempty"`
 }
 
 type monitorJobLogView struct {
@@ -163,38 +194,47 @@ func toMonitorJobView(j *llm.Job) monitorJobView {
 	}
 	title, hint := errorTitleForCode(j.ErrorCode)
 	return monitorJobView{
-		ID:               j.ID,
-		Subsystem:        string(j.Subsystem),
-		JobType:          j.JobType,
-		TargetKey:        j.TargetKey,
-		Strategy:         j.Strategy,
-		Model:            j.Model,
-		Status:           string(j.Status),
-		Progress:         j.Progress,
-		ProgressPhase:    j.ProgressPhase,
-		ProgressMessage:  j.ProgressMessage,
-		ErrorCode:        j.ErrorCode,
-		ErrorMessage:     j.ErrorMessage,
-		ErrorTitle:       title,
-		ErrorHint:        hint,
-		RetryCount:       j.RetryCount,
-		MaxAttempts:      j.MaxAttempts,
-		AttachedRequests: j.AttachedRequests,
-		InputTokens:      j.InputTokens,
-		OutputTokens:     j.OutputTokens,
-		SnapshotBytes:    j.SnapshotBytes,
-		ReusedSummaries:  j.ReusedSummaries,
-		LeafCacheHits:    j.LeafCacheHits,
-		FileCacheHits:    j.FileCacheHits,
-		PackageCacheHits: j.PackageCacheHits,
-		RootCacheHits:    j.RootCacheHits,
-		ArtifactID:       j.ArtifactID,
-		RepoID:           j.RepoID,
-		ElapsedMs:        j.Elapsed().Milliseconds(),
-		CreatedAt:        j.CreatedAt,
-		StartedAt:        j.StartedAt,
-		UpdatedAt:        j.UpdatedAt,
-		CompletedAt:      j.CompletedAt,
+		ID:                  j.ID,
+		Subsystem:           string(j.Subsystem),
+		JobType:             j.JobType,
+		TargetKey:           j.TargetKey,
+		Strategy:            j.Strategy,
+		Model:               j.Model,
+		Priority:            string(j.Priority),
+		GenerationMode:      j.GenerationMode,
+		Status:              string(j.Status),
+		Progress:            j.Progress,
+		ProgressPhase:       j.ProgressPhase,
+		ProgressMessage:     j.ProgressMessage,
+		ErrorCode:           j.ErrorCode,
+		ErrorMessage:        j.ErrorMessage,
+		ErrorTitle:          title,
+		ErrorHint:           hint,
+		RetryCount:          j.RetryCount,
+		MaxAttempts:         j.MaxAttempts,
+		AttachedRequests:    j.AttachedRequests,
+		InputTokens:         j.InputTokens,
+		OutputTokens:        j.OutputTokens,
+		SnapshotBytes:       j.SnapshotBytes,
+		ReusedSummaries:     j.ReusedSummaries,
+		LeafCacheHits:       j.LeafCacheHits,
+		FileCacheHits:       j.FileCacheHits,
+		PackageCacheHits:    j.PackageCacheHits,
+		RootCacheHits:       j.RootCacheHits,
+		CachedNodesLoaded:   j.CachedNodesLoaded,
+		TotalNodes:          j.TotalNodes,
+		ResumeStage:         j.ResumeStage,
+		SkippedLeafUnits:    j.SkippedLeafUnits,
+		SkippedFileUnits:    j.SkippedFileUnits,
+		SkippedPackageUnits: j.SkippedPackageUnits,
+		SkippedRootUnits:    j.SkippedRootUnits,
+		ArtifactID:          j.ArtifactID,
+		RepoID:              j.RepoID,
+		ElapsedMs:           j.Elapsed().Milliseconds(),
+		CreatedAt:           j.CreatedAt,
+		StartedAt:           j.StartedAt,
+		UpdatedAt:           j.UpdatedAt,
+		CompletedAt:         j.CompletedAt,
 	}
 }
 
@@ -282,7 +322,8 @@ func (s *Server) handleLLMActivity(w http.ResponseWriter, r *http.Request) {
 	for _, j := range active {
 		activeViews = append(activeViews, toMonitorJobView(j))
 	}
-	enrichQueueMetadata(activeViews, s.orchestrator.PendingSnapshot(activeFilter), s.orchestrator.Metrics(), s.orchestrator.MaxConcurrency())
+	pending := s.orchestrator.PendingSnapshot(activeFilter)
+	enrichQueueMetadata(activeViews, pending, s.orchestrator.Metrics(), s.orchestrator.MaxConcurrency())
 	recentViews := make([]monitorJobView, 0, len(recent))
 	for _, j := range recent {
 		recentViews = append(recentViews, toMonitorJobView(j))
@@ -299,6 +340,7 @@ func (s *Server) handleLLMActivity(w http.ResponseWriter, r *http.Request) {
 		Active:  activeViews,
 		Recent:  recentViews,
 		Metrics: s.orchestrator.Metrics(),
+		Modes:   modeRollups(recentViews),
 		Control: monitorQueueControl{
 			IntakePaused: s.orchestrator.IntakePaused(),
 		},
@@ -309,15 +351,120 @@ func (s *Server) handleLLMActivity(w http.ResponseWriter, r *http.Request) {
 			TotalWaiting:          s.orchestrator.QueueDepth() + gateWaitingCount(activeViews),
 			MaxConcurrency:        s.orchestrator.MaxConcurrency(),
 			RecentReusedSummaries: totalReusedSummaries(recentViews),
+			ActiveClassic:         countGenerationMode(activeViews, "classic"),
+			ActiveUnderstanding:   countGenerationMode(activeViews, "understanding_first"),
+			RecentClassic:         countGenerationMode(recentViews, "classic"),
+			RecentUnderstanding:   countGenerationMode(recentViews, "understanding_first"),
+			PendingInteractive:    countPendingPriority(pending, llm.PriorityInteractive),
+			PendingMaintenance:    countPendingPriority(pending, llm.PriorityMaintenance),
+			PendingPrewarm:        countPendingPriority(pending, llm.PriorityPrewarm),
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func modeRollups(jobs []monitorJobView) map[string]monitorModeRollup {
+	if len(jobs) == 0 {
+		return nil
+	}
+	type accumulator struct {
+		durations []int64
+		total     int
+		succeeded int
+		failed    int
+		cancelled int
+		reused    int
+		cacheHits int
+	}
+	accs := map[string]*accumulator{}
+	for _, job := range jobs {
+		mode := job.GenerationMode
+		if mode == "" {
+			mode = "unspecified"
+		}
+		acc := accs[mode]
+		if acc == nil {
+			acc = &accumulator{}
+			accs[mode] = acc
+		}
+		acc.total++
+		acc.durations = append(acc.durations, job.ElapsedMs)
+		acc.reused += job.ReusedSummaries
+		acc.cacheHits += job.LeafCacheHits + job.FileCacheHits + job.PackageCacheHits + job.RootCacheHits
+		switch job.Status {
+		case string(llm.StatusReady):
+			acc.succeeded++
+		case string(llm.StatusFailed):
+			acc.failed++
+		case string(llm.StatusCancelled):
+			acc.cancelled++
+		}
+	}
+	out := make(map[string]monitorModeRollup, len(accs))
+	for mode, acc := range accs {
+		p50, p95 := orchestratorPercentiles(acc.durations)
+		successRate := 0.0
+		if acc.total > 0 {
+			successRate = float64(acc.succeeded) / float64(acc.total)
+		}
+		avgCacheHits := 0.0
+		if acc.total > 0 {
+			avgCacheHits = float64(acc.cacheHits) / float64(acc.total)
+		}
+		out[mode] = monitorModeRollup{
+			Total:            acc.total,
+			Succeeded:        acc.succeeded,
+			Failed:           acc.failed,
+			Cancelled:        acc.cancelled,
+			P50LatencyMs:     p50,
+			P95LatencyMs:     p95,
+			SuccessRate:      successRate,
+			ReusedSummaries:  acc.reused,
+			CacheHits:        acc.cacheHits,
+			AverageCacheHits: avgCacheHits,
+		}
+	}
+	return out
+}
+
+func orchestratorPercentiles(durations []int64) (int64, int64) {
+	if len(durations) == 0 {
+		return 0, 0
+	}
+	sorted := append([]int64(nil), durations...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	p50 := sorted[int(float64(len(sorted))*0.5)]
+	p95Idx := int(float64(len(sorted)) * 0.95)
+	if p95Idx >= len(sorted) {
+		p95Idx = len(sorted) - 1
+	}
+	return p50, sorted[p95Idx]
 }
 
 func totalReusedSummaries(jobs []monitorJobView) int {
 	total := 0
 	for _, job := range jobs {
 		total += job.ReusedSummaries
+	}
+	return total
+}
+
+func countGenerationMode(jobs []monitorJobView, mode string) int {
+	total := 0
+	for _, job := range jobs {
+		if job.GenerationMode == mode {
+			total++
+		}
+	}
+	return total
+}
+
+func countPendingPriority(jobs []*llm.Job, priority llm.JobPriority) int {
+	total := 0
+	for _, job := range jobs {
+		if job != nil && job.Priority == priority {
+			total++
+		}
 	}
 	return total
 }

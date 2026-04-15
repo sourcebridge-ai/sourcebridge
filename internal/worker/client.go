@@ -74,15 +74,15 @@ func timeoutForKnowledgeScope(scopeType string) time.Duration {
 // Client wraps gRPC connections to the Python worker and exposes typed service
 // clients for reasoning, linking, and requirements.
 type Client struct {
-	conn         *grpc.ClientConn
-	address      string
+	conn                     *grpc.ClientConn
+	address                  string
 	knowledgeTimeoutProvider func() time.Duration
-	Reasoning    reasoningv1.ReasoningServiceClient
-	Linking      linkingv1.LinkingServiceClient
-	Requirements requirementsv1.RequirementsServiceClient
-	Knowledge    knowledgev1.KnowledgeServiceClient
-	Contracts    contractsv1.ContractsServiceClient
-	Health       healthpb.HealthClient
+	Reasoning                reasoningv1.ReasoningServiceClient
+	Linking                  linkingv1.LinkingServiceClient
+	Requirements             requirementsv1.RequirementsServiceClient
+	Knowledge                knowledgev1.KnowledgeServiceClient
+	Contracts                contractsv1.ContractsServiceClient
+	Health                   healthpb.HealthClient
 }
 
 type Option func(*Client)
@@ -114,15 +114,15 @@ func New(address string, opts ...Option) (*Client, error) {
 	}
 
 	c := &Client{
-		conn:         conn,
-		address:      address,
+		conn:                     conn,
+		address:                  address,
 		knowledgeTimeoutProvider: func() time.Duration { return TimeoutKnowledgeRepository },
-		Reasoning:    reasoningv1.NewReasoningServiceClient(conn),
-		Linking:      linkingv1.NewLinkingServiceClient(conn),
-		Requirements: requirementsv1.NewRequirementsServiceClient(conn),
-		Knowledge:    knowledgev1.NewKnowledgeServiceClient(conn),
-		Contracts:    contractsv1.NewContractsServiceClient(conn),
-		Health:       healthpb.NewHealthClient(conn),
+		Reasoning:                reasoningv1.NewReasoningServiceClient(conn),
+		Linking:                  linkingv1.NewLinkingServiceClient(conn),
+		Requirements:             requirementsv1.NewRequirementsServiceClient(conn),
+		Knowledge:                knowledgev1.NewKnowledgeServiceClient(conn),
+		Contracts:                contractsv1.NewContractsServiceClient(conn),
+		Health:                   healthpb.NewHealthClient(conn),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -293,6 +293,14 @@ func (c *Client) GenerateLearningPath(ctx context.Context, req *knowledgev1.Gene
 	ctx, cancel := context.WithTimeout(ctx, c.repositoryKnowledgeTimeout())
 	defer cancel()
 	return c.Knowledge.GenerateLearningPath(ctx, req)
+}
+
+// GenerateArchitectureDiagram calls the knowledge worker to generate an AI architecture diagram.
+// Architecture diagrams are repository-scoped today.
+func (c *Client) GenerateArchitectureDiagram(ctx context.Context, req *knowledgev1.GenerateArchitectureDiagramRequest) (*knowledgev1.GenerateArchitectureDiagramResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.repositoryKnowledgeTimeout())
+	defer cancel()
+	return c.Knowledge.GenerateArchitectureDiagram(ctx, req)
 }
 
 // GenerateWorkflowStory calls the knowledge worker to generate a workflow story.

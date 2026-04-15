@@ -42,6 +42,8 @@ interface JobView {
   target_key: string;
   strategy?: string;
   model?: string;
+  priority?: "interactive" | "maintenance" | "prewarm";
+  generation_mode?: "classic" | "understanding_first";
   status: Status;
   progress: number;
   progress_phase?: string;
@@ -61,6 +63,13 @@ interface JobView {
   file_cache_hits?: number;
   package_cache_hits?: number;
   root_cache_hits?: number;
+  cached_nodes_loaded?: number;
+  total_nodes?: number;
+  resume_stage?: string;
+  skipped_leaf_units?: number;
+  skipped_file_units?: number;
+  skipped_package_units?: number;
+  skipped_root_units?: number;
   artifact_id?: string;
   repo_id?: string;
   queue_position?: number;
@@ -117,11 +126,25 @@ interface MetricsSnapshot {
   };
 }
 
+interface ModeRollup {
+  total: number;
+  succeeded: number;
+  failed: number;
+  cancelled: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  success_rate: number;
+  reused_summaries: number;
+  cache_hits: number;
+  average_cache_hits: number;
+}
+
 interface ActivityResponse {
   health: HealthPayload;
   active: JobView[];
   recent: JobView[];
   metrics: MetricsSnapshot;
+  modes?: Record<string, ModeRollup>;
   control: {
     intake_paused: boolean;
   };
@@ -132,6 +155,13 @@ interface ActivityResponse {
     total_waiting?: number;
     max_concurrency: number;
     recent_reused_summaries?: number;
+    active_classic?: number;
+    active_understanding_first?: number;
+    recent_classic?: number;
+    recent_understanding_first?: number;
+    pending_interactive?: number;
+    pending_maintenance?: number;
+    pending_prewarm?: number;
   };
 }
 
@@ -189,16 +219,44 @@ function formatQueueEta(ms?: number): string | null {
   return `${Math.ceil(seconds / 60)}m`;
 }
 
-function jobReuseSummary(job: Pick<JobView, "reused_summaries" | "leaf_cache_hits" | "file_cache_hits" | "package_cache_hits" | "root_cache_hits">): string | null {
+function jobReuseSummary(job: Pick<JobView, "reused_summaries" | "leaf_cache_hits" | "file_cache_hits" | "package_cache_hits" | "root_cache_hits" | "cached_nodes_loaded" | "resume_stage">): string | null {
   const reused = job.reused_summaries ?? 0;
-  if (reused <= 0) return null;
+  const cached = job.cached_nodes_loaded ?? 0;
   const parts = [
+    cached > 0 ? `${cached} cached loaded` : null,
+    job.resume_stage ? `resume ${job.resume_stage}` : null,
     job.leaf_cache_hits ? `${job.leaf_cache_hits} leaf` : null,
     job.file_cache_hits ? `${job.file_cache_hits} file` : null,
     job.package_cache_hits ? `${job.package_cache_hits} package` : null,
     job.root_cache_hits ? `${job.root_cache_hits} root` : null,
   ].filter(Boolean);
-  return parts.length > 0 ? `${reused} reused · ${parts.join(" · ")}` : `${reused} reused`;
+  if (reused <= 0 && parts.length === 0) return null;
+  if (reused > 0) {
+    return parts.length > 0 ? `${reused} reused · ${parts.join(" · ")}` : `${reused} reused`;
+  }
+  return parts.join(" · ");
+}
+
+function formatGenerationMode(mode?: JobView["generation_mode"]): string | null {
+  if (!mode) return null;
+  return mode === "classic" ? "Classic" : "Understanding First";
+}
+
+function formatPriority(priority?: JobView["priority"]): string | null {
+  if (!priority) return null;
+  switch (priority) {
+    case "maintenance":
+      return "Maintenance";
+    case "prewarm":
+      return "Prewarm";
+    default:
+      return "Interactive";
+  }
+}
+
+function formatPercent(value?: number): string {
+  if (value === undefined || value === null || Number.isNaN(value)) return "—";
+  return `${Math.round(value * 100)}%`;
 }
 
 function healthStyle(status: HealthPayload["status"]) {
@@ -366,6 +424,19 @@ export default function MonitorPage() {
 
   const stats = data?.stats;
   const overall = data?.metrics?.overall;
+  const modeRollups = data?.modes;
+  const modeEntries = useMemo(() => {
+    if (!modeRollups) return [];
+    const preferredOrder = ["understanding_first", "classic", "unspecified"];
+    return Object.entries(modeRollups).sort(([left], [right]) => {
+      const leftIdx = preferredOrder.indexOf(left);
+      const rightIdx = preferredOrder.indexOf(right);
+      if (leftIdx === -1 && rightIdx === -1) return left.localeCompare(right);
+      if (leftIdx === -1) return 1;
+      if (rightIdx === -1) return -1;
+      return leftIdx - rightIdx;
+    });
+  }, [modeRollups]);
 
   const saturation = useMemo(() => {
     if (!stats) return null;
@@ -415,7 +486,71 @@ export default function MonitorPage() {
           value={stats?.recent_reused_summaries ?? "—"}
           detail="Cache hits reused across recent jobs"
         />
+        <StatCard
+          label="Understanding-first"
+          value={stats ? `${stats.active_understanding_first ?? 0} active` : "—"}
+          detail={stats ? `${stats.recent_understanding_first ?? 0} recent` : undefined}
+        />
+        <StatCard
+          label="Classic"
+          value={stats ? `${stats.active_classic ?? 0} active` : "—"}
+          detail={stats ? `${stats.recent_classic ?? 0} recent` : undefined}
+        />
+        <StatCard
+          label="Background backlog"
+          value={stats ? `${(stats.pending_maintenance ?? 0) + (stats.pending_prewarm ?? 0)}` : "—"}
+          detail={stats ? `${stats.pending_maintenance ?? 0} maint · ${stats.pending_prewarm ?? 0} prewarm` : undefined}
+        />
       </div>
+
+      {modeEntries.length > 0 && (
+        <Panel>
+          <header className="mb-4">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Mode comparison</h2>
+            <p className="text-sm text-[var(--text-secondary)]">
+              Recent terminal-job rollup by generation mode for the current monitor window.
+            </p>
+          </header>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {modeEntries.map(([mode, rollup]) => (
+              <div key={mode} className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)]">{formatGenerationMode(mode as JobView["generation_mode"]) || mode}</h3>
+                  <span className="text-xs text-[var(--text-tertiary)]">{rollup.total} jobs</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="text-[var(--text-tertiary)]">Success</div>
+                    <div className="font-medium text-[var(--text-primary)]">{formatPercent(rollup.success_rate)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[var(--text-tertiary)]">Failures</div>
+                    <div className="font-medium text-[var(--text-primary)]">{rollup.failed}</div>
+                  </div>
+                  <div>
+                    <div className="text-[var(--text-tertiary)]">p50 latency</div>
+                    <div className="font-medium text-[var(--text-primary)]">{rollup.p50_latency_ms ? formatElapsed(rollup.p50_latency_ms) : "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[var(--text-tertiary)]">p95 latency</div>
+                    <div className="font-medium text-[var(--text-primary)]">{rollup.p95_latency_ms ? formatElapsed(rollup.p95_latency_ms) : "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[var(--text-tertiary)]">Reused summaries</div>
+                    <div className="font-medium text-[var(--text-primary)]">{rollup.reused_summaries}</div>
+                  </div>
+                  <div>
+                    <div className="text-[var(--text-tertiary)]">Avg cache hits</div>
+                    <div className="font-medium text-[var(--text-primary)]">
+                      {rollup.average_cache_hits ? rollup.average_cache_hits.toFixed(1) : "0.0"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
 
       {/* Zone 2 — Now running */}
       <Panel>
@@ -602,6 +737,8 @@ function ActiveJobCard({
       <div className="flex items-center justify-between gap-2 text-xs text-[var(--text-tertiary)]">
         <span>{formatElapsed(job.elapsed_ms)}</span>
         <span className="flex items-center gap-2">
+          {formatGenerationMode(job.generation_mode) ? <span>{formatGenerationMode(job.generation_mode)}</span> : null}
+          {formatPriority(job.priority) ? <span>{formatPriority(job.priority)}</span> : null}
           {job.retry_count > 0 ? <span>retry {job.retry_count}</span> : null}
           {job.attached_requests > 1 ? <span>shared {job.attached_requests}</span> : null}
         </span>
@@ -791,6 +928,18 @@ function JobDetailDrawer({ job, onClose }: { job: JobView; onClose: () => void }
               <>
                 <dt>Model</dt>
                 <dd className="text-[var(--text-primary)]">{job.model}</dd>
+              </>
+            ) : null}
+            {formatGenerationMode(job.generation_mode) ? (
+              <>
+                <dt>Mode</dt>
+                <dd className="text-[var(--text-primary)]">{formatGenerationMode(job.generation_mode)}</dd>
+              </>
+            ) : null}
+            {formatPriority(job.priority) ? (
+              <>
+                <dt>Priority</dt>
+                <dd className="text-[var(--text-primary)]">{formatPriority(job.priority)}</dd>
               </>
             ) : null}
             <dt>Target</dt>

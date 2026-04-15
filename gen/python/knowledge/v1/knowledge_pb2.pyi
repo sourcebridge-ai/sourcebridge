@@ -35,8 +35,44 @@ class GenerateCliffNotesResponse(_message.Message):
     diagnostics: CliffNotesDiagnostics
     def __init__(self, sections: _Optional[_Iterable[_Union[KnowledgeSection, _Mapping]]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ..., diagnostics: _Optional[_Union[CliffNotesDiagnostics, _Mapping]] = ...) -> None: ...
 
+class GenerateArchitectureDiagramRequest(_message.Message):
+    __slots__ = ("repository_id", "repository_name", "audience", "depth", "snapshot_json", "deterministic_diagram_json")
+    REPOSITORY_ID_FIELD_NUMBER: _ClassVar[int]
+    REPOSITORY_NAME_FIELD_NUMBER: _ClassVar[int]
+    AUDIENCE_FIELD_NUMBER: _ClassVar[int]
+    DEPTH_FIELD_NUMBER: _ClassVar[int]
+    SNAPSHOT_JSON_FIELD_NUMBER: _ClassVar[int]
+    DETERMINISTIC_DIAGRAM_JSON_FIELD_NUMBER: _ClassVar[int]
+    repository_id: str
+    repository_name: str
+    audience: str
+    depth: str
+    snapshot_json: str
+    deterministic_diagram_json: str
+    def __init__(self, repository_id: _Optional[str] = ..., repository_name: _Optional[str] = ..., audience: _Optional[str] = ..., depth: _Optional[str] = ..., snapshot_json: _Optional[str] = ..., deterministic_diagram_json: _Optional[str] = ...) -> None: ...
+
+class GenerateArchitectureDiagramResponse(_message.Message):
+    __slots__ = ("mermaid_source", "raw_mermaid_source", "validation_status", "repair_summary", "diagram_summary", "evidence", "inferred_edges", "usage")
+    MERMAID_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    RAW_MERMAID_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    VALIDATION_STATUS_FIELD_NUMBER: _ClassVar[int]
+    REPAIR_SUMMARY_FIELD_NUMBER: _ClassVar[int]
+    DIAGRAM_SUMMARY_FIELD_NUMBER: _ClassVar[int]
+    EVIDENCE_FIELD_NUMBER: _ClassVar[int]
+    INFERRED_EDGES_FIELD_NUMBER: _ClassVar[int]
+    USAGE_FIELD_NUMBER: _ClassVar[int]
+    mermaid_source: str
+    raw_mermaid_source: str
+    validation_status: str
+    repair_summary: str
+    diagram_summary: str
+    evidence: _containers.RepeatedCompositeFieldContainer[KnowledgeEvidence]
+    inferred_edges: _containers.RepeatedScalarFieldContainer[str]
+    usage: _types_pb2.LLMUsage
+    def __init__(self, mermaid_source: _Optional[str] = ..., raw_mermaid_source: _Optional[str] = ..., validation_status: _Optional[str] = ..., repair_summary: _Optional[str] = ..., diagram_summary: _Optional[str] = ..., evidence: _Optional[_Iterable[_Union[KnowledgeEvidence, _Mapping]]] = ..., inferred_edges: _Optional[_Iterable[str]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ...) -> None: ...
+
 class CliffNotesDiagnostics(_message.Message):
-    __slots__ = ("cached_nodes", "fallback_count", "provider_compute_errors", "leaf_cache_hits", "file_cache_hits", "package_cache_hits", "root_cache_hits")
+    __slots__ = ("cached_nodes", "fallback_count", "provider_compute_errors", "leaf_cache_hits", "file_cache_hits", "package_cache_hits", "root_cache_hits", "total_nodes", "corpus_id", "revision_fp", "strategy", "model_used")
     CACHED_NODES_FIELD_NUMBER: _ClassVar[int]
     FALLBACK_COUNT_FIELD_NUMBER: _ClassVar[int]
     PROVIDER_COMPUTE_ERRORS_FIELD_NUMBER: _ClassVar[int]
@@ -44,6 +80,11 @@ class CliffNotesDiagnostics(_message.Message):
     FILE_CACHE_HITS_FIELD_NUMBER: _ClassVar[int]
     PACKAGE_CACHE_HITS_FIELD_NUMBER: _ClassVar[int]
     ROOT_CACHE_HITS_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_NODES_FIELD_NUMBER: _ClassVar[int]
+    CORPUS_ID_FIELD_NUMBER: _ClassVar[int]
+    REVISION_FP_FIELD_NUMBER: _ClassVar[int]
+    STRATEGY_FIELD_NUMBER: _ClassVar[int]
+    MODEL_USED_FIELD_NUMBER: _ClassVar[int]
     cached_nodes: int
     fallback_count: int
     provider_compute_errors: int
@@ -51,7 +92,12 @@ class CliffNotesDiagnostics(_message.Message):
     file_cache_hits: int
     package_cache_hits: int
     root_cache_hits: int
-    def __init__(self, cached_nodes: _Optional[int] = ..., fallback_count: _Optional[int] = ..., provider_compute_errors: _Optional[int] = ..., leaf_cache_hits: _Optional[int] = ..., file_cache_hits: _Optional[int] = ..., package_cache_hits: _Optional[int] = ..., root_cache_hits: _Optional[int] = ...) -> None: ...
+    total_nodes: int
+    corpus_id: str
+    revision_fp: str
+    strategy: str
+    model_used: str
+    def __init__(self, cached_nodes: _Optional[int] = ..., fallback_count: _Optional[int] = ..., provider_compute_errors: _Optional[int] = ..., leaf_cache_hits: _Optional[int] = ..., file_cache_hits: _Optional[int] = ..., package_cache_hits: _Optional[int] = ..., root_cache_hits: _Optional[int] = ..., total_nodes: _Optional[int] = ..., corpus_id: _Optional[str] = ..., revision_fp: _Optional[str] = ..., strategy: _Optional[str] = ..., model_used: _Optional[str] = ...) -> None: ...
 
 class GenerateLearningPathRequest(_message.Message):
     __slots__ = ("repository_id", "repository_name", "audience", "depth", "snapshot_json", "focus_area")

@@ -33,5 +33,7 @@ models:
     fields:
       files:
         resolver: true
+      repositoryUnderstanding:
+        resolver: true
       understandingScore:
         resolver: true

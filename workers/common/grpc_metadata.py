@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 
 import grpc
 
@@ -101,6 +102,39 @@ def resolve_job_log_metadata(context: grpc.aio.ServicerContext) -> RuntimeJobLog
             meta.subsystem = value or ""
         elif key == "x-sb-job-type":
             meta.job_type = value or ""
+    if meta.is_empty():
+        return None
+    return meta
+
+
+@dataclass
+class CliffNotesRenderMetadata:
+    render_only: bool = False
+    selected_section_titles: list[str] | None = None
+
+    def is_empty(self) -> bool:
+        return not self.render_only and not self.selected_section_titles
+
+
+def resolve_cliff_notes_render_metadata(
+    context: grpc.aio.ServicerContext,
+) -> CliffNotesRenderMetadata | None:
+    if not hasattr(context, "invocation_metadata"):
+        return None
+    meta = CliffNotesRenderMetadata()
+    for key, value in context.invocation_metadata():
+        if key == "x-sb-cliff-render-only":
+            meta.render_only = (value or "").strip().lower() == "true"
+        elif key == "x-sb-cliff-selected-sections":
+            raw = (value or "").strip()
+            if not raw:
+                continue
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                continue
+            if isinstance(parsed, list):
+                meta.selected_section_titles = [str(item).strip() for item in parsed if str(item).strip()]
     if meta.is_empty():
         return None
     return meta

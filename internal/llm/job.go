@@ -61,6 +61,16 @@ const (
 	SubsystemContracts    Subsystem = "contracts"
 )
 
+// JobPriority controls queue preference. Higher-priority jobs should be
+// scheduled before background maintenance and prewarm work.
+type JobPriority string
+
+const (
+	PriorityInteractive JobPriority = "interactive"
+	PriorityMaintenance JobPriority = "maintenance"
+	PriorityPrewarm     JobPriority = "prewarm"
+)
+
 // Job is the canonical record for any LLM-backed work unit in the system.
 // It is persisted to ca_llm_job and streamed to the Monitor page.
 //
@@ -81,8 +91,10 @@ type Job struct {
 	// Knowledge subsystems use the canonical ArtifactKey scope key.
 	TargetKey string `json:"target_key"`
 
-	Strategy string `json:"strategy,omitempty"`
-	Model    string `json:"model,omitempty"`
+	Strategy       string      `json:"strategy,omitempty"`
+	Model          string      `json:"model,omitempty"`
+	Priority       JobPriority `json:"priority,omitempty"`
+	GenerationMode string      `json:"generation_mode,omitempty"`
 
 	Status          JobStatus `json:"status"`
 	Progress        float64   `json:"progress"`
@@ -107,6 +119,13 @@ type Job struct {
 	FileCacheHits    int `json:"file_cache_hits"`
 	PackageCacheHits int `json:"package_cache_hits"`
 	RootCacheHits    int `json:"root_cache_hits"`
+	CachedNodesLoaded int    `json:"cached_nodes_loaded"`
+	TotalNodes        int    `json:"total_nodes"`
+	ResumeStage       string `json:"resume_stage,omitempty"`
+	SkippedLeafUnits  int    `json:"skipped_leaf_units"`
+	SkippedFileUnits  int    `json:"skipped_file_units"`
+	SkippedPackageUnits int  `json:"skipped_package_units"`
+	SkippedRootUnits  int    `json:"skipped_root_units"`
 
 	// ArtifactID (optional) links the job back to a domain record — a
 	// ca_knowledge_artifact row for knowledge jobs, a requirement id for
@@ -148,15 +167,17 @@ func (j *Job) Elapsed() time.Duration {
 // whatever domain context they have and pass it to Orchestrator.Enqueue.
 // The orchestrator materializes a Job from this request.
 type EnqueueRequest struct {
-	Subsystem   Subsystem
-	JobType     string
-	TargetKey   string
-	Strategy    string
-	Model       string
-	ArtifactID  string
-	RepoID      string
-	TimeoutSec  int
-	MaxAttempts int
+	Subsystem      Subsystem
+	JobType        string
+	TargetKey      string
+	Strategy       string
+	Model          string
+	Priority       JobPriority
+	GenerationMode string
+	ArtifactID     string
+	RepoID         string
+	TimeoutSec     int
+	MaxAttempts    int
 	// RunWithContext is the preferred execution hook. The orchestrator supplies
 	// a cancellable context so queued/running jobs can be cancelled cleanly.
 	// When nil, Run is used for backward compatibility.
@@ -181,6 +202,9 @@ func (r *EnqueueRequest) Validate() error {
 	}
 	if strings.TrimSpace(r.TargetKey) == "" {
 		return fmt.Errorf("target_key is required (used for dedupe)")
+	}
+	if r.Priority == "" {
+		r.Priority = PriorityInteractive
 	}
 	if r.RunWithContext == nil && r.Run == nil {
 		return fmt.Errorf("run function is required")

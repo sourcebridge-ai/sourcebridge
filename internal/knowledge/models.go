@@ -13,10 +13,11 @@ import (
 type ArtifactType string
 
 const (
-	ArtifactCliffNotes    ArtifactType = "cliff_notes"
-	ArtifactLearningPath  ArtifactType = "learning_path"
-	ArtifactCodeTour      ArtifactType = "code_tour"
-	ArtifactWorkflowStory ArtifactType = "workflow_story"
+	ArtifactCliffNotes          ArtifactType = "cliff_notes"
+	ArtifactArchitectureDiagram ArtifactType = "architecture_diagram"
+	ArtifactLearningPath        ArtifactType = "learning_path"
+	ArtifactCodeTour            ArtifactType = "code_tour"
+	ArtifactWorkflowStory       ArtifactType = "workflow_story"
 	// Reserved but deferred to enterprise.
 	ArtifactSlideOutline        ArtifactType = "slide_outline"
 	ArtifactAudioBriefingScript ArtifactType = "audio_briefing_script"
@@ -227,37 +228,135 @@ type SourceRevision struct {
 
 // Artifact is a persisted knowledge artifact (Cliff Notes, learning path, code tour).
 type Artifact struct {
-	ID              string         `json:"id"`
-	RepositoryID    string         `json:"repository_id"`
-	Type            ArtifactType   `json:"type"`
-	Audience        Audience       `json:"audience"`
-	Depth           Depth          `json:"depth"`
-	Scope           *ArtifactScope `json:"scope,omitempty"`
-	Status          ArtifactStatus `json:"status"`
-	Progress        float64        `json:"progress"`
-	ProgressPhase   string         `json:"progress_phase,omitempty"`
-	ProgressMessage string         `json:"progress_message,omitempty"`
-	ErrorCode       string         `json:"error_code,omitempty"`
-	ErrorMessage    string         `json:"error_message,omitempty"`
-	SourceRevision  SourceRevision `json:"source_revision"`
-	Stale           bool           `json:"stale"`
-	GeneratedAt     time.Time      `json:"generated_at,omitempty"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-	Sections        []Section      `json:"sections,omitempty"`
+	ID                      string         `json:"id"`
+	RepositoryID            string         `json:"repository_id"`
+	Type                    ArtifactType   `json:"type"`
+	Audience                Audience       `json:"audience"`
+	Depth                   Depth          `json:"depth"`
+	GenerationMode          GenerationMode `json:"generation_mode,omitempty"`
+	Scope                   *ArtifactScope `json:"scope,omitempty"`
+	Status                  ArtifactStatus `json:"status"`
+	Progress                float64        `json:"progress"`
+	ProgressPhase           string         `json:"progress_phase,omitempty"`
+	ProgressMessage         string         `json:"progress_message,omitempty"`
+	ErrorCode               string         `json:"error_code,omitempty"`
+	ErrorMessage            string         `json:"error_message,omitempty"`
+	SourceRevision          SourceRevision `json:"source_revision"`
+	UnderstandingID         string         `json:"understanding_id,omitempty"`
+	UnderstandingRevisionFP string         `json:"understanding_revision_fp,omitempty"`
+	RendererVersion         string         `json:"renderer_version,omitempty"`
+	Stale                   bool           `json:"stale"`
+	GeneratedAt             time.Time      `json:"generated_at,omitempty"`
+	CreatedAt               time.Time      `json:"created_at"`
+	UpdatedAt               time.Time      `json:"updated_at"`
+	Sections                []Section      `json:"sections,omitempty"`
+}
+
+// GenerationMode determines which orchestration path should be used to
+// generate or refresh a knowledge artifact.
+type GenerationMode string
+
+const (
+	GenerationModeClassic            GenerationMode = "classic"
+	GenerationModeUnderstandingFirst GenerationMode = "understanding_first"
+)
+
+func NormalizeGenerationMode(mode GenerationMode) GenerationMode {
+	switch strings.ToLower(strings.TrimSpace(string(mode))) {
+	case string(GenerationModeClassic):
+		return GenerationModeClassic
+	default:
+		return GenerationModeUnderstandingFirst
+	}
+}
+
+// RepositoryUnderstandingStage represents the lifecycle of the shared
+// repository understanding artifact.
+type RepositoryUnderstandingStage string
+
+const (
+	UnderstandingBuildingTree   RepositoryUnderstandingStage = "building_tree"
+	UnderstandingFirstPassReady RepositoryUnderstandingStage = "first_pass_ready"
+	UnderstandingNeedsRefresh   RepositoryUnderstandingStage = "needs_refresh"
+	UnderstandingDeepening      RepositoryUnderstandingStage = "deepening"
+	UnderstandingReady          RepositoryUnderstandingStage = "ready"
+	UnderstandingFailed         RepositoryUnderstandingStage = "failed"
+)
+
+// RepositoryUnderstandingTreeStatus captures whether the underlying summary
+// tree exists and how complete it is.
+type RepositoryUnderstandingTreeStatus string
+
+const (
+	UnderstandingTreeMissing  RepositoryUnderstandingTreeStatus = "missing"
+	UnderstandingTreePartial  RepositoryUnderstandingTreeStatus = "partial"
+	UnderstandingTreeComplete RepositoryUnderstandingTreeStatus = "complete"
+)
+
+// RepositoryUnderstanding is the first-class persisted understanding record
+// backing cliff notes and later downstream artifact generation.
+type RepositoryUnderstanding struct {
+	ID           string                            `json:"id"`
+	RepositoryID string                            `json:"repository_id"`
+	Scope        *ArtifactScope                    `json:"scope,omitempty"`
+	CorpusID     string                            `json:"corpus_id,omitempty"`
+	RevisionFP   string                            `json:"revision_fp,omitempty"`
+	Strategy     string                            `json:"strategy,omitempty"`
+	Stage        RepositoryUnderstandingStage      `json:"stage"`
+	TreeStatus   RepositoryUnderstandingTreeStatus `json:"tree_status"`
+	CachedNodes  int                               `json:"cached_nodes"`
+	TotalNodes   int                               `json:"total_nodes"`
+	ModelUsed    string                            `json:"model_used,omitempty"`
+	Metadata     string                            `json:"metadata,omitempty"`
+	ErrorCode    string                            `json:"error_code,omitempty"`
+	ErrorMessage string                            `json:"error_message,omitempty"`
+	CreatedAt    time.Time                         `json:"created_at"`
+	UpdatedAt    time.Time                         `json:"updated_at"`
 }
 
 // Section is an ordered component of a knowledge artifact.
 type Section struct {
-	ID         string          `json:"id"`
-	ArtifactID string          `json:"artifact_id"`
-	Title      string          `json:"title"`
-	Content    string          `json:"content"`
-	Summary    string          `json:"summary,omitempty"`
-	Confidence ConfidenceLevel `json:"confidence"`
-	Inferred   bool            `json:"inferred"`
-	OrderIndex int             `json:"order_index"`
-	Evidence   []Evidence      `json:"evidence,omitempty"`
+	ID               string          `json:"id"`
+	ArtifactID       string          `json:"artifact_id"`
+	SectionKey       string          `json:"section_key,omitempty"`
+	Title            string          `json:"title"`
+	Content          string          `json:"content"`
+	Summary          string          `json:"summary,omitempty"`
+	Metadata         string          `json:"metadata,omitempty"`
+	Confidence       ConfidenceLevel `json:"confidence"`
+	Inferred         bool            `json:"inferred"`
+	OrderIndex       int             `json:"order_index"`
+	RefinementStatus string          `json:"refinement_status,omitempty"`
+	Evidence         []Evidence      `json:"evidence,omitempty"`
+}
+
+type RefinementStatus string
+
+const (
+	RefinementQueued    RefinementStatus = "queued"
+	RefinementRunning   RefinementStatus = "running"
+	RefinementCompleted RefinementStatus = "completed"
+	RefinementFailed    RefinementStatus = "failed"
+)
+
+// RefinementUnit is a durable unit of artifact-improvement work. The first
+// implementation tracks section-level cliff-notes refinement so retries and
+// background deepening can resume selectively instead of restarting blindly.
+type RefinementUnit struct {
+	ID                 string           `json:"id"`
+	ArtifactID         string           `json:"artifact_id"`
+	SectionKey         string           `json:"section_key"`
+	SectionTitle       string           `json:"section_title"`
+	RefinementType     string           `json:"refinement_type"`
+	Status             RefinementStatus `json:"status"`
+	AttemptCount       int              `json:"attempt_count"`
+	UnderstandingID    string           `json:"understanding_id,omitempty"`
+	EvidenceRevisionFP string           `json:"evidence_revision_fp,omitempty"`
+	RendererVersion    string           `json:"renderer_version,omitempty"`
+	LastError          string           `json:"last_error,omitempty"`
+	Metadata           string           `json:"metadata,omitempty"`
+	CreatedAt          time.Time        `json:"created_at"`
+	UpdatedAt          time.Time        `json:"updated_at"`
 }
 
 // Evidence is a traceable reference from a section back to a source artifact.
@@ -271,6 +370,26 @@ type Evidence struct {
 	LineEnd    int                `json:"line_end,omitempty"`
 	Rationale  string             `json:"rationale,omitempty"`
 	Metadata   map[string]string  `json:"metadata,omitempty"`
+}
+
+// ArtifactDependencyType describes the relationship between an artifact and
+// one of the durable assets it depends on.
+type ArtifactDependencyType string
+
+const (
+	DependencyRepositoryUnderstanding ArtifactDependencyType = "repository_understanding"
+)
+
+// ArtifactDependency links an artifact to a prerequisite artifact/state that
+// it was derived from.
+type ArtifactDependency struct {
+	ID               string                 `json:"id"`
+	ArtifactID       string                 `json:"artifact_id"`
+	DependencyType   ArtifactDependencyType `json:"dependency_type"`
+	TargetID         string                 `json:"target_id"`
+	TargetRevisionFP string                 `json:"target_revision_fp,omitempty"`
+	Metadata         string                 `json:"metadata,omitempty"`
+	CreatedAt        time.Time              `json:"created_at"`
 }
 
 func normalizeScopePath(scopeType ScopeType, scopePath string) string {

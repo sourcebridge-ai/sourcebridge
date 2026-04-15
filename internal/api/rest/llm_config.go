@@ -17,60 +17,64 @@ type LLMConfigStore interface {
 
 // LLMConfigRecord mirrors db.LLMConfigRecord to avoid circular imports.
 type LLMConfigRecord struct {
-	Provider       string `json:"provider"`
-	BaseURL        string `json:"base_url"`
-	APIKey         string `json:"api_key"`
-	SummaryModel   string `json:"summary_model"`
-	ReviewModel    string `json:"review_model"`
-	AskModel       string `json:"ask_model"`
-	KnowledgeModel string `json:"knowledge_model"`
-	ReportModel    string `json:"report_model,omitempty"`
-	DraftModel     string `json:"draft_model"`
-	TimeoutSecs    int    `json:"timeout_secs"`
-	AdvancedMode   bool   `json:"advanced_mode"`
+	Provider                 string `json:"provider"`
+	BaseURL                  string `json:"base_url"`
+	APIKey                   string `json:"api_key"`
+	SummaryModel             string `json:"summary_model"`
+	ReviewModel              string `json:"review_model"`
+	AskModel                 string `json:"ask_model"`
+	KnowledgeModel           string `json:"knowledge_model"`
+	ArchitectureDiagramModel string `json:"architecture_diagram_model"`
+	ReportModel              string `json:"report_model,omitempty"`
+	DraftModel               string `json:"draft_model"`
+	TimeoutSecs              int    `json:"timeout_secs"`
+	AdvancedMode             bool   `json:"advanced_mode"`
 }
 
 type llmConfigResponse struct {
-	Provider       string `json:"provider"`
-	BaseURL        string `json:"base_url"`
-	APIKeySet      bool   `json:"api_key_set"`
-	APIKeyHint     string `json:"api_key_hint,omitempty"`
-	SummaryModel   string `json:"summary_model"`
-	ReviewModel    string `json:"review_model"`
-	AskModel       string `json:"ask_model"`
-	KnowledgeModel string `json:"knowledge_model"`
-	ReportModel    string `json:"report_model,omitempty"`
-	DraftModel     string `json:"draft_model"`
-	TimeoutSecs    int    `json:"timeout_secs"`
-	AdvancedMode   bool   `json:"advanced_mode"`
+	Provider                 string `json:"provider"`
+	BaseURL                  string `json:"base_url"`
+	APIKeySet                bool   `json:"api_key_set"`
+	APIKeyHint               string `json:"api_key_hint,omitempty"`
+	SummaryModel             string `json:"summary_model"`
+	ReviewModel              string `json:"review_model"`
+	AskModel                 string `json:"ask_model"`
+	KnowledgeModel           string `json:"knowledge_model"`
+	ArchitectureDiagramModel string `json:"architecture_diagram_model"`
+	ReportModel              string `json:"report_model,omitempty"`
+	DraftModel               string `json:"draft_model"`
+	TimeoutSecs              int    `json:"timeout_secs"`
+	AdvancedMode             bool   `json:"advanced_mode"`
 }
 
 type updateLLMConfigRequest struct {
-	Provider       *string `json:"provider,omitempty"`
-	BaseURL        *string `json:"base_url,omitempty"`
-	APIKey         *string `json:"api_key,omitempty"`
-	SummaryModel   *string `json:"summary_model,omitempty"`
-	ReviewModel    *string `json:"review_model,omitempty"`
-	AskModel       *string `json:"ask_model,omitempty"`
-	KnowledgeModel *string `json:"knowledge_model,omitempty"`
-	ReportModel    *string `json:"report_model,omitempty"`
-	DraftModel     *string `json:"draft_model,omitempty"`
-	TimeoutSecs    *int    `json:"timeout_secs,omitempty"`
-	AdvancedMode   *bool   `json:"advanced_mode,omitempty"`
+	Provider                 *string `json:"provider,omitempty"`
+	BaseURL                  *string `json:"base_url,omitempty"`
+	APIKey                   *string `json:"api_key,omitempty"`
+	SummaryModel             *string `json:"summary_model,omitempty"`
+	ReviewModel              *string `json:"review_model,omitempty"`
+	AskModel                 *string `json:"ask_model,omitempty"`
+	KnowledgeModel           *string `json:"knowledge_model,omitempty"`
+	ArchitectureDiagramModel *string `json:"architecture_diagram_model,omitempty"`
+	ReportModel              *string `json:"report_model,omitempty"`
+	DraftModel               *string `json:"draft_model,omitempty"`
+	TimeoutSecs              *int    `json:"timeout_secs,omitempty"`
+	AdvancedMode             *bool   `json:"advanced_mode,omitempty"`
 }
 
 func (s *Server) handleGetLLMConfig(w http.ResponseWriter, r *http.Request) {
 	resp := llmConfigResponse{
-		Provider:       s.cfg.LLM.Provider,
-		BaseURL:        s.cfg.LLM.BaseURL,
-		APIKeySet:      s.cfg.LLM.APIKey != "",
-		SummaryModel:   s.cfg.LLM.SummaryModel,
-		ReviewModel:    s.cfg.LLM.ReviewModel,
-		AskModel:       s.cfg.LLM.AskModel,
-		KnowledgeModel: s.cfg.LLM.KnowledgeModel,
-		DraftModel:     s.cfg.LLM.DraftModel,
-		TimeoutSecs:    s.cfg.LLM.TimeoutSecs,
-		AdvancedMode:   s.cfg.LLM.AdvancedMode,
+		Provider:                 s.cfg.LLM.Provider,
+		BaseURL:                  s.cfg.LLM.BaseURL,
+		APIKeySet:                s.cfg.LLM.APIKey != "",
+		SummaryModel:             s.cfg.LLM.SummaryModel,
+		ReviewModel:              s.cfg.LLM.ReviewModel,
+		AskModel:                 s.cfg.LLM.AskModel,
+		KnowledgeModel:           s.cfg.LLM.KnowledgeModel,
+		ArchitectureDiagramModel: s.cfg.LLM.ArchitectureDiagramModel,
+		DraftModel:               s.cfg.LLM.DraftModel,
+		TimeoutSecs:              s.cfg.LLM.TimeoutSecs,
+		AdvancedMode:             s.cfg.LLM.AdvancedMode,
 	}
 	if s.cfg.LLM.APIKey != "" {
 		resp.APIKeyHint = maskToken(s.cfg.LLM.APIKey)
@@ -117,6 +121,9 @@ func (s *Server) handleUpdateLLMConfig(w http.ResponseWriter, r *http.Request) {
 	if req.KnowledgeModel != nil {
 		s.cfg.LLM.KnowledgeModel = *req.KnowledgeModel
 	}
+	if req.ArchitectureDiagramModel != nil {
+		s.cfg.LLM.ArchitectureDiagramModel = *req.ArchitectureDiagramModel
+	}
 	if req.ReportModel != nil && s.cfg.Edition == "enterprise" {
 		s.cfg.LLM.ReportModel = *req.ReportModel
 	}
@@ -133,17 +140,18 @@ func (s *Server) handleUpdateLLMConfig(w http.ResponseWriter, r *http.Request) {
 	// Persist to database if available
 	if s.llmConfigStore != nil {
 		rec := &LLMConfigRecord{
-			Provider:       s.cfg.LLM.Provider,
-			BaseURL:        s.cfg.LLM.BaseURL,
-			APIKey:         s.cfg.LLM.APIKey,
-			SummaryModel:   s.cfg.LLM.SummaryModel,
-			ReviewModel:    s.cfg.LLM.ReviewModel,
-			AskModel:       s.cfg.LLM.AskModel,
-			KnowledgeModel: s.cfg.LLM.KnowledgeModel,
-			ReportModel:    s.cfg.LLM.ReportModel,
-			DraftModel:     s.cfg.LLM.DraftModel,
-			TimeoutSecs:    s.cfg.LLM.TimeoutSecs,
-			AdvancedMode:   s.cfg.LLM.AdvancedMode,
+			Provider:                 s.cfg.LLM.Provider,
+			BaseURL:                  s.cfg.LLM.BaseURL,
+			APIKey:                   s.cfg.LLM.APIKey,
+			SummaryModel:             s.cfg.LLM.SummaryModel,
+			ReviewModel:              s.cfg.LLM.ReviewModel,
+			AskModel:                 s.cfg.LLM.AskModel,
+			KnowledgeModel:           s.cfg.LLM.KnowledgeModel,
+			ArchitectureDiagramModel: s.cfg.LLM.ArchitectureDiagramModel,
+			ReportModel:              s.cfg.LLM.ReportModel,
+			DraftModel:               s.cfg.LLM.DraftModel,
+			TimeoutSecs:              s.cfg.LLM.TimeoutSecs,
+			AdvancedMode:             s.cfg.LLM.AdvancedMode,
 		}
 		if err := s.llmConfigStore.SaveLLMConfig(rec); err != nil {
 			slog.Warn("failed to persist llm config", "error", err)

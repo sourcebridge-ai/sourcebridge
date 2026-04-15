@@ -134,6 +134,7 @@ class CliffNotesRenderer:
         scope_type: str = "repository",
         scope_path: str = "",
         pre_analysis: list[dict[str, str]] | None = None,
+        required_section_titles: list[str] | None = None,
     ) -> tuple[CliffNotesResult, LLMUsageRecord]:
         """Render cliff notes from the supplied tree.
 
@@ -141,8 +142,9 @@ class CliffNotesRenderer:
         servicer can persist billing metrics the same way the legacy
         single-shot path does.
         """
-        required_sections = REQUIRED_SECTIONS_BY_SCOPE.get(
-            scope_type or "repository", REQUIRED_SECTIONS
+        required_sections = list(
+            required_section_titles
+            or REQUIRED_SECTIONS_BY_SCOPE.get(scope_type or "repository", REQUIRED_SECTIONS)
         )
         root = tree.root()
         if root is None:

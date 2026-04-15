@@ -103,6 +103,7 @@ export const REPOSITORY_QUERY = gql`
       name
       path
       remoteUrl
+      generationModeDefault
       status
       fileCount
       functionCount
@@ -125,6 +126,34 @@ export const REPOSITORY_QUERY = gql`
         name
         path
         fileCount
+      }
+      repositoryUnderstanding {
+        id
+        repositoryId
+        corpusId
+        revisionFp
+        strategy
+        stage
+        treeStatus
+        cachedNodes
+        totalNodes
+        modelUsed
+        refreshAvailable
+        firstPassSections {
+          title
+          summary
+        }
+        createdAt
+        updatedAt
+        errorCode
+        errorMessage
+        scope {
+          scopeType
+          scopePath
+          modulePath
+          filePath
+          symbolName
+        }
       }
     }
   }
@@ -342,6 +371,48 @@ export const REINDEX_REPOSITORY_MUTATION = gql`
       id
       status
       lastIndexedAt
+    }
+  }
+`;
+
+export const BUILD_REPOSITORY_UNDERSTANDING_MUTATION = gql`
+  mutation BuildRepositoryUnderstanding($input: BuildRepositoryUnderstandingInput!) {
+    buildRepositoryUnderstanding(input: $input) {
+      id
+      repositoryId
+      corpusId
+      revisionFp
+      strategy
+      stage
+      treeStatus
+      cachedNodes
+      totalNodes
+      modelUsed
+      refreshAvailable
+      firstPassSections {
+        title
+        summary
+      }
+      createdAt
+      updatedAt
+      errorCode
+      errorMessage
+      scope {
+        scopeType
+        scopePath
+        modulePath
+        filePath
+        symbolName
+      }
+    }
+  }
+`;
+
+export const UPDATE_REPOSITORY_KNOWLEDGE_SETTINGS_MUTATION = gql`
+  mutation UpdateRepositoryKnowledgeSettings($input: UpdateRepositoryKnowledgeSettingsInput!) {
+    updateRepositoryKnowledgeSettings(input: $input) {
+      id
+      generationModeDefault
     }
   }
 `;
@@ -588,6 +659,32 @@ export const KNOWLEDGE_ARTIFACTS_QUERY = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      generationMode
+      rendererVersion
+      dependencies {
+        dependencyType
+        targetId
+        targetRevisionFp
+      }
+      refinementUnits {
+        id
+        artifactId
+        sectionKey
+        sectionTitle
+        refinementType
+        status
+        attemptCount
+        understandingId
+        evidenceRevisionFp
+        rendererVersion
+        lastError
+        metadata
+        createdAt
+        updatedAt
+      }
+      refreshAvailable
       generatedAt
       createdAt
       updatedAt
@@ -602,6 +699,9 @@ export const KNOWLEDGE_ARTIFACTS_QUERY = gql`
         title
         content
         summary
+        metadata
+        sectionKey
+        refinementStatus
         confidence
         inferred
         orderIndex
@@ -708,6 +808,9 @@ export const GENERATE_CLIFF_NOTES_MUTATION = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       sections {
         id
@@ -742,6 +845,9 @@ export const GENERATE_LEARNING_PATH_MUTATION = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       sections {
         id
@@ -749,6 +855,47 @@ export const GENERATE_LEARNING_PATH_MUTATION = gql`
         content
         summary
         confidence
+        orderIndex
+        evidence {
+          id
+          sourceType
+          filePath
+          lineStart
+          lineEnd
+          rationale
+        }
+      }
+    }
+  }
+`;
+
+export const GENERATE_ARCHITECTURE_DIAGRAM_MUTATION = gql`
+  mutation GenerateArchitectureDiagram($input: GenerateArchitectureDiagramInput!) {
+    generateArchitectureDiagram(input: $input) {
+      id
+      repositoryId
+      type
+      audience
+      depth
+      status
+      progress
+      progressPhase
+      progressMessage
+      stale
+      errorCode
+      errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
+      generatedAt
+      sections {
+        id
+        title
+        content
+        summary
+        metadata
+        confidence
+        inferred
         orderIndex
         evidence {
           id
@@ -775,6 +922,9 @@ export const GENERATE_CODE_TOUR_MUTATION = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       sections {
         id
@@ -818,6 +968,9 @@ export const GENERATE_WORKFLOW_STORY_MUTATION = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       sections {
         id
@@ -873,6 +1026,9 @@ export const REFRESH_KNOWLEDGE_ARTIFACT_MUTATION = gql`
       stale
       errorCode
       errorMessage
+      understandingId
+      understandingRevisionFp
+      refreshAvailable
       generatedAt
       sections {
         id

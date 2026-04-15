@@ -1,12 +1,53 @@
 package graphql
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/indexer"
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 )
+
+type stubComprehensionStore struct {
+	workspace *comprehension.Settings
+}
+
+func (s stubComprehensionStore) GetSettings(scope comprehension.Scope) (*comprehension.Settings, error) {
+	if scope == comprehension.WorkspaceScope && s.workspace != nil {
+		return s.workspace, nil
+	}
+	return nil, nil
+}
+
+func (s stubComprehensionStore) SetSettings(settings *comprehension.Settings) error {
+	return nil
+}
+
+func (s stubComprehensionStore) DeleteSettings(scope comprehension.Scope) error {
+	return nil
+}
+
+func (s stubComprehensionStore) ListSettings() ([]comprehension.Settings, error) {
+	return nil, nil
+}
+
+func (s stubComprehensionStore) GetModelCapabilities(modelID string) (*comprehension.ModelCapabilities, error) {
+	return nil, nil
+}
+
+func (s stubComprehensionStore) SetModelCapabilities(m *comprehension.ModelCapabilities) error {
+	return nil
+}
+
+func (s stubComprehensionStore) DeleteModelCapabilities(modelID string) error {
+	return nil
+}
+
+func (s stubComprehensionStore) ListModelCapabilities() ([]comprehension.ModelCapabilities, error) {
+	return nil, nil
+}
 
 func TestTopLevelModuleScopesFallsBackToFilesWhenModulesMissing(t *testing.T) {
 	store := graph.NewStore()
@@ -44,5 +85,141 @@ func TestTopLevelModuleScopesFallsBackToFilesWhenModulesMissing(t *testing.T) {
 	}
 	if !foundInternalModule {
 		t.Fatal("expected top-level module child from file paths")
+	}
+}
+
+func TestResolvedKnowledgeGenerationModePrecedence(t *testing.T) {
+	repo := &graph.Repository{GenerationModeDefault: "classic"}
+	store := stubComprehensionStore{
+		workspace: &comprehension.Settings{
+			ScopeType:                      comprehension.ScopeWorkspace,
+			ScopeKey:                       comprehension.WorkspaceScope.Key,
+			KnowledgeGenerationModeDefault: "understanding_first",
+		},
+	}
+
+	mode := resolvedKnowledgeGenerationMode(store, repo, nil)
+	if mode != knowledgepkg.GenerationModeClassic {
+		t.Fatalf("expected repo default to win, got %q", mode)
+	}
+
+	requested := KnowledgeGenerationModeUnderstandingFirst
+	mode = resolvedKnowledgeGenerationMode(store, repo, &requested)
+	if mode != knowledgepkg.GenerationModeUnderstandingFirst {
+		t.Fatalf("expected request override to win, got %q", mode)
+	}
+}
+
+func TestCliffNotesSectionMetadataJSON(t *testing.T) {
+	understanding := &knowledgepkg.RepositoryUnderstanding{
+		ID:         "u-123",
+		RevisionFP: "rev-456",
+	}
+	raw := cliffNotesSectionMetadataJSON(
+		knowledgepkg.ArtifactCliffNotes,
+		understanding,
+		"deep",
+		"Core System Flows",
+		true,
+	)
+	if raw == "" {
+		t.Fatal("expected metadata JSON")
+	}
+	var meta cliffNotesSectionMetadata
+	if err := json.Unmarshal([]byte(raw), &meta); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if meta.SectionKey != "core_system_flows" {
+		t.Fatalf("expected section key core_system_flows, got %q", meta.SectionKey)
+	}
+	if meta.RefinementTier != "deep" {
+		t.Fatalf("expected deep refinement tier, got %q", meta.RefinementTier)
+	}
+	if !meta.RefinedWithEvidence {
+		t.Fatal("expected refined_with_evidence=true")
+	}
+	if meta.EvidenceRevisionFP != "rev-456" || meta.UnderstandingID != "u-123" {
+		t.Fatalf("unexpected understanding linkage %#v", meta)
+	}
+	if meta.RendererVersion != knowledgepkg.RendererVersionForArtifact(knowledgepkg.ArtifactCliffNotes) {
+		t.Fatalf("unexpected renderer version %q", meta.RendererVersion)
+	}
+}
+
+func TestCliffNotesDeepeningTargetsSkipsQueuedRunningAndCompletedUnits(t *testing.T) {
+	store := knowledgepkg.NewMemStore()
+	artifact, err := store.StoreKnowledgeArtifact(&knowledgepkg.Artifact{
+		RepositoryID: "repo-1",
+		Type:         knowledgepkg.ArtifactCliffNotes,
+		Audience:     knowledgepkg.AudienceDeveloper,
+		Depth:        knowledgepkg.DepthDeep,
+		Scope:        &knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository},
+		Status:       knowledgepkg.StatusReady,
+	})
+	if err != nil {
+		t.Fatalf("StoreKnowledgeArtifact: %v", err)
+	}
+	sections := []knowledgepkg.Section{
+		{Title: "Architecture Overview", SectionKey: "architecture_overview", RefinementStatus: "light"},
+		{Title: "External Dependencies", SectionKey: "external_dependencies", RefinementStatus: "light"},
+		{Title: "Core System Flows", SectionKey: "core_system_flows", RefinementStatus: "light"},
+		{Title: "Complexity & Risk Areas", SectionKey: "complexity_risk_areas", RefinementStatus: "light"},
+	}
+	if err := store.StoreKnowledgeSections(artifact.ID, sections); err != nil {
+		t.Fatalf("StoreKnowledgeSections: %v", err)
+	}
+	if err := store.StoreRefinementUnits(artifact.ID, []knowledgepkg.RefinementUnit{
+		{SectionKey: "architecture_overview", SectionTitle: "Architecture Overview", RefinementType: cliffNotesDeepRefinementType, Status: knowledgepkg.RefinementQueued},
+		{SectionKey: "external_dependencies", SectionTitle: "External Dependencies", RefinementType: cliffNotesDeepRefinementType, Status: knowledgepkg.RefinementRunning},
+		{SectionKey: "core_system_flows", SectionTitle: "Core System Flows", RefinementType: cliffNotesDeepRefinementType, Status: knowledgepkg.RefinementCompleted},
+	}); err != nil {
+		t.Fatalf("StoreRefinementUnits: %v", err)
+	}
+
+	targets := cliffNotesDeepeningTargets(store, artifact)
+	if len(targets) != 1 || targets[0] != "Complexity & Risk Areas" {
+		t.Fatalf("unexpected deepening targets: %#v", targets)
+	}
+}
+
+func TestMarkCliffNotesDeepRefinementStatusTracksAttempts(t *testing.T) {
+	store := knowledgepkg.NewMemStore()
+	artifact, err := store.StoreKnowledgeArtifact(&knowledgepkg.Artifact{
+		ID:                      "artifact-1",
+		RepositoryID:            "repo-1",
+		Type:                    knowledgepkg.ArtifactCliffNotes,
+		Audience:                knowledgepkg.AudienceDeveloper,
+		Depth:                   knowledgepkg.DepthDeep,
+		Status:                  knowledgepkg.StatusReady,
+		UnderstandingID:         "u-1",
+		UnderstandingRevisionFP: "rev-1",
+	})
+	if err != nil {
+		t.Fatalf("StoreKnowledgeArtifact: %v", err)
+	}
+	sections := []knowledgepkg.Section{
+		{Title: "Core System Flows", SectionKey: "core_system_flows", RefinementStatus: "light"},
+	}
+	if err := store.StoreKnowledgeSections(artifact.ID, sections); err != nil {
+		t.Fatalf("StoreKnowledgeSections: %v", err)
+	}
+
+	markCliffNotesDeepRefinementStatus(store, artifact, sections, []string{"Core System Flows"}, knowledgepkg.RefinementQueued, "")
+	markCliffNotesDeepRefinementStatus(store, artifact, sections, []string{"Core System Flows"}, knowledgepkg.RefinementRunning, "")
+	markCliffNotesDeepRefinementStatus(store, artifact, sections, []string{"Core System Flows"}, knowledgepkg.RefinementFailed, "boom")
+
+	units := store.GetRefinementUnits(artifact.ID)
+	if len(units) != 1 {
+		t.Fatalf("expected 1 refinement unit, got %d", len(units))
+	}
+	unit := units[0]
+	if unit.Status != knowledgepkg.RefinementFailed {
+		t.Fatalf("expected failed status, got %q", unit.Status)
+	}
+	if unit.AttemptCount != 1 {
+		t.Fatalf("expected attempt count 1, got %d", unit.AttemptCount)
+	}
+	if unit.LastError != "boom" {
+		t.Fatalf("expected last error boom, got %q", unit.LastError)
 	}
 }

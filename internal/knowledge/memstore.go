@@ -14,18 +14,24 @@ import (
 
 // MemStore is an in-memory implementation of KnowledgeStore.
 type MemStore struct {
-	mu        sync.RWMutex
-	artifacts map[string]*Artifact  // artifactID -> Artifact
-	sections  map[string][]Section  // artifactID -> []Section
-	evidence  map[string][]Evidence // sectionID -> []Evidence
+	mu             sync.RWMutex
+	artifacts      map[string]*Artifact                // artifactID -> Artifact
+	sections       map[string][]Section                // artifactID -> []Section
+	evidence       map[string][]Evidence               // sectionID -> []Evidence
+	understandings map[string]*RepositoryUnderstanding // understandingID -> RepositoryUnderstanding
+	dependencies   map[string][]ArtifactDependency     // artifactID -> []ArtifactDependency
+	refinements    map[string][]RefinementUnit         // artifactID -> []RefinementUnit
 }
 
 // NewMemStore creates a new in-memory knowledge store.
 func NewMemStore() *MemStore {
 	return &MemStore{
-		artifacts: make(map[string]*Artifact),
-		sections:  make(map[string][]Section),
-		evidence:  make(map[string][]Evidence),
+		artifacts:      make(map[string]*Artifact),
+		sections:       make(map[string][]Section),
+		evidence:       make(map[string][]Evidence),
+		understandings: make(map[string]*RepositoryUnderstanding),
+		dependencies:   make(map[string][]ArtifactDependency),
+		refinements:    make(map[string][]RefinementUnit),
 	}
 }
 
@@ -52,20 +58,60 @@ func (s *MemStore) StoreKnowledgeArtifact(artifact *Artifact) (*Artifact, error)
 	return &stored, nil
 }
 
+func (s *MemStore) StoreRepositoryUnderstanding(u *RepositoryUnderstanding) (*RepositoryUnderstanding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if u.ID == "" {
+		u.ID = uuid.New().String()
+	}
+	if u.Scope != nil {
+		norm := u.Scope.Normalize()
+		u.Scope = &norm
+	}
+	now := time.Now()
+	if existing := s.findUnderstandingLocked(u.RepositoryID, u.Scope); existing != nil {
+		u.ID = existing.ID
+		u.CreatedAt = existing.CreatedAt
+	} else if u.CreatedAt.IsZero() {
+		u.CreatedAt = now
+	}
+	u.UpdatedAt = now
+
+	stored := *u
+	s.understandings[stored.ID] = &stored
+	return &stored, nil
+}
+
 func (s *MemStore) ClaimArtifact(key ArtifactKey, sourceRevision SourceRevision) (*Artifact, bool, error) {
+	return s.ClaimArtifactWithMode(key, sourceRevision, "")
+}
+
+func (s *MemStore) ClaimArtifactWithMode(key ArtifactKey, sourceRevision SourceRevision, mode GenerationMode) (*Artifact, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	key = key.Normalized()
+	normalizedMode := NormalizeGenerationMode(mode)
+	var matched *Artifact
 	for _, existing := range s.artifacts {
 		if existing.RepositoryID != key.RepositoryID || existing.Type != key.Type || existing.Audience != key.Audience || existing.Depth != key.Depth {
 			continue
 		}
-		if artifactScopeKey(existing.Scope) == key.ScopeKey() {
-			out := *existing
-			out.Sections = s.loadSectionsLocked(existing.ID)
-			return &out, false, nil
+		if artifactScopeKey(existing.Scope) != key.ScopeKey() {
+			continue
 		}
+		if mode != "" && NormalizeGenerationMode(existing.GenerationMode) != normalizedMode {
+			continue
+		}
+		if matched == nil || existing.CreatedAt.After(matched.CreatedAt) {
+			matched = existing
+		}
+	}
+	if matched != nil {
+		out := *matched
+		out.Sections = s.loadSectionsLocked(matched.ID)
+		return &out, false, nil
 	}
 
 	now := time.Now()
@@ -80,6 +126,7 @@ func (s *MemStore) ClaimArtifact(key ArtifactKey, sourceRevision SourceRevision)
 		Status:         StatusGenerating,
 		Progress:       0,
 		SourceRevision: sourceRevision,
+		GenerationMode: normalizedMode,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
@@ -102,21 +149,36 @@ func (s *MemStore) GetKnowledgeArtifact(id string) *Artifact {
 }
 
 func (s *MemStore) GetArtifactByKey(key ArtifactKey) *Artifact {
+	return s.GetArtifactByKeyAndMode(key, "")
+}
+
+func (s *MemStore) GetArtifactByKeyAndMode(key ArtifactKey, mode GenerationMode) *Artifact {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	key = key.Normalized()
+	normalizedMode := NormalizeGenerationMode(mode)
+	var matched *Artifact
 	for _, existing := range s.artifacts {
 		if existing.RepositoryID != key.RepositoryID || existing.Type != key.Type || existing.Audience != key.Audience || existing.Depth != key.Depth {
 			continue
 		}
-		if artifactScopeKey(existing.Scope) == key.ScopeKey() {
-			out := *existing
-			out.Sections = s.loadSectionsLocked(existing.ID)
-			return &out
+		if artifactScopeKey(existing.Scope) != key.ScopeKey() {
+			continue
+		}
+		if mode != "" && NormalizeGenerationMode(existing.GenerationMode) != normalizedMode {
+			continue
+		}
+		if matched == nil || existing.CreatedAt.After(matched.CreatedAt) {
+			matched = existing
 		}
 	}
-	return nil
+	if matched == nil {
+		return nil
+	}
+	out := *matched
+	out.Sections = s.loadSectionsLocked(matched.ID)
+	return &out
 }
 
 func (s *MemStore) GetKnowledgeArtifacts(repoID string) []*Artifact {
@@ -131,6 +193,36 @@ func (s *MemStore) GetKnowledgeArtifacts(repoID string) []*Artifact {
 			results = append(results, &out)
 		}
 	}
+	return results
+}
+
+func (s *MemStore) GetRepositoryUnderstanding(repoID string, scope ArtifactScope) *RepositoryUnderstanding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	existing := s.findUnderstandingLocked(repoID, &scope)
+	if existing == nil {
+		return nil
+	}
+	out := *existing
+	return &out
+}
+
+func (s *MemStore) GetRepositoryUnderstandings(repoID string) []*RepositoryUnderstanding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var results []*RepositoryUnderstanding
+	for _, u := range s.understandings {
+		if u.RepositoryID != repoID {
+			continue
+		}
+		out := *u
+		results = append(results, &out)
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].UpdatedAt.After(results[j].UpdatedAt)
+	})
 	return results
 }
 
@@ -206,6 +298,37 @@ func (s *MemStore) MarkKnowledgeArtifactStale(id string, stale bool) error {
 	return nil
 }
 
+func (s *MemStore) MarkRepositoryUnderstandingNeedsRefresh(repoID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	for _, u := range s.understandings {
+		if u.RepositoryID != repoID {
+			continue
+		}
+		if u.Stage == UnderstandingReady || u.Stage == UnderstandingFirstPassReady {
+			u.Stage = UnderstandingNeedsRefresh
+			u.UpdatedAt = now
+		}
+	}
+	return nil
+}
+
+func (s *MemStore) AttachArtifactUnderstanding(artifactID, understandingID, revisionFP string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	a := s.artifacts[artifactID]
+	if a == nil {
+		return fmt.Errorf("artifact %s not found", artifactID)
+	}
+	a.UnderstandingID = understandingID
+	a.UnderstandingRevisionFP = revisionFP
+	a.UpdatedAt = time.Now()
+	return nil
+}
+
 func (s *MemStore) DeleteKnowledgeArtifact(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -218,6 +341,7 @@ func (s *MemStore) DeleteKnowledgeArtifact(id string) error {
 		delete(s.evidence, sec.ID)
 	}
 	delete(s.sections, id)
+	delete(s.refinements, id)
 	delete(s.artifacts, id)
 	return nil
 }
@@ -240,6 +364,12 @@ func (s *MemStore) SupersedeArtifact(id string, sections []Section) error {
 		}
 		sec.ArtifactID = id
 		sec.OrderIndex = i
+		if sec.SectionKey == "" {
+			sec.SectionKey = SectionKeyForTitle(sec.Title)
+		}
+		if sec.RefinementStatus == "" {
+			sec.RefinementStatus = "light"
+		}
 		stored[i] = sec
 	}
 	s.sections[id] = stored
@@ -250,9 +380,7 @@ func (s *MemStore) SupersedeArtifact(id string, sections []Section) error {
 		}
 		evs := make([]Evidence, len(sec.Evidence))
 		for i, ev := range sec.Evidence {
-			if ev.ID == "" {
-				ev.ID = uuid.New().String()
-			}
+			ev.ID = uuid.New().String()
 			ev.SectionID = sec.ID
 			evs[i] = ev
 		}
@@ -279,6 +407,12 @@ func (s *MemStore) StoreKnowledgeSections(artifactID string, sections []Section)
 		}
 		sec.ArtifactID = artifactID
 		sec.OrderIndex = i
+		if sec.SectionKey == "" {
+			sec.SectionKey = SectionKeyForTitle(sec.Title)
+		}
+		if sec.RefinementStatus == "" {
+			sec.RefinementStatus = "light"
+		}
 		stored[i] = sec
 	}
 	s.sections[artifactID] = stored
@@ -291,15 +425,62 @@ func (s *MemStore) GetKnowledgeSections(artifactID string) []Section {
 	return s.loadSectionsLocked(artifactID)
 }
 
+func (s *MemStore) StoreRefinementUnits(artifactID string, units []RefinementUnit) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.artifacts[artifactID]; !ok {
+		return fmt.Errorf("artifact %s not found", artifactID)
+	}
+	now := time.Now()
+	existing := s.refinements[artifactID]
+	index := make(map[string]int, len(existing))
+	for i, unit := range existing {
+		index[refinementKey(unit.SectionKey, unit.RefinementType)] = i
+	}
+	for _, unit := range units {
+		if unit.ID == "" {
+			unit.ID = uuid.New().String()
+		}
+		unit.ArtifactID = artifactID
+		if unit.CreatedAt.IsZero() {
+			unit.CreatedAt = now
+		}
+		if unit.UpdatedAt.IsZero() {
+			unit.UpdatedAt = now
+		}
+		key := refinementKey(unit.SectionKey, unit.RefinementType)
+		if idx, ok := index[key]; ok {
+			if existing[idx].CreatedAt.IsZero() {
+				existing[idx].CreatedAt = unit.CreatedAt
+			}
+			unit.CreatedAt = existing[idx].CreatedAt
+			existing[idx] = unit
+			continue
+		}
+		index[key] = len(existing)
+		existing = append(existing, unit)
+	}
+	s.refinements[artifactID] = existing
+	return nil
+}
+
+func (s *MemStore) GetRefinementUnits(artifactID string) []RefinementUnit {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	units := s.refinements[artifactID]
+	out := make([]RefinementUnit, len(units))
+	copy(out, units)
+	return out
+}
+
 func (s *MemStore) StoreKnowledgeEvidence(sectionID string, evidence []Evidence) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	stored := make([]Evidence, len(evidence))
 	for i, ev := range evidence {
-		if ev.ID == "" {
-			ev.ID = uuid.New().String()
-		}
+		ev.ID = uuid.New().String()
 		ev.SectionID = sectionID
 		stored[i] = ev
 	}
@@ -311,6 +492,46 @@ func (s *MemStore) GetKnowledgeEvidence(sectionID string) []Evidence {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.evidence[sectionID]
+}
+
+func (s *MemStore) StoreArtifactDependencies(artifactID string, dependencies []ArtifactDependency) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.artifacts[artifactID]; !ok {
+		return fmt.Errorf("artifact %s not found", artifactID)
+	}
+	now := time.Now()
+	stored := make([]ArtifactDependency, len(dependencies))
+	for i, dep := range dependencies {
+		if dep.ID == "" {
+			dep.ID = uuid.New().String()
+		}
+		dep.ArtifactID = artifactID
+		if dep.CreatedAt.IsZero() {
+			dep.CreatedAt = now
+		}
+		stored[i] = dep
+	}
+	s.dependencies[artifactID] = stored
+	return nil
+}
+
+func (s *MemStore) GetArtifactDependencies(artifactID string) []ArtifactDependency {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	raw := s.dependencies[artifactID]
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make([]ArtifactDependency, len(raw))
+	copy(out, raw)
+	return out
+}
+
+func refinementKey(sectionKey, refinementType string) string {
+	return sectionKey + "\x00" + refinementType
 }
 
 func (s *MemStore) loadSectionsLocked(artifactID string) []Section {
@@ -325,6 +546,27 @@ func (s *MemStore) loadSectionsLocked(artifactID string) []Section {
 		out[i].Evidence = s.evidence[out[i].ID]
 	}
 	return out
+}
+
+func (s *MemStore) findUnderstandingLocked(repoID string, scope *ArtifactScope) *RepositoryUnderstanding {
+	target := ArtifactScope{ScopeType: ScopeRepository}
+	if scope != nil {
+		target = scope.Normalize()
+	}
+	targetKey := target.ScopeKey()
+	for _, existing := range s.understandings {
+		if existing.RepositoryID != repoID {
+			continue
+		}
+		existingScope := ArtifactScope{ScopeType: ScopeRepository}
+		if existing.Scope != nil {
+			existingScope = existing.Scope.Normalize()
+		}
+		if existingScope.ScopeKey() == targetKey {
+			return existing
+		}
+	}
+	return nil
 }
 
 func artifactScopeKey(scope *ArtifactScope) string {

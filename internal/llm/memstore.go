@@ -54,6 +54,9 @@ func (s *MemStore) Create(job *Job) (*Job, error) {
 	if job.Status == "" {
 		job.Status = StatusPending
 	}
+	if job.Priority == "" {
+		job.Priority = PriorityInteractive
+	}
 	stored := cloneJob(job)
 	s.jobs[job.ID] = stored
 	return cloneJob(stored), nil

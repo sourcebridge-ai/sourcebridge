@@ -104,9 +104,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	_ = db.NewCache(cfg.Storage)
 
 	knowledgeTimeoutProvider := func() time.Duration {
-		if cfg.LLM.TimeoutSecs > 0 {
-			return time.Duration(cfg.LLM.TimeoutSecs) * time.Second
-		}
+		// TimeoutSecs is for individual LLM completions (default 30s).
+		// Knowledge generation is a multi-step pipeline that takes much
+		// longer — use the dedicated constant (default 30 minutes).
 		return worker.TimeoutKnowledgeRepository
 	}
 
@@ -182,6 +182,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 			if rec.KnowledgeModel != "" {
 				cfg.LLM.KnowledgeModel = rec.KnowledgeModel
+			}
+			if rec.ArchitectureDiagramModel != "" {
+				cfg.LLM.ArchitectureDiagramModel = rec.ArchitectureDiagramModel
 			}
 			if rec.ReportModel != "" {
 				cfg.LLM.ReportModel = rec.ReportModel
@@ -386,31 +389,33 @@ func (a *llmConfigAdapter) LoadLLMConfig() (*rest.LLMConfigRecord, error) {
 		return nil, err
 	}
 	return &rest.LLMConfigRecord{
-		Provider:       rec.Provider,
-		BaseURL:        rec.BaseURL,
-		APIKey:         rec.APIKey,
-		SummaryModel:   rec.SummaryModel,
-		ReviewModel:    rec.ReviewModel,
-		AskModel:       rec.AskModel,
-		KnowledgeModel: rec.KnowledgeModel,
-		DraftModel:     rec.DraftModel,
-		TimeoutSecs:    rec.TimeoutSecs,
-		AdvancedMode:   rec.AdvancedMode,
+		Provider:                 rec.Provider,
+		BaseURL:                  rec.BaseURL,
+		APIKey:                   rec.APIKey,
+		SummaryModel:             rec.SummaryModel,
+		ReviewModel:              rec.ReviewModel,
+		AskModel:                 rec.AskModel,
+		KnowledgeModel:           rec.KnowledgeModel,
+		ArchitectureDiagramModel: rec.ArchitectureDiagramModel,
+		DraftModel:               rec.DraftModel,
+		TimeoutSecs:              rec.TimeoutSecs,
+		AdvancedMode:             rec.AdvancedMode,
 	}, nil
 }
 
 func (a *llmConfigAdapter) SaveLLMConfig(rec *rest.LLMConfigRecord) error {
 	return a.store.SaveLLMConfig(&db.LLMConfigRecord{
-		Provider:       rec.Provider,
-		BaseURL:        rec.BaseURL,
-		APIKey:         rec.APIKey,
-		SummaryModel:   rec.SummaryModel,
-		ReviewModel:    rec.ReviewModel,
-		AskModel:       rec.AskModel,
-		KnowledgeModel: rec.KnowledgeModel,
-		DraftModel:     rec.DraftModel,
-		TimeoutSecs:    rec.TimeoutSecs,
-		AdvancedMode:   rec.AdvancedMode,
+		Provider:                 rec.Provider,
+		BaseURL:                  rec.BaseURL,
+		APIKey:                   rec.APIKey,
+		SummaryModel:             rec.SummaryModel,
+		ReviewModel:              rec.ReviewModel,
+		AskModel:                 rec.AskModel,
+		KnowledgeModel:           rec.KnowledgeModel,
+		ArchitectureDiagramModel: rec.ArchitectureDiagramModel,
+		DraftModel:               rec.DraftModel,
+		TimeoutSecs:              rec.TimeoutSecs,
+		AdvancedMode:             rec.AdvancedMode,
 	})
 }
 

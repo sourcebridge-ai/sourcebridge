@@ -36,10 +36,25 @@ type AnalysisResult struct {
 	OutputTokens *int     `json:"outputTokens,omitempty"`
 }
 
+type ArtifactDependency struct {
+	ID               string    `json:"id"`
+	DependencyType   string    `json:"dependencyType"`
+	TargetID         string    `json:"targetId"`
+	TargetRevisionFp *string   `json:"targetRevisionFp,omitempty"`
+	Metadata         *string   `json:"metadata,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+}
+
 type AutoLinkResult struct {
 	LinksCreated          int                `json:"linksCreated"`
 	RequirementsProcessed int                `json:"requirementsProcessed"`
 	Links                 []*RequirementLink `json:"links"`
+}
+
+type BuildRepositoryUnderstandingInput struct {
+	RepositoryID string              `json:"repositoryId"`
+	ScopeType    *KnowledgeScopeType `json:"scopeType,omitempty"`
+	ScopePath    *string             `json:"scopePath,omitempty"`
 }
 
 type CodeSymbol struct {
@@ -69,21 +84,22 @@ type CodeTourStop struct {
 }
 
 type ComprehensionSettings struct {
-	ID                      *string    `json:"id,omitempty"`
-	ScopeType               string     `json:"scopeType"`
-	ScopeKey                string     `json:"scopeKey"`
-	StrategyPreferenceChain []string   `json:"strategyPreferenceChain,omitempty"`
-	ModelID                 *string    `json:"modelId,omitempty"`
-	MaxConcurrency          *int       `json:"maxConcurrency,omitempty"`
-	MaxPromptTokens         *int       `json:"maxPromptTokens,omitempty"`
-	LeafBudgetTokens        *int       `json:"leafBudgetTokens,omitempty"`
-	RefinePassEnabled       *bool      `json:"refinePassEnabled,omitempty"`
-	LongContextMaxTokens    *int       `json:"longContextMaxTokens,omitempty"`
-	GraphragEntityTypes     []string   `json:"graphragEntityTypes,omitempty"`
-	CacheEnabled            *bool      `json:"cacheEnabled,omitempty"`
-	AllowUnsafeCombinations *bool      `json:"allowUnsafeCombinations,omitempty"`
-	UpdatedAt               *time.Time `json:"updatedAt,omitempty"`
-	UpdatedBy               *string    `json:"updatedBy,omitempty"`
+	ID                             *string                  `json:"id,omitempty"`
+	ScopeType                      string                   `json:"scopeType"`
+	ScopeKey                       string                   `json:"scopeKey"`
+	StrategyPreferenceChain        []string                 `json:"strategyPreferenceChain,omitempty"`
+	KnowledgeGenerationModeDefault *KnowledgeGenerationMode `json:"knowledgeGenerationModeDefault,omitempty"`
+	ModelID                        *string                  `json:"modelId,omitempty"`
+	MaxConcurrency                 *int                     `json:"maxConcurrency,omitempty"`
+	MaxPromptTokens                *int                     `json:"maxPromptTokens,omitempty"`
+	LeafBudgetTokens               *int                     `json:"leafBudgetTokens,omitempty"`
+	RefinePassEnabled              *bool                    `json:"refinePassEnabled,omitempty"`
+	LongContextMaxTokens           *int                     `json:"longContextMaxTokens,omitempty"`
+	GraphragEntityTypes            []string                 `json:"graphragEntityTypes,omitempty"`
+	CacheEnabled                   *bool                    `json:"cacheEnabled,omitempty"`
+	AllowUnsafeCombinations        *bool                    `json:"allowUnsafeCombinations,omitempty"`
+	UpdatedAt                      *time.Time               `json:"updatedAt,omitempty"`
+	UpdatedBy                      *string                  `json:"updatedBy,omitempty"`
 }
 
 type CreateManualLinkInput struct {
@@ -178,19 +194,20 @@ type DiscussionResult struct {
 }
 
 type EffectiveComprehensionSettings struct {
-	ScopeType               string         `json:"scopeType"`
-	ScopeKey                string         `json:"scopeKey"`
-	StrategyPreferenceChain []string       `json:"strategyPreferenceChain"`
-	ModelID                 string         `json:"modelId"`
-	MaxConcurrency          int            `json:"maxConcurrency"`
-	MaxPromptTokens         int            `json:"maxPromptTokens"`
-	LeafBudgetTokens        int            `json:"leafBudgetTokens"`
-	RefinePassEnabled       bool           `json:"refinePassEnabled"`
-	LongContextMaxTokens    int            `json:"longContextMaxTokens"`
-	GraphragEntityTypes     []string       `json:"graphragEntityTypes"`
-	CacheEnabled            bool           `json:"cacheEnabled"`
-	AllowUnsafeCombinations bool           `json:"allowUnsafeCombinations"`
-	InheritedFrom           []*FieldOrigin `json:"inheritedFrom,omitempty"`
+	ScopeType                      string                  `json:"scopeType"`
+	ScopeKey                       string                  `json:"scopeKey"`
+	StrategyPreferenceChain        []string                `json:"strategyPreferenceChain"`
+	KnowledgeGenerationModeDefault KnowledgeGenerationMode `json:"knowledgeGenerationModeDefault"`
+	ModelID                        string                  `json:"modelId"`
+	MaxConcurrency                 int                     `json:"maxConcurrency"`
+	MaxPromptTokens                int                     `json:"maxPromptTokens"`
+	LeafBudgetTokens               int                     `json:"leafBudgetTokens"`
+	RefinePassEnabled              bool                    `json:"refinePassEnabled"`
+	LongContextMaxTokens           int                     `json:"longContextMaxTokens"`
+	GraphragEntityTypes            []string                `json:"graphragEntityTypes"`
+	CacheEnabled                   bool                    `json:"cacheEnabled"`
+	AllowUnsafeCombinations        bool                    `json:"allowUnsafeCombinations"`
+	InheritedFrom                  []*FieldOrigin          `json:"inheritedFrom,omitempty"`
 }
 
 type ExecutionEntryPoint struct {
@@ -237,12 +254,13 @@ type ExecutionPathStep struct {
 }
 
 type ExplainSystemInput struct {
-	RepositoryID string              `json:"repositoryId"`
-	Audience     *KnowledgeAudience  `json:"audience,omitempty"`
-	Depth        *KnowledgeDepth     `json:"depth,omitempty"`
-	Question     *string             `json:"question,omitempty"`
-	ScopeType    *KnowledgeScopeType `json:"scopeType,omitempty"`
-	ScopePath    *string             `json:"scopePath,omitempty"`
+	RepositoryID   string                   `json:"repositoryId"`
+	Audience       *KnowledgeAudience       `json:"audience,omitempty"`
+	Depth          *KnowledgeDepth          `json:"depth,omitempty"`
+	GenerationMode *KnowledgeGenerationMode `json:"generationMode,omitempty"`
+	Question       *string                  `json:"question,omitempty"`
+	ScopeType      *KnowledgeScopeType      `json:"scopeType,omitempty"`
+	ScopePath      *string                  `json:"scopePath,omitempty"`
 }
 
 type ExplainSystemResult struct {
@@ -306,36 +324,46 @@ type FileDiff struct {
 	Deletions int        `json:"deletions"`
 }
 
+type GenerateArchitectureDiagramInput struct {
+	RepositoryID string             `json:"repositoryId"`
+	Audience     *KnowledgeAudience `json:"audience,omitempty"`
+	Depth        *KnowledgeDepth    `json:"depth,omitempty"`
+}
+
 type GenerateCliffNotesInput struct {
-	RepositoryID string              `json:"repositoryId"`
-	Audience     *KnowledgeAudience  `json:"audience,omitempty"`
-	Depth        *KnowledgeDepth     `json:"depth,omitempty"`
-	ScopeType    *KnowledgeScopeType `json:"scopeType,omitempty"`
-	ScopePath    *string             `json:"scopePath,omitempty"`
+	RepositoryID   string                   `json:"repositoryId"`
+	Audience       *KnowledgeAudience       `json:"audience,omitempty"`
+	Depth          *KnowledgeDepth          `json:"depth,omitempty"`
+	GenerationMode *KnowledgeGenerationMode `json:"generationMode,omitempty"`
+	ScopeType      *KnowledgeScopeType      `json:"scopeType,omitempty"`
+	ScopePath      *string                  `json:"scopePath,omitempty"`
 }
 
 type GenerateCodeTourInput struct {
-	RepositoryID string             `json:"repositoryId"`
-	Audience     *KnowledgeAudience `json:"audience,omitempty"`
-	Depth        *KnowledgeDepth    `json:"depth,omitempty"`
-	Theme        *string            `json:"theme,omitempty"`
+	RepositoryID   string                   `json:"repositoryId"`
+	Audience       *KnowledgeAudience       `json:"audience,omitempty"`
+	Depth          *KnowledgeDepth          `json:"depth,omitempty"`
+	GenerationMode *KnowledgeGenerationMode `json:"generationMode,omitempty"`
+	Theme          *string                  `json:"theme,omitempty"`
 }
 
 type GenerateLearningPathInput struct {
-	RepositoryID string             `json:"repositoryId"`
-	Audience     *KnowledgeAudience `json:"audience,omitempty"`
-	Depth        *KnowledgeDepth    `json:"depth,omitempty"`
-	FocusArea    *string            `json:"focusArea,omitempty"`
+	RepositoryID   string                   `json:"repositoryId"`
+	Audience       *KnowledgeAudience       `json:"audience,omitempty"`
+	Depth          *KnowledgeDepth          `json:"depth,omitempty"`
+	GenerationMode *KnowledgeGenerationMode `json:"generationMode,omitempty"`
+	FocusArea      *string                  `json:"focusArea,omitempty"`
 }
 
 type GenerateWorkflowStoryInput struct {
-	RepositoryID      string              `json:"repositoryId"`
-	Audience          *KnowledgeAudience  `json:"audience,omitempty"`
-	Depth             *KnowledgeDepth     `json:"depth,omitempty"`
-	ScopeType         *KnowledgeScopeType `json:"scopeType,omitempty"`
-	ScopePath         *string             `json:"scopePath,omitempty"`
-	AnchorLabel       *string             `json:"anchorLabel,omitempty"`
-	ExecutionPathJSON *string             `json:"executionPathJson,omitempty"`
+	RepositoryID      string                   `json:"repositoryId"`
+	Audience          *KnowledgeAudience       `json:"audience,omitempty"`
+	Depth             *KnowledgeDepth          `json:"depth,omitempty"`
+	GenerationMode    *KnowledgeGenerationMode `json:"generationMode,omitempty"`
+	ScopeType         *KnowledgeScopeType      `json:"scopeType,omitempty"`
+	ScopePath         *string                  `json:"scopePath,omitempty"`
+	AnchorLabel       *string                  `json:"anchorLabel,omitempty"`
+	ExecutionPathJSON *string                  `json:"executionPathJson,omitempty"`
 }
 
 type HealthStatus struct {
@@ -399,24 +427,31 @@ type ImportResult struct {
 }
 
 type KnowledgeArtifact struct {
-	ID              string                  `json:"id"`
-	RepositoryID    string                  `json:"repositoryId"`
-	Type            KnowledgeArtifactType   `json:"type"`
-	Audience        KnowledgeAudience       `json:"audience"`
-	Depth           KnowledgeDepth          `json:"depth"`
-	Scope           *KnowledgeScope         `json:"scope"`
-	Status          KnowledgeArtifactStatus `json:"status"`
-	Progress        float64                 `json:"progress"`
-	ProgressPhase   *string                 `json:"progressPhase,omitempty"`
-	ProgressMessage *string                 `json:"progressMessage,omitempty"`
-	SourceRevision  *SourceRevision         `json:"sourceRevision"`
-	Stale           bool                    `json:"stale"`
-	GeneratedAt     *time.Time              `json:"generatedAt,omitempty"`
-	CreatedAt       time.Time               `json:"createdAt"`
-	UpdatedAt       time.Time               `json:"updatedAt"`
-	ErrorCode       *string                 `json:"errorCode,omitempty"`
-	ErrorMessage    *string                 `json:"errorMessage,omitempty"`
-	Sections        []*KnowledgeSection     `json:"sections"`
+	ID                      string                     `json:"id"`
+	RepositoryID            string                     `json:"repositoryId"`
+	Type                    KnowledgeArtifactType      `json:"type"`
+	Audience                KnowledgeAudience          `json:"audience"`
+	Depth                   KnowledgeDepth             `json:"depth"`
+	Scope                   *KnowledgeScope            `json:"scope"`
+	Status                  KnowledgeArtifactStatus    `json:"status"`
+	Progress                float64                    `json:"progress"`
+	ProgressPhase           *string                    `json:"progressPhase,omitempty"`
+	ProgressMessage         *string                    `json:"progressMessage,omitempty"`
+	SourceRevision          *SourceRevision            `json:"sourceRevision"`
+	Stale                   bool                       `json:"stale"`
+	GeneratedAt             *time.Time                 `json:"generatedAt,omitempty"`
+	CreatedAt               time.Time                  `json:"createdAt"`
+	UpdatedAt               time.Time                  `json:"updatedAt"`
+	ErrorCode               *string                    `json:"errorCode,omitempty"`
+	ErrorMessage            *string                    `json:"errorMessage,omitempty"`
+	GenerationMode          KnowledgeGenerationMode    `json:"generationMode"`
+	RendererVersion         *string                    `json:"rendererVersion,omitempty"`
+	UnderstandingID         *string                    `json:"understandingId,omitempty"`
+	UnderstandingRevisionFp *string                    `json:"understandingRevisionFp,omitempty"`
+	RefreshAvailable        bool                       `json:"refreshAvailable"`
+	Dependencies            []*ArtifactDependency      `json:"dependencies"`
+	RefinementUnits         []*KnowledgeRefinementUnit `json:"refinementUnits"`
+	Sections                []*KnowledgeSection        `json:"sections"`
 }
 
 type KnowledgeEvidence struct {
@@ -431,6 +466,23 @@ type KnowledgeEvidence struct {
 	Metadata   *string            `json:"metadata,omitempty"`
 }
 
+type KnowledgeRefinementUnit struct {
+	ID                 string    `json:"id"`
+	ArtifactID         string    `json:"artifactId"`
+	SectionKey         string    `json:"sectionKey"`
+	SectionTitle       string    `json:"sectionTitle"`
+	RefinementType     string    `json:"refinementType"`
+	Status             string    `json:"status"`
+	AttemptCount       int       `json:"attemptCount"`
+	UnderstandingID    *string   `json:"understandingId,omitempty"`
+	EvidenceRevisionFp *string   `json:"evidenceRevisionFp,omitempty"`
+	RendererVersion    *string   `json:"rendererVersion,omitempty"`
+	LastError          *string   `json:"lastError,omitempty"`
+	Metadata           *string   `json:"metadata,omitempty"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+}
+
 type KnowledgeScope struct {
 	ScopeType  KnowledgeScopeType `json:"scopeType"`
 	ScopePath  string             `json:"scopePath"`
@@ -440,15 +492,18 @@ type KnowledgeScope struct {
 }
 
 type KnowledgeSection struct {
-	ID         string               `json:"id"`
-	ArtifactID string               `json:"artifactId"`
-	Title      string               `json:"title"`
-	Content    string               `json:"content"`
-	Summary    *string              `json:"summary,omitempty"`
-	Confidence KnowledgeConfidence  `json:"confidence"`
-	Inferred   bool                 `json:"inferred"`
-	OrderIndex int                  `json:"orderIndex"`
-	Evidence   []*KnowledgeEvidence `json:"evidence"`
+	ID               string               `json:"id"`
+	ArtifactID       string               `json:"artifactId"`
+	SectionKey       *string              `json:"sectionKey,omitempty"`
+	Title            string               `json:"title"`
+	Content          string               `json:"content"`
+	Summary          *string              `json:"summary,omitempty"`
+	Metadata         *string              `json:"metadata,omitempty"`
+	Confidence       KnowledgeConfidence  `json:"confidence"`
+	Inferred         bool                 `json:"inferred"`
+	OrderIndex       int                  `json:"orderIndex"`
+	RefinementStatus *string              `json:"refinementStatus,omitempty"`
+	Evidence         []*KnowledgeEvidence `json:"evidence"`
 }
 
 type LLMUsageEntry struct {
@@ -528,23 +583,45 @@ type RepoLink struct {
 }
 
 type Repository struct {
-	ID                 string              `json:"id"`
-	Name               string              `json:"name"`
-	Path               string              `json:"path"`
-	RemoteURL          *string             `json:"remoteUrl,omitempty"`
-	CommitSha          *string             `json:"commitSha,omitempty"`
-	Branch             *string             `json:"branch,omitempty"`
-	HasAuth            bool                `json:"hasAuth"`
-	Status             RepositoryStatus    `json:"status"`
-	FileCount          int                 `json:"fileCount"`
-	FunctionCount      int                 `json:"functionCount"`
-	ClassCount         int                 `json:"classCount"`
-	RequirementCount   int                 `json:"requirementCount"`
-	LastIndexedAt      *time.Time          `json:"lastIndexedAt,omitempty"`
-	CreatedAt          time.Time           `json:"createdAt"`
-	Files              *FileConnection     `json:"files"`
-	Modules            []*Module           `json:"modules"`
-	UnderstandingScore *UnderstandingScore `json:"understandingScore,omitempty"`
+	ID                      string                   `json:"id"`
+	Name                    string                   `json:"name"`
+	Path                    string                   `json:"path"`
+	RemoteURL               *string                  `json:"remoteUrl,omitempty"`
+	CommitSha               *string                  `json:"commitSha,omitempty"`
+	Branch                  *string                  `json:"branch,omitempty"`
+	GenerationModeDefault   *KnowledgeGenerationMode `json:"generationModeDefault,omitempty"`
+	HasAuth                 bool                     `json:"hasAuth"`
+	Status                  RepositoryStatus         `json:"status"`
+	FileCount               int                      `json:"fileCount"`
+	FunctionCount           int                      `json:"functionCount"`
+	ClassCount              int                      `json:"classCount"`
+	RequirementCount        int                      `json:"requirementCount"`
+	LastIndexedAt           *time.Time               `json:"lastIndexedAt,omitempty"`
+	CreatedAt               time.Time                `json:"createdAt"`
+	Files                   *FileConnection          `json:"files"`
+	Modules                 []*Module                `json:"modules"`
+	UnderstandingScore      *UnderstandingScore      `json:"understandingScore,omitempty"`
+	RepositoryUnderstanding *RepositoryUnderstanding `json:"repositoryUnderstanding,omitempty"`
+}
+
+type RepositoryUnderstanding struct {
+	ID                string                            `json:"id"`
+	RepositoryID      string                            `json:"repositoryId"`
+	Scope             *KnowledgeScope                   `json:"scope"`
+	CorpusID          *string                           `json:"corpusId,omitempty"`
+	RevisionFp        string                            `json:"revisionFp"`
+	Strategy          *string                           `json:"strategy,omitempty"`
+	Stage             RepositoryUnderstandingStage      `json:"stage"`
+	TreeStatus        RepositoryUnderstandingTreeStatus `json:"treeStatus"`
+	CachedNodes       int                               `json:"cachedNodes"`
+	TotalNodes        int                               `json:"totalNodes"`
+	ModelUsed         *string                           `json:"modelUsed,omitempty"`
+	FirstPassSections []*UnderstandingSection           `json:"firstPassSections"`
+	RefreshAvailable  bool                              `json:"refreshAvailable"`
+	CreatedAt         time.Time                         `json:"createdAt"`
+	UpdatedAt         time.Time                         `json:"updatedAt"`
+	ErrorCode         *string                           `json:"errorCode,omitempty"`
+	ErrorMessage      *string                           `json:"errorMessage,omitempty"`
 }
 
 type Requirement struct {
@@ -731,19 +808,25 @@ type UnderstandingScore struct {
 	ComputedAt            time.Time `json:"computedAt"`
 }
 
+type UnderstandingSection struct {
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+}
+
 type UpdateComprehensionSettingsInput struct {
-	ScopeType               string   `json:"scopeType"`
-	ScopeKey                *string  `json:"scopeKey,omitempty"`
-	StrategyPreferenceChain []string `json:"strategyPreferenceChain,omitempty"`
-	ModelID                 *string  `json:"modelId,omitempty"`
-	MaxConcurrency          *int     `json:"maxConcurrency,omitempty"`
-	MaxPromptTokens         *int     `json:"maxPromptTokens,omitempty"`
-	LeafBudgetTokens        *int     `json:"leafBudgetTokens,omitempty"`
-	RefinePassEnabled       *bool    `json:"refinePassEnabled,omitempty"`
-	LongContextMaxTokens    *int     `json:"longContextMaxTokens,omitempty"`
-	GraphragEntityTypes     []string `json:"graphragEntityTypes,omitempty"`
-	CacheEnabled            *bool    `json:"cacheEnabled,omitempty"`
-	AllowUnsafeCombinations *bool    `json:"allowUnsafeCombinations,omitempty"`
+	ScopeType                      string                   `json:"scopeType"`
+	ScopeKey                       *string                  `json:"scopeKey,omitempty"`
+	StrategyPreferenceChain        []string                 `json:"strategyPreferenceChain,omitempty"`
+	KnowledgeGenerationModeDefault *KnowledgeGenerationMode `json:"knowledgeGenerationModeDefault,omitempty"`
+	ModelID                        *string                  `json:"modelId,omitempty"`
+	MaxConcurrency                 *int                     `json:"maxConcurrency,omitempty"`
+	MaxPromptTokens                *int                     `json:"maxPromptTokens,omitempty"`
+	LeafBudgetTokens               *int                     `json:"leafBudgetTokens,omitempty"`
+	RefinePassEnabled              *bool                    `json:"refinePassEnabled,omitempty"`
+	LongContextMaxTokens           *int                     `json:"longContextMaxTokens,omitempty"`
+	GraphragEntityTypes            []string                 `json:"graphragEntityTypes,omitempty"`
+	CacheEnabled                   *bool                    `json:"cacheEnabled,omitempty"`
+	AllowUnsafeCombinations        *bool                    `json:"allowUnsafeCombinations,omitempty"`
 }
 
 type UpdateModelCapabilitiesInput struct {
@@ -759,6 +842,11 @@ type UpdateModelCapabilitiesInput struct {
 	EmbeddingModel         *bool   `json:"embeddingModel,omitempty"`
 	Source                 *string `json:"source,omitempty"`
 	Notes                  *string `json:"notes,omitempty"`
+}
+
+type UpdateRepositoryKnowledgeSettingsInput struct {
+	RepositoryID          string                  `json:"repositoryId"`
+	GenerationModeDefault KnowledgeGenerationMode `json:"generationModeDefault"`
 }
 
 type VersionInfo struct {
@@ -1189,14 +1277,16 @@ func (e KnowledgeArtifactStatus) MarshalJSON() ([]byte, error) {
 type KnowledgeArtifactType string
 
 const (
-	KnowledgeArtifactTypeCliffNotes    KnowledgeArtifactType = "CLIFF_NOTES"
-	KnowledgeArtifactTypeLearningPath  KnowledgeArtifactType = "LEARNING_PATH"
-	KnowledgeArtifactTypeCodeTour      KnowledgeArtifactType = "CODE_TOUR"
-	KnowledgeArtifactTypeWorkflowStory KnowledgeArtifactType = "WORKFLOW_STORY"
+	KnowledgeArtifactTypeCliffNotes          KnowledgeArtifactType = "CLIFF_NOTES"
+	KnowledgeArtifactTypeArchitectureDiagram KnowledgeArtifactType = "ARCHITECTURE_DIAGRAM"
+	KnowledgeArtifactTypeLearningPath        KnowledgeArtifactType = "LEARNING_PATH"
+	KnowledgeArtifactTypeCodeTour            KnowledgeArtifactType = "CODE_TOUR"
+	KnowledgeArtifactTypeWorkflowStory       KnowledgeArtifactType = "WORKFLOW_STORY"
 )
 
 var AllKnowledgeArtifactType = []KnowledgeArtifactType{
 	KnowledgeArtifactTypeCliffNotes,
+	KnowledgeArtifactTypeArchitectureDiagram,
 	KnowledgeArtifactTypeLearningPath,
 	KnowledgeArtifactTypeCodeTour,
 	KnowledgeArtifactTypeWorkflowStory,
@@ -1204,7 +1294,7 @@ var AllKnowledgeArtifactType = []KnowledgeArtifactType{
 
 func (e KnowledgeArtifactType) IsValid() bool {
 	switch e {
-	case KnowledgeArtifactTypeCliffNotes, KnowledgeArtifactTypeLearningPath, KnowledgeArtifactTypeCodeTour, KnowledgeArtifactTypeWorkflowStory:
+	case KnowledgeArtifactTypeCliffNotes, KnowledgeArtifactTypeArchitectureDiagram, KnowledgeArtifactTypeLearningPath, KnowledgeArtifactTypeCodeTour, KnowledgeArtifactTypeWorkflowStory:
 		return true
 	}
 	return false
@@ -1414,6 +1504,61 @@ func (e KnowledgeDepth) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+type KnowledgeGenerationMode string
+
+const (
+	KnowledgeGenerationModeClassic            KnowledgeGenerationMode = "CLASSIC"
+	KnowledgeGenerationModeUnderstandingFirst KnowledgeGenerationMode = "UNDERSTANDING_FIRST"
+)
+
+var AllKnowledgeGenerationMode = []KnowledgeGenerationMode{
+	KnowledgeGenerationModeClassic,
+	KnowledgeGenerationModeUnderstandingFirst,
+}
+
+func (e KnowledgeGenerationMode) IsValid() bool {
+	switch e {
+	case KnowledgeGenerationModeClassic, KnowledgeGenerationModeUnderstandingFirst:
+		return true
+	}
+	return false
+}
+
+func (e KnowledgeGenerationMode) String() string {
+	return string(e)
+}
+
+func (e *KnowledgeGenerationMode) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = KnowledgeGenerationMode(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid KnowledgeGenerationMode", str)
+	}
+	return nil
+}
+
+func (e KnowledgeGenerationMode) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *KnowledgeGenerationMode) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e KnowledgeGenerationMode) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
 type KnowledgeScopeType string
 
 const (
@@ -1602,6 +1747,126 @@ func (e *RepositoryStatus) UnmarshalJSON(b []byte) error {
 }
 
 func (e RepositoryStatus) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type RepositoryUnderstandingStage string
+
+const (
+	RepositoryUnderstandingStageBuildingTree   RepositoryUnderstandingStage = "BUILDING_TREE"
+	RepositoryUnderstandingStageFirstPassReady RepositoryUnderstandingStage = "FIRST_PASS_READY"
+	RepositoryUnderstandingStageNeedsRefresh   RepositoryUnderstandingStage = "NEEDS_REFRESH"
+	RepositoryUnderstandingStageDeepening      RepositoryUnderstandingStage = "DEEPENING"
+	RepositoryUnderstandingStageReady          RepositoryUnderstandingStage = "READY"
+	RepositoryUnderstandingStageFailed         RepositoryUnderstandingStage = "FAILED"
+)
+
+var AllRepositoryUnderstandingStage = []RepositoryUnderstandingStage{
+	RepositoryUnderstandingStageBuildingTree,
+	RepositoryUnderstandingStageFirstPassReady,
+	RepositoryUnderstandingStageNeedsRefresh,
+	RepositoryUnderstandingStageDeepening,
+	RepositoryUnderstandingStageReady,
+	RepositoryUnderstandingStageFailed,
+}
+
+func (e RepositoryUnderstandingStage) IsValid() bool {
+	switch e {
+	case RepositoryUnderstandingStageBuildingTree, RepositoryUnderstandingStageFirstPassReady, RepositoryUnderstandingStageNeedsRefresh, RepositoryUnderstandingStageDeepening, RepositoryUnderstandingStageReady, RepositoryUnderstandingStageFailed:
+		return true
+	}
+	return false
+}
+
+func (e RepositoryUnderstandingStage) String() string {
+	return string(e)
+}
+
+func (e *RepositoryUnderstandingStage) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = RepositoryUnderstandingStage(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid RepositoryUnderstandingStage", str)
+	}
+	return nil
+}
+
+func (e RepositoryUnderstandingStage) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *RepositoryUnderstandingStage) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e RepositoryUnderstandingStage) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type RepositoryUnderstandingTreeStatus string
+
+const (
+	RepositoryUnderstandingTreeStatusMissing  RepositoryUnderstandingTreeStatus = "MISSING"
+	RepositoryUnderstandingTreeStatusPartial  RepositoryUnderstandingTreeStatus = "PARTIAL"
+	RepositoryUnderstandingTreeStatusComplete RepositoryUnderstandingTreeStatus = "COMPLETE"
+)
+
+var AllRepositoryUnderstandingTreeStatus = []RepositoryUnderstandingTreeStatus{
+	RepositoryUnderstandingTreeStatusMissing,
+	RepositoryUnderstandingTreeStatusPartial,
+	RepositoryUnderstandingTreeStatusComplete,
+}
+
+func (e RepositoryUnderstandingTreeStatus) IsValid() bool {
+	switch e {
+	case RepositoryUnderstandingTreeStatusMissing, RepositoryUnderstandingTreeStatusPartial, RepositoryUnderstandingTreeStatusComplete:
+		return true
+	}
+	return false
+}
+
+func (e RepositoryUnderstandingTreeStatus) String() string {
+	return string(e)
+}
+
+func (e *RepositoryUnderstandingTreeStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = RepositoryUnderstandingTreeStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid RepositoryUnderstandingTreeStatus", str)
+	}
+	return nil
+}
+
+func (e RepositoryUnderstandingTreeStatus) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *RepositoryUnderstandingTreeStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e RepositoryUnderstandingTreeStatus) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

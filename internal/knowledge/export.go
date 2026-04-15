@@ -177,6 +177,8 @@ func artifactTypeTitle(t ArtifactType) string {
 	switch t {
 	case ArtifactCliffNotes:
 		return "Cliff Notes"
+	case ArtifactArchitectureDiagram:
+		return "Architecture Diagram"
 	case ArtifactLearningPath:
 		return "Learning Path"
 	case ArtifactCodeTour:

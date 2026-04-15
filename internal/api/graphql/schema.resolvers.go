@@ -28,6 +28,7 @@ import (
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/requirements"
+	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 	"github.com/sourcebridge/sourcebridge/internal/version"
 )
 
@@ -294,9 +295,131 @@ func (r *mutationResolver) ReindexRepository(ctx context.Context, id string) (*R
 		"commitSHA", updatedRepo.CommitSHA,
 	)
 
-	go r.seedRepositoryFieldGuide(id)
+	if knowledgePrewarmOnIndexEnabled() {
+		go r.seedRepositoryFieldGuide(id)
+	}
 
 	return mapRepository(updatedRepo), nil
+}
+
+// BuildRepositoryUnderstanding is the resolver for the buildRepositoryUnderstanding field.
+func (r *mutationResolver) BuildRepositoryUnderstanding(ctx context.Context, input BuildRepositoryUnderstandingInput) (*RepositoryUnderstanding, error) {
+	if r.Worker == nil {
+		return nil, fmt.Errorf("AI features are unavailable — worker not connected")
+	}
+	if r.KnowledgeStore == nil {
+		return nil, fmt.Errorf("knowledge store not configured")
+	}
+
+	repo := r.getStore(ctx).GetRepository(input.RepositoryID)
+	if repo == nil {
+		return nil, fmt.Errorf("repository %s not found", input.RepositoryID)
+	}
+	scope, err := artifactScopeFromInput(input.ScopeType, input.ScopePath)
+	if err != nil {
+		return nil, err
+	}
+
+	assembler := knowledgepkg.NewAssembler(r.getStore(ctx))
+	repoRoot, repoRootErr := resolveRepoSourcePath(repo)
+	if repoRootErr != nil {
+		slog.Warn("repository understanding: repo source unavailable, docs will be omitted from snapshot",
+			"repo_id", repo.ID, "error", repoRootErr)
+	}
+	var snap *knowledgepkg.KnowledgeSnapshot
+	if scope.ScopeType == knowledgepkg.ScopeRepository {
+		snap, err = assembler.Assemble(repo.ID, repoRoot)
+	} else {
+		snap, err = assembler.AssembleScoped(repo.ID, repoRoot, scope)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to assemble knowledge snapshot: %w", err)
+	}
+	snapshotJSON, err := json.Marshal(snap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize snapshot: %w", err)
+	}
+
+	existing := r.KnowledgeStore.GetRepositoryUnderstanding(repo.ID, scope)
+	revisionFP := knowledgepkg.RevisionFingerprint(snap.SourceRevision)
+	if existing != nil && existing.RevisionFP == revisionFP && existing.Stage != knowledgepkg.UnderstandingNeedsRefresh && existing.TreeStatus == knowledgepkg.UnderstandingTreeComplete {
+		return mapRepositoryUnderstanding(existing), nil
+	}
+
+	understanding := &knowledgepkg.RepositoryUnderstanding{
+		RepositoryID: repo.ID,
+		Scope:        scope.NormalizePtr(),
+		RevisionFP:   revisionFP,
+		Stage:        knowledgepkg.UnderstandingBuildingTree,
+		TreeStatus:   knowledgepkg.UnderstandingTreeMissing,
+	}
+	understanding, err = r.KnowledgeStore.StoreRepositoryUnderstanding(understanding)
+	if err != nil {
+		return nil, fmt.Errorf("failed to seed repository understanding: %w", err)
+	}
+
+	err = enqueueRepositoryUnderstandingJob(r.Resolver, repo, understanding, scope, snapshotJSON, func(runCtx context.Context, rt llm.Runtime) error {
+		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
+		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "snapshot", "snapshot_assembled", "Snapshot assembled", map[string]any{
+			"snapshot_bytes": len(snapshotJSON),
+			"scope_type":     string(scope.ScopeType),
+			"scope_path":     scope.ScopePath,
+		})
+		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, understanding.ID, "build_repository_understanding")
+		resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
+			RepositoryId:   repo.ID,
+			RepositoryName: repo.Name,
+			Audience:       string(knowledgepkg.AudienceDeveloper),
+			Depth:          string(knowledgepkg.DepthMedium),
+			ScopeType:      string(scope.ScopeType),
+			ScopePath:      scope.ScopePath,
+			SnapshotJson:   string(snapshotJSON),
+		})
+		if err != nil {
+			markRepositoryUnderstandingFailed(r.KnowledgeStore, &knowledgepkg.Artifact{RepositoryID: repo.ID}, scope, snap.SourceRevision, err)
+			return err
+		}
+		if _, err := updateUnderstandingForCliffNotes(r.KnowledgeStore, &knowledgepkg.Artifact{RepositoryID: repo.ID}, scope, snap.SourceRevision, resp, knowledgepkg.UnderstandingFirstPassReady); err != nil {
+			return err
+		}
+		rt.ReportProgress(1.0, "ready", "Repository understanding ready")
+		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "ready", "repository_understanding_ready", "Repository understanding ready", map[string]any{
+			"cached_nodes": func() int32 {
+				if resp.Diagnostics == nil {
+					return 0
+				}
+				return resp.Diagnostics.CachedNodes
+			}(),
+			"total_nodes": func() int32 {
+				if resp.Diagnostics == nil {
+					return 0
+				}
+				return resp.Diagnostics.TotalNodes
+			}(),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("enqueue repository understanding job: %w", err)
+	}
+
+	return mapRepositoryUnderstanding(understanding), nil
+}
+
+// UpdateRepositoryKnowledgeSettings is the resolver for the updateRepositoryKnowledgeSettings field.
+func (r *mutationResolver) UpdateRepositoryKnowledgeSettings(ctx context.Context, input UpdateRepositoryKnowledgeSettingsInput) (*Repository, error) {
+	store := r.getStore(ctx)
+	if store == nil {
+		return nil, fmt.Errorf("store not initialized")
+	}
+	repo := store.GetRepository(input.RepositoryID)
+	if repo == nil {
+		return nil, fmt.Errorf("repository %s not found", input.RepositoryID)
+	}
+	store.UpdateRepositoryMeta(repo.ID, graphstore.RepositoryMeta{
+		GenerationModeDefault: strings.ToLower(string(input.GenerationModeDefault)),
+	})
+	return mapRepository(store.GetRepository(repo.ID)), nil
 }
 
 // ImportRequirements is the resolver for the importRequirements field.
@@ -1388,6 +1511,7 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 	if err != nil {
 		return nil, err
 	}
+	generationMode := resolvedKnowledgeGenerationMode(r.ComprehensionStore, repo, input.GenerationMode)
 	audience := string(key.Audience)
 	depth := string(key.Depth)
 	scope := key.Scope.Normalize()
@@ -1403,7 +1527,7 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		}
 	}
 
-	existing := r.KnowledgeStore.GetArtifactByKey(key)
+	existing := r.KnowledgeStore.GetArtifactByKeyAndMode(key, generationMode)
 	if existing != nil {
 		if shouldRefreshScopedCliffNotes(existing) {
 			_ = r.KnowledgeStore.DeleteKnowledgeArtifact(existing.ID)
@@ -1411,7 +1535,14 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		}
 	}
 	if existing != nil {
-		if existing.Status == knowledgepkg.StatusReady && !existing.Stale {
+		existing.GenerationMode = generationMode
+		syncArtifactExecutionMetadata(r.KnowledgeStore, existing)
+		scopeUnderstanding := (*knowledgepkg.RepositoryUnderstanding)(nil)
+		if artifactUsesUnderstanding(generationMode) {
+			scopeUnderstanding, _ = attachFreshUnderstanding(r.KnowledgeStore, existing, scope, knowledgepkg.SourceRevision{})
+		}
+		renderPlan := cliffNotesRenderPlanForArtifact(r.KnowledgeStore, existing, knowledgepkg.SourceRevision{}, scopeUnderstanding)
+		if existing.Status == knowledgepkg.StatusReady && !existing.Stale && !renderPlan.RenderOnly {
 			return mapKnowledgeArtifact(existing), nil
 		}
 		if isInFlightGeneration(existing) {
@@ -1450,12 +1581,27 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		return nil, fmt.Errorf("failed to serialize snapshot: %w", err)
 	}
 
-	artifact, created, err := r.KnowledgeStore.ClaimArtifact(key, snap.SourceRevision)
+	artifact, created, err := r.KnowledgeStore.ClaimArtifactWithMode(key, snap.SourceRevision, generationMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to claim knowledge artifact: %w", err)
 	}
 	if !created {
 		return mapKnowledgeArtifact(artifact), nil
+	}
+	artifact.GenerationMode = generationMode
+	syncArtifactExecutionMetadata(r.KnowledgeStore, artifact)
+	understanding := (*knowledgepkg.RepositoryUnderstanding)(nil)
+	reusedUnderstanding := false
+	renderPlan := cliffNotesRenderPlan{}
+	if artifactUsesUnderstanding(generationMode) {
+		understanding, reusedUnderstanding = attachFreshUnderstanding(r.KnowledgeStore, artifact, scope, snap.SourceRevision)
+		if understanding == nil {
+			if _, err := seedRepositoryUnderstanding(r.KnowledgeStore, artifact, scope, snap.SourceRevision, knowledgepkg.UnderstandingBuildingTree); err != nil {
+				slog.Warn("failed to seed repository understanding", "artifact_id", artifact.ID, "error", err)
+			}
+		} else {
+			renderPlan = cliffNotesRenderPlanForArtifact(r.KnowledgeStore, artifact, snap.SourceRevision, understanding)
+		}
 	}
 
 	// Hand the work off to the LLM orchestrator. The artifact is
@@ -1513,10 +1659,19 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		}
 	}
 
-	err = r.enqueueKnowledgeJob(artifact, "cliff_notes", len(enrichedCliffSnapJSON), func(runCtx context.Context, rt llm.Runtime) error {
+	err = r.enqueueKnowledgeJob(artifact, "cliff_notes", len(enrichedCliffSnapJSON), func(runCtx context.Context, rt llm.Runtime) (runErr error) {
+		defer func() {
+			if runErr != nil {
+				markRepositoryUnderstandingFailed(r.KnowledgeStore, artifact, scope, snap.SourceRevision, runErr)
+			}
+		}()
 		genStart := time.Now()
 		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
+		if reusedUnderstanding {
+			rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+			_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.12, "understanding", "Using cached repository understanding")
+		}
 		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "snapshot", "snapshot_assembled", "Snapshot assembled", map[string]any{
 			"snapshot_bytes": len(enrichedCliffSnapJSON),
 			"scope_type":     string(scope.ScopeType),
@@ -1527,12 +1682,18 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
 		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "cliff_notes")
+		if renderPlan.RenderOnly {
+			bgCtx = withCliffNotesRenderMetadata(bgCtx, true, renderPlan.SelectedSectionTitles)
+		}
 		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "llm", "worker_dispatch", "Dispatching cliff notes request to worker", map[string]any{
 			"repository_id":   repo.ID,
 			"repository_name": repo.Name,
 			"scope_type":      string(scope.ScopeType),
 			"scope_path":      scope.ScopePath,
 			"depth":           depth,
+			"generation_mode": string(generationMode),
+			"render_only":     renderPlan.RenderOnly,
+			"selected_titles": renderPlan.SelectedSectionTitles,
 		})
 		resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
 			RepositoryId:   repo.ID,
@@ -1557,6 +1718,10 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 				"error", err,
 			)
 			return err
+		}
+		understanding, err := updateUnderstandingForCliffNotes(r.KnowledgeStore, artifact, scope, snap.SourceRevision, resp, knowledgepkg.UnderstandingReady)
+		if err != nil {
+			slog.Warn("failed to update repository understanding", "artifact_id", artifact.ID, "error", err)
 		}
 
 		reusedSummaries := 0
@@ -1623,17 +1788,28 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		sections := make([]knowledgepkg.Section, len(resp.Sections))
 		for i, sec := range resp.Sections {
 			sections[i] = knowledgepkg.Section{
-				Title:      sec.Title,
-				Content:    sec.Content,
-				Summary:    sec.Summary,
-				Confidence: mapProtoConfidence(sec.Confidence),
-				Inferred:   sec.Inferred,
+				Title:            sec.Title,
+				Content:          sec.Content,
+				Summary:          sec.Summary,
+				Metadata:         cliffNotesSectionMetadataJSON(knowledgepkg.ArtifactCliffNotes, understanding, "light", sec.Title, len(sec.Evidence) > 0),
+				Confidence:       mapProtoConfidence(sec.Confidence),
+				Inferred:         sec.Inferred,
+				SectionKey:       knowledgepkg.SectionKeyForTitle(sec.Title),
+				RefinementStatus: "light",
 			}
+		}
+		if renderPlan.RenderOnly && len(renderPlan.SelectedSectionTitles) > 0 {
+			selected := make(map[string]struct{}, len(renderPlan.SelectedSectionTitles))
+			for _, title := range renderPlan.SelectedSectionTitles {
+				selected[title] = struct{}{}
+			}
+			sections = knowledgepkg.MergeSectionsByTitle(r.KnowledgeStore.GetKnowledgeSections(artifact.ID), sections, selected)
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			slog.Error("failed to store cliff notes sections", "artifact_id", artifact.ID, "error", err)
 			return err
 		}
+		syncCliffNotesRefinementUnits(r.KnowledgeStore, artifact, sections, understanding)
 		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "persist", "persist_sections_completed", "Stored cliff note sections", map[string]any{
 			"section_count": len(sections),
 		})
@@ -1661,6 +1837,13 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 
 		if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusReady); err != nil {
 			slog.Error("failed to mark cliff notes ready", "artifact_id", artifact.ID, "error", err)
+		}
+		if artifactUsesUnderstanding(generationMode) && depth != string(knowledgepkg.DepthSummary) {
+			if targets := cliffNotesDeepeningTargets(r.KnowledgeStore, artifact); len(targets) > 0 {
+				if err := r.enqueueCliffNotesDeepening(repo, artifact, scope, snap.SourceRevision, enrichedCliffSnapJSON, targets); err != nil {
+					slog.Warn("failed to enqueue cliff notes deepening", "artifact_id", artifact.ID, "error", err)
+				}
+			}
 		}
 		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "ready", "artifact_ready", "Cliff notes artifact marked ready", map[string]any{
 			"section_count": len(sections),
@@ -1691,6 +1874,164 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 	return mapKnowledgeArtifact(artifact), nil
 }
 
+// GenerateArchitectureDiagram is the resolver for the generateArchitectureDiagram field.
+func (r *mutationResolver) GenerateArchitectureDiagram(ctx context.Context, input GenerateArchitectureDiagramInput) (*KnowledgeArtifact, error) {
+	if r.Worker == nil {
+		return nil, fmt.Errorf("AI features are unavailable — worker not connected")
+	}
+	if r.KnowledgeStore == nil {
+		return nil, fmt.Errorf("knowledge store not configured")
+	}
+
+	repo := r.getStore(ctx).GetRepository(input.RepositoryID)
+	if repo == nil {
+		return nil, fmt.Errorf("repository %s not found", input.RepositoryID)
+	}
+
+	audience := knowledgeAudienceValue(input.Audience)
+	depth := knowledgeDepthValue(input.Depth)
+	key := knowledgepkg.ArtifactKey{
+		RepositoryID: repo.ID,
+		Type:         knowledgepkg.ArtifactArchitectureDiagram,
+		Audience:     audience,
+		Depth:        depth,
+		Scope:        knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository},
+	}.Normalized()
+	generationMode := knowledgepkg.GenerationModeUnderstandingFirst
+
+	if existing := r.KnowledgeStore.GetArtifactByKeyAndMode(key, generationMode); existing != nil {
+		if existing.Status == knowledgepkg.StatusReady && !existing.Stale {
+			return mapKnowledgeArtifact(existing), nil
+		}
+		if isInFlightGeneration(existing) {
+			return mapKnowledgeArtifact(existing), nil
+		}
+		if existing.Status == knowledgepkg.StatusFailed || existing.Stale ||
+			existing.Status == knowledgepkg.StatusGenerating || existing.Status == knowledgepkg.StatusPending {
+			_ = r.KnowledgeStore.DeleteKnowledgeArtifact(existing.ID)
+		}
+	}
+
+	assembler := knowledgepkg.NewAssembler(r.getStore(ctx))
+	repoRoot, repoRootErr := resolveRepoSourcePath(repo)
+	if repoRootErr != nil {
+		slog.Warn("architecture diagram: repo source unavailable, docs will be omitted from snapshot",
+			"repo_id", repo.ID, "error", repoRootErr)
+	}
+	snap, err := assembler.Assemble(repo.ID, repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to assemble knowledge snapshot: %w", err)
+	}
+	snapJSON, err := json.Marshal(snap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize snapshot: %w", err)
+	}
+	scaffoldJSON, err := buildArchitectureDiagramScaffold(r.getStore(ctx), repo.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build architecture scaffold: %w", err)
+	}
+
+	artifact, created, err := r.KnowledgeStore.ClaimArtifactWithMode(key, snap.SourceRevision, generationMode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to claim knowledge artifact: %w", err)
+	}
+	if !created {
+		return mapKnowledgeArtifact(artifact), nil
+	}
+	artifact.GenerationMode = generationMode
+	syncArtifactExecutionMetadata(r.KnowledgeStore, artifact)
+	store := r.getStore(ctx)
+
+	err = r.enqueueKnowledgeJob(artifact, "architecture_diagram", len(snapJSON), func(runCtx context.Context, rt llm.Runtime) error {
+		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
+		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
+
+		architecturePromptJSON := snapJSON
+		var architectureBundle architectureDiagramPromptBundle
+		var understandingForDiagram *knowledgepkg.RepositoryUnderstanding
+		if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, artifact, snap.SourceRevision, snapJSON); err != nil {
+			return err
+		} else {
+			understandingForDiagram = understanding
+			if reused {
+				rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+				_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.12, "understanding", "Using cached repository understanding")
+			}
+		}
+		if promptJSON, err := buildArchitectureDiagramPromptBundle(r.KnowledgeStore, repo.ID, knowledgepkg.Audience(audience), snap, understandingForDiagram, scaffoldJSON); err != nil {
+			return err
+		} else {
+			architecturePromptJSON = promptJSON
+			if err := json.Unmarshal(promptJSON, &architectureBundle); err != nil {
+				return fmt.Errorf("failed to unmarshal architecture prompt bundle: %w", err)
+			}
+		}
+
+		stopProgress := r.startProgressTicker(rt, artifact.ID)
+		resp, err := r.Worker.GenerateArchitectureDiagram(
+			r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "architecture_diagram"),
+			&knowledgev1.GenerateArchitectureDiagramRequest{
+				RepositoryId:             repo.ID,
+				RepositoryName:           repo.Name,
+				Audience:                 string(audience),
+				Depth:                    string(depth),
+				SnapshotJson:             string(architecturePromptJSON),
+				DeterministicDiagramJson: string(scaffoldJSON),
+			},
+		)
+		stopProgress()
+		if err != nil {
+			slog.Error("architecture diagram generation failed", "artifact_id", artifact.ID, "error", err)
+			return err
+		}
+
+		if resp.Usage != nil {
+			store.StoreLLMUsage(&graphstore.LLMUsageRecord{
+				RepoID:       repo.ID,
+				Provider:     "llm",
+				Model:        resp.Usage.Model,
+				Operation:    resp.Usage.Operation,
+				InputTokens:  int(resp.Usage.InputTokens),
+				OutputTokens: int(resp.Usage.OutputTokens),
+			})
+			rt.ReportTokens(int(resp.Usage.InputTokens), int(resp.Usage.OutputTokens))
+		}
+
+		rt.ReportProgress(0.96, "llm", "LLM completed, persisting diagram")
+		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.8, "llm", "LLM completed, persisting diagram")
+
+		sections := []knowledgepkg.Section{{
+			Title:            "AI Architecture Diagram",
+			SectionKey:       "ai_architecture_diagram",
+			Content:          resp.MermaidSource,
+			Summary:          resp.DiagramSummary,
+			Metadata:         architectureDiagramMetadataJSON(resp, &architectureBundle),
+			Confidence:       knowledgepkg.ConfidenceMedium,
+			Inferred:         len(resp.InferredEdges) > 0,
+			RefinementStatus: "light",
+		}}
+		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
+			return err
+		}
+		storedSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
+		if len(storedSections) > 0 && len(resp.Evidence) > 0 {
+			if err := r.KnowledgeStore.StoreKnowledgeEvidence(storedSections[0].ID, mapProtoEvidence(resp.Evidence)); err != nil {
+				return err
+			}
+		}
+		if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(artifact.ID, knowledgepkg.StatusReady); err != nil {
+			return err
+		}
+		rt.ReportProgress(1.0, "ready", "AI architecture diagram ready")
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("enqueue architecture diagram job: %w", err)
+	}
+
+	return mapKnowledgeArtifact(artifact), nil
+}
+
 // GenerateLearningPath is the resolver for the generateLearningPath field.
 func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input GenerateLearningPathInput) (*KnowledgeArtifact, error) {
 	if r.Worker == nil {
@@ -1717,6 +2058,7 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 	if input.FocusArea != nil {
 		focusArea = *input.FocusArea
 	}
+	generationMode := resolvedKnowledgeGenerationMode(r.ComprehensionStore, repo, input.GenerationMode)
 
 	// Assemble snapshot
 	assembler := knowledgepkg.NewAssembler(r.getStore(ctx))
@@ -1733,6 +2075,7 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize snapshot: %w", err)
 	}
+	enrichedSnapJSON := snapJSON
 	key := knowledgepkg.ArtifactKey{
 		RepositoryID: repo.ID,
 		Type:         knowledgepkg.ArtifactLearningPath,
@@ -1740,7 +2083,7 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 		Depth:        knowledgepkg.Depth(depth),
 		Scope:        knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository},
 	}.Normalized()
-	if existing := r.KnowledgeStore.GetArtifactByKey(key); existing != nil {
+	if existing := r.KnowledgeStore.GetArtifactByKeyAndMode(key, generationMode); existing != nil {
 		if existing.Status == knowledgepkg.StatusReady && !existing.Stale {
 			return mapKnowledgeArtifact(existing), nil
 		}
@@ -1755,19 +2098,40 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 			_ = r.KnowledgeStore.DeleteKnowledgeArtifact(existing.ID)
 		}
 	}
-	artifact, created, err := r.KnowledgeStore.ClaimArtifact(key, snap.SourceRevision)
+	artifact, created, err := r.KnowledgeStore.ClaimArtifactWithMode(key, snap.SourceRevision, generationMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to claim knowledge artifact: %w", err)
 	}
 	if !created {
 		return mapKnowledgeArtifact(artifact), nil
 	}
-
+	artifact.GenerationMode = generationMode
+	syncArtifactExecutionMetadata(r.KnowledgeStore, artifact)
 	// Run LLM generation async via the orchestrator.
 	store := r.getStore(ctx)
-	err = r.enqueueKnowledgeJob(artifact, "learning_path", len(snapJSON), func(runCtx context.Context, rt llm.Runtime) error {
+	err = r.enqueueKnowledgeJob(artifact, "learning_path", len(enrichedSnapJSON), func(runCtx context.Context, rt llm.Runtime) error {
 		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
+		if artifactUsesUnderstanding(generationMode) {
+			if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, artifact, snap.SourceRevision, snapJSON); err != nil {
+				return err
+			} else {
+				if reused {
+					rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+					_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.12, "understanding", "Using cached repository understanding")
+				}
+				if understanding != nil {
+					if enriched, ok := enrichSnapshotWithUnderstanding(snapJSON, understanding); ok {
+						enrichedSnapJSON = enriched
+					}
+				}
+			}
+		}
+		if knowledgepkg.Depth(depth) == knowledgepkg.DepthDeep {
+			if enriched, ok := enrichSnapshotWithCliffNotesAnalysis(r.KnowledgeStore, repo.ID, knowledgepkg.Audience(audience), enrichedSnapJSON); ok {
+				enrichedSnapJSON = enriched
+			}
+		}
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
 		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "learning_path")
@@ -1776,7 +2140,7 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 			RepositoryName: repo.Name,
 			Audience:       audience,
 			Depth:          depth,
-			SnapshotJson:   string(snapJSON),
+			SnapshotJson:   string(enrichedSnapJSON),
 			FocusArea:      focusArea,
 		})
 		stopProgress()
@@ -1879,6 +2243,7 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 	if input.Theme != nil {
 		theme = *input.Theme
 	}
+	generationMode := resolvedKnowledgeGenerationMode(r.ComprehensionStore, repo, input.GenerationMode)
 
 	assembler := knowledgepkg.NewAssembler(r.getStore(ctx))
 	repoRoot, repoRootErr := resolveRepoSourcePath(repo)
@@ -1894,6 +2259,7 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize snapshot: %w", err)
 	}
+	enrichedSnapJSON := snapJSON
 	key := knowledgepkg.ArtifactKey{
 		RepositoryID: repo.ID,
 		Type:         knowledgepkg.ArtifactCodeTour,
@@ -1901,7 +2267,7 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 		Depth:        knowledgepkg.Depth(depth),
 		Scope:        knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository},
 	}.Normalized()
-	if existing := r.KnowledgeStore.GetArtifactByKey(key); existing != nil {
+	if existing := r.KnowledgeStore.GetArtifactByKeyAndMode(key, generationMode); existing != nil {
 		if existing.Status == knowledgepkg.StatusReady && !existing.Stale {
 			return mapKnowledgeArtifact(existing), nil
 		}
@@ -1916,19 +2282,40 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 			_ = r.KnowledgeStore.DeleteKnowledgeArtifact(existing.ID)
 		}
 	}
-	artifact, created, err := r.KnowledgeStore.ClaimArtifact(key, snap.SourceRevision)
+	artifact, created, err := r.KnowledgeStore.ClaimArtifactWithMode(key, snap.SourceRevision, generationMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to claim knowledge artifact: %w", err)
 	}
 	if !created {
 		return mapKnowledgeArtifact(artifact), nil
 	}
-
+	artifact.GenerationMode = generationMode
+	syncArtifactExecutionMetadata(r.KnowledgeStore, artifact)
 	// Run LLM generation async via the orchestrator.
 	store := r.getStore(ctx)
-	err = r.enqueueKnowledgeJob(artifact, "code_tour", len(snapJSON), func(runCtx context.Context, rt llm.Runtime) error {
+	err = r.enqueueKnowledgeJob(artifact, "code_tour", len(enrichedSnapJSON), func(runCtx context.Context, rt llm.Runtime) error {
 		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
+		if artifactUsesUnderstanding(generationMode) {
+			if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, artifact, snap.SourceRevision, snapJSON); err != nil {
+				return err
+			} else {
+				if reused {
+					rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+					_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.12, "understanding", "Using cached repository understanding")
+				}
+				if understanding != nil {
+					if enriched, ok := enrichSnapshotWithUnderstanding(snapJSON, understanding); ok {
+						enrichedSnapJSON = enriched
+					}
+				}
+			}
+		}
+		if knowledgepkg.Depth(depth) == knowledgepkg.DepthDeep {
+			if enriched, ok := enrichSnapshotWithCliffNotesAnalysis(r.KnowledgeStore, repo.ID, knowledgepkg.Audience(audience), enrichedSnapJSON); ok {
+				enrichedSnapJSON = enriched
+			}
+		}
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
 		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "code_tour")
@@ -1937,7 +2324,7 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 			RepositoryName: repo.Name,
 			Audience:       audience,
 			Depth:          depth,
-			SnapshotJson:   string(snapJSON),
+			SnapshotJson:   string(enrichedSnapJSON),
 			Theme:          theme,
 		})
 		stopProgress()
@@ -2031,8 +2418,9 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 	audience := string(key.Audience)
 	depth := string(key.Depth)
 	scope := key.Scope.Normalize()
+	generationMode := resolvedKnowledgeGenerationMode(r.ComprehensionStore, repo, input.GenerationMode)
 
-	existing := r.KnowledgeStore.GetArtifactByKey(key)
+	existing := r.KnowledgeStore.GetArtifactByKeyAndMode(key, generationMode)
 	if existing != nil {
 		if existing.Status == knowledgepkg.StatusReady && !existing.Stale {
 			return mapKnowledgeArtifact(existing), nil
@@ -2070,13 +2458,15 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 		return nil, fmt.Errorf("failed to serialize snapshot: %w", err)
 	}
 
-	artifact, created, err := r.KnowledgeStore.ClaimArtifact(key, snap.SourceRevision)
+	artifact, created, err := r.KnowledgeStore.ClaimArtifactWithMode(key, snap.SourceRevision, generationMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to claim knowledge artifact: %w", err)
 	}
 	if !created {
 		return mapKnowledgeArtifact(artifact), nil
 	}
+	artifact.GenerationMode = generationMode
+	syncArtifactExecutionMetadata(r.KnowledgeStore, artifact)
 
 	anchorLabel := ""
 	if input.AnchorLabel != nil {
@@ -2087,48 +2477,31 @@ func (r *mutationResolver) GenerateWorkflowStory(ctx context.Context, input Gene
 		executionPathJSON = strings.TrimSpace(*input.ExecutionPathJSON)
 	}
 
-	// Deep mode: enrich the snapshot with cliff notes sections if available.
-	// This gives the workflow story model rich pre-analyzed context instead
-	// of just raw symbol signatures.
 	enrichedSnapJSON := snapJSON
-	if depth == "deep" && r.KnowledgeStore != nil {
-		cliffNotesKey := knowledgepkg.ArtifactKey{
-			RepositoryID: repo.ID,
-			Type:         knowledgepkg.ArtifactCliffNotes,
-			Audience:     knowledgepkg.Audience(audience),
-			Depth:        knowledgepkg.DepthMedium,
-			Scope:        knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository},
-		}.Normalized()
-		if cliffNotes := r.KnowledgeStore.GetArtifactByKey(cliffNotesKey); cliffNotes != nil && cliffNotes.Status == knowledgepkg.StatusReady {
-			sections := r.KnowledgeStore.GetKnowledgeSections(cliffNotes.ID)
-			if len(sections) > 0 {
-				var analysis []map[string]string
-				for _, sec := range sections {
-					analysis = append(analysis, map[string]string{
-						"title":   sec.Title,
-						"content": sec.Content,
-						"summary": sec.Summary,
-					})
-				}
-				// Inject into the snapshot dict
-				var snapMap map[string]interface{}
-				if err := json.Unmarshal(snapJSON, &snapMap); err == nil {
-					snapMap["_pre_analysis"] = analysis
-					if enriched, err := json.Marshal(snapMap); err == nil {
-						enrichedSnapJSON = enriched
-						slog.Info("workflow_story_deep_enriched",
-							"artifact_id", artifact.ID,
-							"cliff_notes_sections", len(sections))
-					}
-				}
-			}
-		}
-	}
-
 	store := r.getStore(ctx)
 	err = r.enqueueKnowledgeJob(artifact, "workflow_story", len(enrichedSnapJSON), func(runCtx context.Context, rt llm.Runtime) error {
 		rt.ReportProgress(0.1, "snapshot", "Snapshot assembled")
 		_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.1, "snapshot", "Snapshot assembled")
+		if artifactUsesUnderstanding(generationMode) {
+			if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, artifact, snap.SourceRevision, snapJSON); err != nil {
+				return err
+			} else {
+				if reused {
+					rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+					_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(artifact.ID, 0.12, "understanding", "Using cached repository understanding")
+				}
+				if understanding != nil {
+					if enriched, ok := enrichSnapshotWithUnderstanding(snapJSON, understanding); ok {
+						enrichedSnapJSON = enriched
+					}
+				}
+			}
+		}
+		if knowledgepkg.Depth(depth) == knowledgepkg.DepthDeep {
+			if enriched, ok := enrichSnapshotWithCliffNotesAnalysis(r.KnowledgeStore, repo.ID, knowledgepkg.Audience(audience), enrichedSnapJSON); ok {
+				enrichedSnapJSON = enriched
+			}
+		}
 
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
 		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "workflow_story")
@@ -2226,6 +2599,7 @@ func (r *mutationResolver) ExplainSystem(ctx context.Context, input ExplainSyste
 	if input.Question != nil {
 		question = *input.Question
 	}
+	generationMode := resolvedKnowledgeGenerationMode(r.ComprehensionStore, repo, input.GenerationMode)
 
 	assembler := knowledgepkg.NewAssembler(r.getStore(ctx))
 	scope, err := artifactScopeFromInput(input.ScopeType, input.ScopePath)
@@ -2250,6 +2624,16 @@ func (r *mutationResolver) ExplainSystem(ctx context.Context, input ExplainSyste
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize snapshot: %w", err)
 	}
+	enrichedSnapJSON := snapJSON
+	if artifactUsesUnderstanding(generationMode) {
+		if understanding := r.KnowledgeStore.GetRepositoryUnderstanding(repo.ID, knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository}); understanding != nil {
+			if understanding.RevisionFP == knowledgepkg.RevisionFingerprint(snap.SourceRevision) {
+				if enriched, ok := enrichSnapshotWithUnderstanding(snapJSON, understanding); ok {
+					enrichedSnapJSON = enriched
+				}
+			}
+		}
+	}
 
 	// Use a detached context so that a proxy/client disconnect does not cancel the LLM call.
 	bgCtx, bgCancel := context.WithTimeout(context.Background(), 600*time.Second)
@@ -2271,7 +2655,7 @@ func (r *mutationResolver) ExplainSystem(ctx context.Context, input ExplainSyste
 				Question:       question,
 				ScopeType:      string(scope.ScopeType),
 				ScopePath:      scope.ScopePath,
-				SnapshotJson:   string(snapJSON),
+				SnapshotJson:   string(enrichedSnapJSON),
 				Depth:          depth,
 			})
 			if callErr != nil {
@@ -2339,6 +2723,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 	if err := r.KnowledgeStore.UpdateKnowledgeArtifactProgress(id, 0); err != nil {
 		return nil, err
 	}
+	syncArtifactExecutionMetadata(r.KnowledgeStore, existing)
 	if err := r.KnowledgeStore.UpdateKnowledgeArtifactStatus(id, knowledgepkg.StatusGenerating); err != nil {
 		return nil, err
 	}
@@ -2399,7 +2784,22 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 
 		switch existing.Type {
 		case knowledgepkg.ArtifactCliffNotes:
-			resp, err := r.Worker.GenerateCliffNotes(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "cliff_notes"), &knowledgev1.GenerateCliffNotesRequest{
+			scopeUnderstanding, reusedUnderstanding := attachFreshUnderstanding(r.KnowledgeStore, existing, scope, snap.SourceRevision)
+			renderPlan := cliffNotesRenderPlanForArtifact(r.KnowledgeStore, existing, snap.SourceRevision, scopeUnderstanding)
+			if scopeUnderstanding == nil {
+				if _, err := seedRepositoryUnderstanding(r.KnowledgeStore, existing, scope, snap.SourceRevision, knowledgepkg.UnderstandingBuildingTree); err != nil {
+					slog.Warn("failed to seed repository understanding", "artifact_id", existing.ID, "error", err)
+				}
+			}
+			if reusedUnderstanding {
+				rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+				_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(existing.ID, 0.12, "understanding", "Using cached repository understanding")
+			}
+			bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "cliff_notes")
+			if renderPlan.RenderOnly {
+				bgCtx = withCliffNotesRenderMetadata(bgCtx, true, renderPlan.SelectedSectionTitles)
+			}
+			resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),
@@ -2410,30 +2810,124 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			})
 			if err != nil {
 				slog.Error("refresh cliff notes failed", "artifact_id", existing.ID, "error", err)
+				markRepositoryUnderstandingFailed(r.KnowledgeStore, existing, scope, snap.SourceRevision, err)
 				return err
+			}
+			understanding, err := updateUnderstandingForCliffNotes(r.KnowledgeStore, existing, scope, snap.SourceRevision, resp, knowledgepkg.UnderstandingReady)
+			if err != nil {
+				slog.Warn("failed to update repository understanding", "artifact_id", existing.ID, "error", err)
 			}
 			persistUsage(resp.Usage)
 			sections := make([]knowledgepkg.Section, len(resp.Sections))
 			for i, sec := range resp.Sections {
 				sections[i] = knowledgepkg.Section{
-					Title:      sec.Title,
-					Content:    sec.Content,
-					Summary:    sec.Summary,
-					Confidence: mapProtoConfidence(sec.Confidence),
-					Inferred:   sec.Inferred,
-					Evidence:   mapProtoEvidence(sec.Evidence),
+					Title:            sec.Title,
+					Content:          sec.Content,
+					Summary:          sec.Summary,
+					Metadata:         cliffNotesSectionMetadataJSON(knowledgepkg.ArtifactCliffNotes, understanding, "light", sec.Title, len(sec.Evidence) > 0),
+					Confidence:       mapProtoConfidence(sec.Confidence),
+					Inferred:         sec.Inferred,
+					Evidence:         mapProtoEvidence(sec.Evidence),
+					SectionKey:       knowledgepkg.SectionKeyForTitle(sec.Title),
+					RefinementStatus: "light",
 				}
+			}
+			if renderPlan.RenderOnly && len(renderPlan.SelectedSectionTitles) > 0 {
+				selected := make(map[string]struct{}, len(renderPlan.SelectedSectionTitles))
+				for _, title := range renderPlan.SelectedSectionTitles {
+					selected[title] = struct{}{}
+				}
+				sections = knowledgepkg.MergeSectionsByTitle(r.KnowledgeStore.GetKnowledgeSections(existing.ID), sections, selected)
 			}
 			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
 				return err
 			}
+			syncCliffNotesRefinementUnits(r.KnowledgeStore, existing, sections, understanding)
+			if existing.GenerationMode != knowledgepkg.GenerationModeClassic && existing.Depth != knowledgepkg.DepthSummary {
+				if targets := cliffNotesDeepeningTargets(r.KnowledgeStore, existing); len(targets) > 0 {
+					if err := r.enqueueCliffNotesDeepening(repo, existing, scope, snap.SourceRevision, snapJSON, targets); err != nil {
+						slog.Warn("failed to enqueue refreshed cliff notes deepening", "artifact_id", existing.ID, "error", err)
+					}
+				}
+			}
+		case knowledgepkg.ArtifactArchitectureDiagram:
+			architecturePromptJSON := snapJSON
+			var understandingForDiagram *knowledgepkg.RepositoryUnderstanding
+			if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, existing, snap.SourceRevision, snapJSON); err != nil {
+				return err
+			} else {
+				understandingForDiagram = understanding
+				if reused {
+					rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+					_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(existing.ID, 0.12, "understanding", "Using cached repository understanding")
+				}
+			}
+			scaffoldJSON, err := buildArchitectureDiagramScaffold(r.getStore(ctx), repo.ID)
+			if err != nil {
+				return err
+			}
+			var architectureBundle architectureDiagramPromptBundle
+			if promptJSON, err := buildArchitectureDiagramPromptBundle(r.KnowledgeStore, repo.ID, existing.Audience, snap, understandingForDiagram, scaffoldJSON); err != nil {
+				return err
+			} else {
+				architecturePromptJSON = promptJSON
+				if err := json.Unmarshal(promptJSON, &architectureBundle); err != nil {
+					return fmt.Errorf("failed to unmarshal architecture prompt bundle: %w", err)
+				}
+			}
+			resp, err := r.Worker.GenerateArchitectureDiagram(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "architecture_diagram"), &knowledgev1.GenerateArchitectureDiagramRequest{
+				RepositoryId:             repo.ID,
+				RepositoryName:           repo.Name,
+				Audience:                 string(existing.Audience),
+				Depth:                    string(existing.Depth),
+				SnapshotJson:             string(architecturePromptJSON),
+				DeterministicDiagramJson: string(scaffoldJSON),
+			})
+			if err != nil {
+				slog.Error("refresh architecture diagram failed", "artifact_id", existing.ID, "error", err)
+				return err
+			}
+			persistUsage(resp.Usage)
+			sections := []knowledgepkg.Section{{
+				Title:            "AI Architecture Diagram",
+				SectionKey:       "ai_architecture_diagram",
+				Content:          resp.MermaidSource,
+				Summary:          resp.DiagramSummary,
+				Metadata:         architectureDiagramMetadataJSON(resp, &architectureBundle),
+				Confidence:       knowledgepkg.ConfidenceMedium,
+				Inferred:         len(resp.InferredEdges) > 0,
+				RefinementStatus: "light",
+				Evidence:         mapProtoEvidence(resp.Evidence),
+			}}
+			if err := r.KnowledgeStore.SupersedeArtifact(existing.ID, sections); err != nil {
+				return err
+			}
 		case knowledgepkg.ArtifactLearningPath:
+			enrichedSnapJSON := snapJSON
+			if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, existing, snap.SourceRevision, snapJSON); err != nil {
+				return err
+			} else {
+				if reused {
+					rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+					_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(existing.ID, 0.12, "understanding", "Using cached repository understanding")
+				}
+				if understanding != nil {
+					if enriched, ok := enrichSnapshotWithUnderstanding(snapJSON, understanding); ok {
+						enrichedSnapJSON = enriched
+					}
+				}
+			}
+			if existing.Depth == knowledgepkg.DepthDeep {
+				if enriched, ok := enrichSnapshotWithCliffNotesAnalysis(r.KnowledgeStore, repo.ID, existing.Audience, enrichedSnapJSON); ok {
+					enrichedSnapJSON = enriched
+				}
+			}
 			resp, err := r.Worker.GenerateLearningPath(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "learning_path"), &knowledgev1.GenerateLearningPathRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),
 				Depth:          string(existing.Depth),
-				SnapshotJson:   string(snapJSON),
+				SnapshotJson:   string(enrichedSnapJSON),
 			})
 			if err != nil {
 				slog.Error("refresh learning path failed", "artifact_id", existing.ID, "error", err)
@@ -2453,12 +2947,31 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				return err
 			}
 		case knowledgepkg.ArtifactCodeTour:
+			enrichedSnapJSON := snapJSON
+			if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, existing, snap.SourceRevision, snapJSON); err != nil {
+				return err
+			} else {
+				if reused {
+					rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+					_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(existing.ID, 0.12, "understanding", "Using cached repository understanding")
+				}
+				if understanding != nil {
+					if enriched, ok := enrichSnapshotWithUnderstanding(snapJSON, understanding); ok {
+						enrichedSnapJSON = enriched
+					}
+				}
+			}
+			if existing.Depth == knowledgepkg.DepthDeep {
+				if enriched, ok := enrichSnapshotWithCliffNotesAnalysis(r.KnowledgeStore, repo.ID, existing.Audience, enrichedSnapJSON); ok {
+					enrichedSnapJSON = enriched
+				}
+			}
 			resp, err := r.Worker.GenerateCodeTour(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "code_tour"), &knowledgev1.GenerateCodeTourRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
 				Audience:       string(existing.Audience),
 				Depth:          string(existing.Depth),
-				SnapshotJson:   string(snapJSON),
+				SnapshotJson:   string(enrichedSnapJSON),
 			})
 			if err != nil {
 				slog.Error("refresh code tour failed", "artifact_id", existing.ID, "error", err)
@@ -2489,6 +3002,25 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				return err
 			}
 		case knowledgepkg.ArtifactWorkflowStory:
+			enrichedSnapJSON := snapJSON
+			if understanding, reused, err := r.ensureFreshRepositoryUnderstanding(runCtx, rt, repo, existing, snap.SourceRevision, snapJSON); err != nil {
+				return err
+			} else {
+				if reused {
+					rt.ReportProgress(0.12, "understanding", "Using cached repository understanding")
+					_ = r.KnowledgeStore.UpdateKnowledgeArtifactProgressWithPhase(existing.ID, 0.12, "understanding", "Using cached repository understanding")
+				}
+				if understanding != nil {
+					if enriched, ok := enrichSnapshotWithUnderstanding(snapJSON, understanding); ok {
+						enrichedSnapJSON = enriched
+					}
+				}
+			}
+			if existing.Depth == knowledgepkg.DepthDeep {
+				if enriched, ok := enrichSnapshotWithCliffNotesAnalysis(r.KnowledgeStore, repo.ID, existing.Audience, enrichedSnapJSON); ok {
+					enrichedSnapJSON = enriched
+				}
+			}
 			resp, err := r.Worker.GenerateWorkflowStory(r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "workflow_story"), &knowledgev1.GenerateWorkflowStoryRequest{
 				RepositoryId:   repo.ID,
 				RepositoryName: repo.Name,
@@ -2496,7 +3028,7 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 				Depth:          string(existing.Depth),
 				ScopeType:      string(scope.ScopeType),
 				ScopePath:      scope.ScopePath,
-				SnapshotJson:   string(snapJSON),
+				SnapshotJson:   string(enrichedSnapJSON),
 			})
 			if err != nil {
 				slog.Error("refresh workflow story failed", "artifact_id", existing.ID, "error", err)
@@ -2533,6 +3065,149 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 		return nil, fmt.Errorf("artifact %s not found after refresh", id)
 	}
 	return mapKnowledgeArtifact(updated), nil
+}
+
+// UpdateComprehensionSettings is the resolver for the updateComprehensionSettings field.
+func (r *mutationResolver) UpdateComprehensionSettings(ctx context.Context, input UpdateComprehensionSettingsInput) (*EffectiveComprehensionSettings, error) {
+	if r.ComprehensionStore == nil {
+		return nil, fmt.Errorf("comprehension settings not configured")
+	}
+	scopeKey := ""
+	if input.ScopeKey != nil {
+		scopeKey = *input.ScopeKey
+	}
+
+	settings := &comprehension.Settings{
+		ScopeType:               comprehension.ScopeType(input.ScopeType),
+		ScopeKey:                scopeKey,
+		StrategyPreferenceChain: input.StrategyPreferenceChain,
+		RefinePassEnabled:       input.RefinePassEnabled,
+		CacheEnabled:            input.CacheEnabled,
+		AllowUnsafeCombinations: input.AllowUnsafeCombinations,
+	}
+	if input.KnowledgeGenerationModeDefault != nil {
+		settings.KnowledgeGenerationModeDefault = strings.ToLower(string(*input.KnowledgeGenerationModeDefault))
+	}
+	if input.ModelID != nil {
+		settings.ModelID = *input.ModelID
+	}
+	if input.MaxConcurrency != nil {
+		settings.MaxConcurrency = *input.MaxConcurrency
+	}
+	if input.MaxPromptTokens != nil {
+		settings.MaxPromptTokens = *input.MaxPromptTokens
+	}
+	if input.LeafBudgetTokens != nil {
+		settings.LeafBudgetTokens = *input.LeafBudgetTokens
+	}
+	if input.LongContextMaxTokens != nil {
+		settings.LongContextMaxTokens = *input.LongContextMaxTokens
+	}
+	if len(input.GraphragEntityTypes) > 0 {
+		settings.GraphRAGEntityTypes = input.GraphragEntityTypes
+	}
+
+	if err := r.ComprehensionStore.SetSettings(settings); err != nil {
+		return nil, err
+	}
+
+	scope := comprehension.Scope{Type: settings.ScopeType, Key: settings.ScopeKey}
+	eff, err := comprehension.Resolve(r.ComprehensionStore, scope)
+	if err != nil {
+		return nil, err
+	}
+	return mapEffectiveSettings(eff), nil
+}
+
+// ResetComprehensionSettings is the resolver for the resetComprehensionSettings field.
+func (r *mutationResolver) ResetComprehensionSettings(ctx context.Context, scopeType string, scopeKey *string) (bool, error) {
+	if r.ComprehensionStore == nil {
+		return false, fmt.Errorf("comprehension settings not configured")
+	}
+	sk := ""
+	if scopeKey != nil {
+		sk = *scopeKey
+	}
+	scope := comprehension.Scope{Type: comprehension.ScopeType(scopeType), Key: sk}
+	if err := r.ComprehensionStore.DeleteSettings(scope); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// UpdateModelCapabilities is the resolver for the updateModelCapabilities field.
+func (r *mutationResolver) UpdateModelCapabilities(ctx context.Context, input UpdateModelCapabilitiesInput) (*ModelCapabilityProfile, error) {
+	if r.ComprehensionStore == nil {
+		return nil, fmt.Errorf("comprehension settings not configured")
+	}
+
+	// Get existing or create new
+	mc, err := r.ComprehensionStore.GetModelCapabilities(input.ModelID)
+	if err != nil {
+		return nil, err
+	}
+	if mc == nil {
+		mc = &comprehension.ModelCapabilities{
+			ModelID:              input.ModelID,
+			InstructionFollowing: "low",
+			JSONMode:             "none",
+			ToolUse:              "none",
+			ExtractionGrade:      "low",
+			CreativeGrade:        "low",
+			Source:               "manual",
+		}
+	}
+
+	// Apply patches
+	if input.Provider != nil {
+		mc.Provider = *input.Provider
+	}
+	if input.DeclaredContextTokens != nil {
+		mc.DeclaredContextTokens = *input.DeclaredContextTokens
+	}
+	if input.EffectiveContextTokens != nil {
+		mc.EffectiveContextTokens = *input.EffectiveContextTokens
+	}
+	if input.InstructionFollowing != nil {
+		mc.InstructionFollowing = *input.InstructionFollowing
+	}
+	if input.JSONMode != nil {
+		mc.JSONMode = *input.JSONMode
+	}
+	if input.ToolUse != nil {
+		mc.ToolUse = *input.ToolUse
+	}
+	if input.ExtractionGrade != nil {
+		mc.ExtractionGrade = *input.ExtractionGrade
+	}
+	if input.CreativeGrade != nil {
+		mc.CreativeGrade = *input.CreativeGrade
+	}
+	if input.EmbeddingModel != nil {
+		mc.EmbeddingModel = *input.EmbeddingModel
+	}
+	if input.Source != nil {
+		mc.Source = *input.Source
+	}
+	if input.Notes != nil {
+		mc.Notes = *input.Notes
+	}
+
+	if err := r.ComprehensionStore.SetModelCapabilities(mc); err != nil {
+		return nil, err
+	}
+	return mapModelCapability(mc), nil
+}
+
+// DeleteModelCapabilities is the resolver for the deleteModelCapabilities field.
+func (r *mutationResolver) DeleteModelCapabilities(ctx context.Context, modelID string) (bool, error) {
+	if r.ComprehensionStore == nil {
+		return false, fmt.Errorf("comprehension settings not configured")
+	}
+	if err := r.ComprehensionStore.DeleteModelCapabilities(modelID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Health is the resolver for the health field.
@@ -3041,7 +3716,7 @@ func (r *queryResolver) KnowledgeArtifacts(ctx context.Context, repositoryID str
 	if scopeType == nil && scopePath == nil {
 		result := make([]*KnowledgeArtifact, len(artifacts))
 		for i, a := range artifacts {
-			result[i] = mapKnowledgeArtifact(a)
+			result[i] = mapKnowledgeArtifactWithStore(r.KnowledgeStore, a)
 		}
 		return result, nil
 	}
@@ -3056,7 +3731,7 @@ func (r *queryResolver) KnowledgeArtifacts(ctx context.Context, repositoryID str
 			artifactScope = a.Scope.Normalize()
 		}
 		if artifactScope.ScopeKey() == scope.ScopeKey() {
-			result = append(result, mapKnowledgeArtifact(a))
+			result = append(result, mapKnowledgeArtifactWithStore(r.KnowledgeStore, a))
 		}
 	}
 	if result == nil {
@@ -3074,7 +3749,19 @@ func (r *queryResolver) KnowledgeArtifact(ctx context.Context, id string) (*Know
 	if a == nil {
 		return nil, nil
 	}
-	return mapKnowledgeArtifact(a), nil
+	return mapKnowledgeArtifactWithStore(r.KnowledgeStore, a), nil
+}
+
+// RepositoryUnderstanding is the resolver for the repositoryUnderstanding field.
+func (r *queryResolver) RepositoryUnderstanding(ctx context.Context, repositoryID string, scopeType *KnowledgeScopeType, scopePath *string) (*RepositoryUnderstanding, error) {
+	if r.KnowledgeStore == nil {
+		return nil, nil
+	}
+	scope, err := artifactScopeFromInput(scopeType, scopePath)
+	if err != nil {
+		return nil, err
+	}
+	return mapRepositoryUnderstanding(r.KnowledgeStore.GetRepositoryUnderstanding(repositoryID, scope)), nil
 }
 
 // KnowledgeScopeChildren is the resolver for the knowledgeScopeChildren field.
@@ -3391,6 +4078,74 @@ func (r *queryResolver) PlatformStats(ctx context.Context) (*PlatformStats, erro
 	}, nil
 }
 
+// ComprehensionSettings is the resolver for the comprehensionSettings field.
+func (r *queryResolver) ComprehensionSettings(ctx context.Context, scopeType *string, scopeKey *string) (*EffectiveComprehensionSettings, error) {
+	if r.ComprehensionStore == nil {
+		return nil, fmt.Errorf("comprehension settings not configured")
+	}
+	st := "workspace"
+	sk := "default"
+	if scopeType != nil {
+		st = *scopeType
+	}
+	if scopeKey != nil {
+		sk = *scopeKey
+	}
+	scope := comprehension.Scope{Type: comprehension.ScopeType(st), Key: sk}
+	eff, err := comprehension.Resolve(r.ComprehensionStore, scope)
+	if err != nil {
+		return nil, err
+	}
+	return mapEffectiveSettings(eff), nil
+}
+
+// ComprehensionSettingsList is the resolver for the comprehensionSettingsList field.
+func (r *queryResolver) ComprehensionSettingsList(ctx context.Context) ([]*ComprehensionSettings, error) {
+	if r.ComprehensionStore == nil {
+		return nil, fmt.Errorf("comprehension settings not configured")
+	}
+	list, err := r.ComprehensionStore.ListSettings()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*ComprehensionSettings, len(list))
+	for i, s := range list {
+		result[i] = mapSettings(&s)
+	}
+	return result, nil
+}
+
+// ModelCapabilities is the resolver for the modelCapabilities field.
+func (r *queryResolver) ModelCapabilities(ctx context.Context) ([]*ModelCapabilityProfile, error) {
+	if r.ComprehensionStore == nil {
+		return nil, fmt.Errorf("comprehension settings not configured")
+	}
+	list, err := r.ComprehensionStore.ListModelCapabilities()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*ModelCapabilityProfile, len(list))
+	for i, mc := range list {
+		result[i] = mapModelCapability(&mc)
+	}
+	return result, nil
+}
+
+// ModelCapability is the resolver for the modelCapability field.
+func (r *queryResolver) ModelCapability(ctx context.Context, modelID string) (*ModelCapabilityProfile, error) {
+	if r.ComprehensionStore == nil {
+		return nil, fmt.Errorf("comprehension settings not configured")
+	}
+	mc, err := r.ComprehensionStore.GetModelCapabilities(modelID)
+	if err != nil {
+		return nil, err
+	}
+	if mc == nil {
+		return nil, nil
+	}
+	return mapModelCapability(mc), nil
+}
+
 // Files is the resolver for the files field.
 func (r *repositoryResolver) Files(ctx context.Context, obj *Repository, limit *int, offset *int, path *string) (*FileConnection, error) {
 	store := r.getStore(ctx)
@@ -3430,6 +4185,18 @@ func (r *repositoryResolver) UnderstandingScore(ctx context.Context, obj *Reposi
 	return mapUnderstandingScore(score), nil
 }
 
+// RepositoryUnderstanding is the resolver for the repositoryUnderstanding field.
+func (r *repositoryResolver) RepositoryUnderstanding(ctx context.Context, obj *Repository, scopeType *KnowledgeScopeType, scopePath *string) (*RepositoryUnderstanding, error) {
+	if r.KnowledgeStore == nil || obj == nil {
+		return nil, nil
+	}
+	scope, err := artifactScopeFromInput(scopeType, scopePath)
+	if err != nil {
+		return nil, err
+	}
+	return mapRepositoryUnderstanding(r.KnowledgeStore.GetRepositoryUnderstanding(obj.ID, scope)), nil
+}
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
@@ -3442,56 +4209,3 @@ func (r *Resolver) Repository() RepositoryResolver { return &repositoryResolver{
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
 type repositoryResolver struct{ *Resolver }
-
-// !!! WARNING !!!
-// The code below was going to be deleted when updating resolvers. It has been copied here so you have
-// one last chance to move it out of harms way if you want. There are two reasons this happens:
-//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
-//    it when you're done.
-//  - You have helper methods in this file. Move them out to keep these resolver files clean.
-/*
-	func classifyError(err error) string {
-	if err == nil {
-		return ""
-	}
-	if st, ok := grpcstatus.FromError(err); ok {
-		switch st.Code() {
-		case codes.DeadlineExceeded:
-			return "DEADLINE_EXCEEDED"
-		case codes.Unavailable:
-			return "WORKER_UNAVAILABLE"
-		}
-	}
-
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "llm returned empty content"):
-		return "LLM_EMPTY"
-	case strings.Contains(msg, "snapshot too large"), strings.Contains(msg, "exceeds budget"):
-		return "SNAPSHOT_TOO_LARGE"
-	case strings.Contains(msg, "deadline exceeded"):
-		return "DEADLINE_EXCEEDED"
-	case strings.Contains(msg, "connection refused"), strings.Contains(msg, "transport is closing"), strings.Contains(msg, "unavailable"):
-		return "WORKER_UNAVAILABLE"
-	default:
-		return "INTERNAL"
-	}
-}
-func persistArtifactFailure(store knowledgepkg.KnowledgeStore, artifactID string, err error) {
-	if store == nil || artifactID == "" || err == nil {
-		return
-	}
-	code := classifyError(err)
-	_ = store.SetArtifactFailed(artifactID, code, err.Error())
-}
-const staleGenerationThreshold = 60 * time.Second
-func isInFlightGeneration(existing *knowledgepkg.Artifact) bool {
-	if existing == nil {
-		return false
-	}
-	if existing.Status != knowledgepkg.StatusGenerating && existing.Status != knowledgepkg.StatusPending {
-		return false
-	}
-	return time.Since(existing.UpdatedAt) < staleGenerationThreshold
-}
-*/

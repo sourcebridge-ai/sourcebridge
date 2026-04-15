@@ -35,6 +35,7 @@ type Query {
   # Knowledge engine queries
   knowledgeArtifacts(repositoryId: ID!, scopeType: KnowledgeScopeType, scopePath: String): [KnowledgeArtifact!]!
   knowledgeArtifact(id: ID!): KnowledgeArtifact
+  repositoryUnderstanding(repositoryId: ID!, scopeType: KnowledgeScopeType, scopePath: String): RepositoryUnderstanding
   knowledgeScopeChildren(
     repositoryId: ID!
     scopeType: KnowledgeScopeType!
@@ -93,6 +94,8 @@ type Mutation {
   addRepository(input: AddRepositoryInput!): Repository!
   removeRepository(id: ID!): Boolean!
   reindexRepository(id: ID!): Repository!
+  buildRepositoryUnderstanding(input: BuildRepositoryUnderstandingInput!): RepositoryUnderstanding!
+  updateRepositoryKnowledgeSettings(input: UpdateRepositoryKnowledgeSettingsInput!): Repository!
 
   # Phase 3: Requirement import (stubs in Phase 1)
   importRequirements(input: ImportRequirementsInput!): ImportResult!
@@ -124,6 +127,7 @@ type Mutation {
 
   # Knowledge engine mutations
   generateCliffNotes(input: GenerateCliffNotesInput!): KnowledgeArtifact!
+  generateArchitectureDiagram(input: GenerateArchitectureDiagramInput!): KnowledgeArtifact!
   generateLearningPath(input: GenerateLearningPathInput!): KnowledgeArtifact!
   generateCodeTour(input: GenerateCodeTourInput!): KnowledgeArtifact!
   generateWorkflowStory(input: GenerateWorkflowStoryInput!): KnowledgeArtifact!
@@ -201,6 +205,7 @@ type Repository {
   remoteUrl: String
   commitSha: String
   branch: String
+  generationModeDefault: KnowledgeGenerationMode
   hasAuth: Boolean!
   status: RepositoryStatus!
   fileCount: Int!
@@ -212,6 +217,12 @@ type Repository {
   files(limit: Int, offset: Int, path: String): FileConnection!
   modules: [Module!]!
   understandingScore: UnderstandingScore
+  repositoryUnderstanding(scopeType: KnowledgeScopeType, scopePath: String): RepositoryUnderstanding
+}
+
+input UpdateRepositoryKnowledgeSettingsInput {
+  repositoryId: ID!
+  generationModeDefault: KnowledgeGenerationMode!
 }
 
 enum RepositoryStatus {
@@ -386,6 +397,13 @@ input GenerateCliffNotesInput {
   repositoryId: ID!
   audience: KnowledgeAudience
   depth: KnowledgeDepth
+  generationMode: KnowledgeGenerationMode
+  scopeType: KnowledgeScopeType
+  scopePath: String
+}
+
+input BuildRepositoryUnderstandingInput {
+  repositoryId: ID!
   scopeType: KnowledgeScopeType
   scopePath: String
 }
@@ -394,13 +412,21 @@ input GenerateLearningPathInput {
   repositoryId: ID!
   audience: KnowledgeAudience
   depth: KnowledgeDepth
+  generationMode: KnowledgeGenerationMode
   focusArea: String
+}
+
+input GenerateArchitectureDiagramInput {
+  repositoryId: ID!
+  audience: KnowledgeAudience
+  depth: KnowledgeDepth
 }
 
 input GenerateCodeTourInput {
   repositoryId: ID!
   audience: KnowledgeAudience
   depth: KnowledgeDepth
+  generationMode: KnowledgeGenerationMode
   theme: String
 }
 
@@ -408,6 +434,7 @@ input GenerateWorkflowStoryInput {
   repositoryId: ID!
   audience: KnowledgeAudience
   depth: KnowledgeDepth
+  generationMode: KnowledgeGenerationMode
   scopeType: KnowledgeScopeType
   scopePath: String
   anchorLabel: String
@@ -418,6 +445,7 @@ input ExplainSystemInput {
   repositoryId: ID!
   audience: KnowledgeAudience
   depth: KnowledgeDepth
+  generationMode: KnowledgeGenerationMode
   question: String
   scopeType: KnowledgeScopeType
   scopePath: String
@@ -610,6 +638,7 @@ type PlatformStats {
 
 enum KnowledgeArtifactType {
   CLIFF_NOTES
+  ARCHITECTURE_DIAGRAM
   LEARNING_PATH
   CODE_TOUR
   WORKFLOW_STORY
@@ -632,6 +661,11 @@ enum KnowledgeDepth {
   SUMMARY
   MEDIUM
   DEEP
+}
+
+enum KnowledgeGenerationMode {
+  CLASSIC
+  UNDERSTANDING_FIRST
 }
 
 enum KnowledgeScopeType {
@@ -684,7 +718,63 @@ type KnowledgeArtifact {
   updatedAt: Time!
   errorCode: String
   errorMessage: String
+  generationMode: KnowledgeGenerationMode!
+  rendererVersion: String
+  understandingId: ID
+  understandingRevisionFp: String
+  refreshAvailable: Boolean!
+  dependencies: [ArtifactDependency!]!
+  refinementUnits: [KnowledgeRefinementUnit!]!
   sections: [KnowledgeSection!]!
+}
+
+type ArtifactDependency {
+  id: ID!
+  dependencyType: String!
+  targetId: ID!
+  targetRevisionFp: String
+  metadata: String
+  createdAt: Time!
+}
+
+type RepositoryUnderstanding {
+  id: ID!
+  repositoryId: ID!
+  scope: KnowledgeScope!
+  corpusId: String
+  revisionFp: String!
+  strategy: String
+  stage: RepositoryUnderstandingStage!
+  treeStatus: RepositoryUnderstandingTreeStatus!
+  cachedNodes: Int!
+  totalNodes: Int!
+  modelUsed: String
+  firstPassSections: [UnderstandingSection!]!
+  refreshAvailable: Boolean!
+  createdAt: Time!
+  updatedAt: Time!
+  errorCode: String
+  errorMessage: String
+}
+
+type UnderstandingSection {
+  title: String!
+  summary: String!
+}
+
+enum RepositoryUnderstandingStage {
+  BUILDING_TREE
+  FIRST_PASS_READY
+  NEEDS_REFRESH
+  DEEPENING
+  READY
+  FAILED
+}
+
+enum RepositoryUnderstandingTreeStatus {
+  MISSING
+  PARTIAL
+  COMPLETE
 }
 
 type KnowledgeScope {
@@ -706,13 +796,33 @@ type ScopeChild {
 type KnowledgeSection {
   id: ID!
   artifactId: ID!
+  sectionKey: String
   title: String!
   content: String!
   summary: String
+  metadata: String
   confidence: KnowledgeConfidence!
   inferred: Boolean!
   orderIndex: Int!
+  refinementStatus: String
   evidence: [KnowledgeEvidence!]!
+}
+
+type KnowledgeRefinementUnit {
+  id: ID!
+  artifactId: ID!
+  sectionKey: String!
+  sectionTitle: String!
+  refinementType: String!
+  status: String!
+  attemptCount: Int!
+  understandingId: ID
+  evidenceRevisionFp: String
+  rendererVersion: String
+  lastError: String
+  metadata: String
+  createdAt: Time!
+  updatedAt: Time!
 }
 
 type KnowledgeEvidence {
@@ -958,6 +1068,7 @@ type ComprehensionSettings {
   scopeType: String!
   scopeKey: String!
   strategyPreferenceChain: [String!]
+  knowledgeGenerationModeDefault: KnowledgeGenerationMode
   modelId: String
   maxConcurrency: Int
   maxPromptTokens: Int
@@ -980,6 +1091,7 @@ type EffectiveComprehensionSettings {
   scopeType: String!
   scopeKey: String!
   strategyPreferenceChain: [String!]!
+  knowledgeGenerationModeDefault: KnowledgeGenerationMode!
   modelId: String!
   maxConcurrency: Int!
   maxPromptTokens: Int!
@@ -1022,6 +1134,7 @@ input UpdateComprehensionSettingsInput {
   scopeType: String!
   scopeKey: String
   strategyPreferenceChain: [String!]
+  knowledgeGenerationModeDefault: KnowledgeGenerationMode
   modelId: String
   maxConcurrency: Int
   maxPromptTokens: Int

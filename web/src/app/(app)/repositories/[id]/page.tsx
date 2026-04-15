@@ -9,6 +9,8 @@ import {
   SYMBOLS_QUERY,
   REQUIREMENTS_QUERY,
   REINDEX_REPOSITORY_MUTATION,
+  BUILD_REPOSITORY_UNDERSTANDING_MUTATION,
+  UPDATE_REPOSITORY_KNOWLEDGE_SETTINGS_MUTATION,
   REMOVE_REPOSITORY_MUTATION,
   ANALYZE_SYMBOL_MUTATION,
   DISCUSS_CODE_MUTATION,
@@ -111,10 +113,36 @@ interface KnowledgeSection {
   title: string;
   content: string;
   summary: string | null;
+  metadata?: string | null;
+  sectionKey?: string | null;
+  refinementStatus?: string | null;
   confidence: string;
   inferred: boolean;
   orderIndex: number;
   evidence: KnowledgeEvidence[];
+}
+
+interface ArtifactDependency {
+  dependencyType: string;
+  targetId: string;
+  targetRevisionFp: string | null;
+}
+
+interface KnowledgeRefinementUnit {
+  id: string;
+  artifactId: string;
+  sectionKey: string;
+  sectionTitle: string;
+  refinementType: string;
+  status: string;
+  attemptCount: number;
+  understandingId?: string | null;
+  evidenceRevisionFp?: string | null;
+  rendererVersion?: string | null;
+  lastError?: string | null;
+  metadata?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface KnowledgeArtifact {
@@ -137,6 +165,13 @@ interface KnowledgeArtifact {
   stale: boolean;
   errorCode: string | null;
   errorMessage: string | null;
+  understandingId?: string | null;
+  understandingRevisionFp?: string | null;
+  generationMode?: string | null;
+  rendererVersion?: string | null;
+  dependencies?: ArtifactDependency[];
+  refinementUnits?: KnowledgeRefinementUnit[];
+  refreshAvailable?: boolean;
   generatedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -147,6 +182,46 @@ interface KnowledgeArtifact {
   };
   sections: KnowledgeSection[];
 }
+
+interface RepositoryUnderstanding {
+  id: string;
+  repositoryId: string;
+  corpusId?: string | null;
+  revisionFp: string;
+  strategy?: string | null;
+  stage: string;
+  treeStatus: string;
+  cachedNodes: number;
+  totalNodes: number;
+  modelUsed?: string | null;
+  refreshAvailable: boolean;
+  firstPassSections?: Array<{
+    title: string;
+    summary: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  scope: {
+    scopeType: string;
+    scopePath: string;
+    modulePath?: string | null;
+    filePath?: string | null;
+    symbolName?: string | null;
+  };
+}
+
+interface CliffNotesSectionMetadata {
+  section_key?: string | null;
+  refinement_tier?: string | null;
+  refined_with_evidence?: boolean | null;
+  evidence_revision_fp?: string | null;
+  renderer_version?: string | null;
+  understanding_id?: string | null;
+}
+
+type RepositoryGenerationMode = "CLASSIC" | "UNDERSTANDING_FIRST";
 
 function knowledgeErrorHint(errorCode: string | null | undefined): string {
   switch (errorCode) {
@@ -217,14 +292,207 @@ function knowledgeJobProgressLabel(job: RepoJobView): string {
 
 function repoJobReuseLabel(job: RepoJobView | null | undefined): string | null {
   const reused = job?.reused_summaries ?? 0;
-  if (reused <= 0) return null;
+  const cached = job?.cached_nodes_loaded ?? 0;
   const parts = [
+    cached > 0 ? `${cached} cached loaded` : null,
+    job?.resume_stage ? `resume ${job.resume_stage}` : null,
     job?.leaf_cache_hits ? `${job.leaf_cache_hits} leaf` : null,
     job?.file_cache_hits ? `${job.file_cache_hits} file` : null,
     job?.package_cache_hits ? `${job.package_cache_hits} package` : null,
     job?.root_cache_hits ? `${job.root_cache_hits} root` : null,
   ].filter(Boolean);
-  return parts.length > 0 ? `${reused} reused · ${parts.join(" · ")}` : `${reused} reused`;
+  if (reused <= 0 && parts.length === 0) return null;
+  if (reused > 0) {
+    return parts.length > 0 ? `${reused} reused · ${parts.join(" · ")}` : `${reused} reused`;
+  }
+  return parts.join(" · ");
+}
+
+function understandingStageLabel(understanding: RepositoryUnderstanding | null | undefined): string {
+  switch (understanding?.stage) {
+    case "BUILDING_TREE":
+      return "Building tree";
+    case "FIRST_PASS_READY":
+      return "First pass ready";
+    case "NEEDS_REFRESH":
+      return "Refresh available";
+    case "DEEPENING":
+      return "Deepening";
+    case "READY":
+      return "Ready";
+    case "FAILED":
+      return "Failed";
+    default:
+      return "Not built";
+  }
+}
+
+function understandingTreeLabel(understanding: RepositoryUnderstanding | null | undefined): string {
+  switch (understanding?.treeStatus) {
+    case "COMPLETE":
+      return "Tree complete";
+    case "PARTIAL":
+      return "Tree partial";
+    case "MISSING":
+      return "Tree missing";
+    default:
+      return "Tree unknown";
+  }
+}
+
+function shouldCollapseRepositoryUnderstanding(understanding: RepositoryUnderstanding | null | undefined): boolean {
+  if (!understanding) return false;
+  if (understanding.errorMessage) return false;
+  if (understanding.refreshAvailable) return false;
+  return understanding.stage === "READY" && understanding.treeStatus === "COMPLETE";
+}
+
+function understandingLeadSummary(understanding: RepositoryUnderstanding | null | undefined): string | null {
+  const sections = understanding?.firstPassSections ?? [];
+  if (!sections.length) return null;
+  const preferredTitles = [
+    "Architecture Overview",
+    "System Purpose",
+    "Core Components",
+    "Core System Flows",
+  ];
+  for (const title of preferredTitles) {
+    const match = sections.find((section) => section.title === title && section.summary.trim());
+    if (match) return match.summary.trim();
+  }
+  const fallback = sections.find((section) => section.summary.trim());
+  return fallback?.summary.trim() || null;
+}
+
+function understandingHighlightSections(understanding: RepositoryUnderstanding | null | undefined): Array<{ title: string; summary: string }> {
+  const sections = (understanding?.firstPassSections ?? []).filter(
+    (section) => section.title.trim() && section.summary.trim(),
+  );
+  const preferredTitles = [
+    "System Purpose",
+    "Architecture Overview",
+    "Core Components",
+    "Core System Flows",
+    "External Dependencies",
+    "Domain Model",
+  ];
+  const ordered: Array<{ title: string; summary: string }> = [];
+  for (const title of preferredTitles) {
+    const match = sections.find((section) => section.title === title);
+    if (match && !ordered.some((section) => section.title === match.title)) {
+      ordered.push(match);
+    }
+  }
+  for (const section of sections) {
+    if (!ordered.some((candidate) => candidate.title === section.title)) {
+      ordered.push(section);
+    }
+  }
+  return ordered;
+}
+
+function sectionRefinementLabel(section: KnowledgeSection): string | null {
+  const status = (section.refinementStatus || "").trim().toLowerCase();
+  if (status === "deep") return "Deepened";
+  if (status === "light") return "Refined";
+  if (status === "first_pass") return "First pass";
+  return null;
+}
+
+function sectionRefinementClass(section: KnowledgeSection): string {
+  const status = (section.refinementStatus || "").trim().toLowerCase();
+  if (status === "deep") {
+    return "rounded-full border border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/10 px-2 py-0.5 text-xs font-medium text-[var(--accent-primary)]";
+  }
+  if (status === "light") {
+    return "rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 py-0.5 text-xs font-medium text-[var(--text-primary)]";
+  }
+  return "rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-0.5 text-xs font-medium text-[var(--text-tertiary)]";
+}
+
+function artifactRefinementSummary(artifact: KnowledgeArtifact | null | undefined): string | null {
+  if (!artifact?.sections?.length) return null;
+  let refined = 0;
+  let deepened = 0;
+  for (const section of artifact.sections) {
+    const status = (section.refinementStatus || "").trim().toLowerCase();
+    if (status === "deep") {
+      deepened++;
+      continue;
+    }
+    if (status === "light") {
+      refined++;
+    }
+  }
+  const parts: string[] = [];
+  if (refined > 0) parts.push(`${refined} refined`);
+  if (deepened > 0) parts.push(`${deepened} deepened`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function artifactDeepeningSummary(artifact: KnowledgeArtifact | null | undefined): string | null {
+  const units = (artifact?.refinementUnits ?? []).filter((unit) => unit.refinementType === "cliff_notes_deep");
+  if (!units.length) return null;
+  let queued = 0;
+  let running = 0;
+  let failed = 0;
+  let completed = 0;
+  for (const unit of units) {
+    const status = unit.status.trim().toLowerCase();
+    if (status === "queued") queued++;
+    else if (status === "running") running++;
+    else if (status === "failed") failed++;
+    else if (status === "completed") completed++;
+  }
+  const parts: string[] = [];
+  if (running > 0) parts.push(`${running} deepening`);
+  if (queued > 0) parts.push(`${queued} queued`);
+  if (failed > 0) parts.push(`${failed} failed`);
+  if (completed > 0) parts.push(`${completed} deepened`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function parseCliffNotesSectionMetadata(section: KnowledgeSection): CliffNotesSectionMetadata | null {
+  if (!section.metadata?.trim()) return null;
+  try {
+    const parsed = JSON.parse(section.metadata) as CliffNotesSectionMetadata;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function shortFingerprint(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return trimmed.length > 12 ? trimmed.slice(0, 12) : trimmed;
+}
+
+function renderCliffNotesSectionProvenance(section: KnowledgeSection) {
+  const metadata = parseCliffNotesSectionMetadata(section);
+  if (!metadata) return null;
+  const parts: string[] = [];
+  if (metadata.refined_with_evidence) parts.push("Evidence-backed");
+  if (metadata.refinement_tier?.trim()) parts.push(`Tier ${metadata.refinement_tier.trim()}`);
+  if (metadata.renderer_version?.trim()) parts.push(`Renderer ${metadata.renderer_version.trim()}`);
+  const understanding = shortFingerprint(metadata.understanding_id);
+  if (understanding) parts.push(`Understanding ${understanding}`);
+  const evidenceRevision = shortFingerprint(metadata.evidence_revision_fp);
+  if (evidenceRevision) parts.push(`Evidence rev ${evidenceRevision}`);
+  if (!parts.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--text-tertiary)]">
+      {parts.map((part) => (
+        <span
+          key={part}
+          className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-0.5"
+        >
+          {part}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function renderKnowledgeProgress(artifact: KnowledgeArtifact, waitingLabel: string, job?: RepoJobView | null) {
@@ -307,6 +575,12 @@ function repoJobStatusLabel(job: RepoJobView | null | undefined): string | null 
   if (job.status === "generating") {
     const heartbeat = formatHeartbeatAge(job.updated_at);
     const elapsed = formatElapsedMs(job.elapsed_ms);
+    if (job.progress_phase === "deepening") {
+      if (heartbeat && elapsed) return `Improving in background · alive ${heartbeat} · elapsed ${elapsed}`;
+      if (heartbeat) return `Improving in background · alive ${heartbeat}`;
+      if (elapsed) return `Improving in background · elapsed ${elapsed}`;
+      return "Improving in background";
+    }
     if (job.progress >= 0.6 && job.progress < 0.96) {
       if (heartbeat && elapsed) return `Building summary tree · alive ${heartbeat} · elapsed ${elapsed}`;
       if (heartbeat) return `Building summary tree · alive ${heartbeat}`;
@@ -410,6 +684,13 @@ interface RepoJobView {
   file_cache_hits?: number;
   package_cache_hits?: number;
   root_cache_hits?: number;
+  cached_nodes_loaded?: number;
+  total_nodes?: number;
+  resume_stage?: string;
+  skipped_leaf_units?: number;
+  skipped_file_units?: number;
+  skipped_package_units?: number;
+  skipped_root_units?: number;
   artifact_id?: string;
   repo_id?: string;
   queue_position?: number;
@@ -471,7 +752,7 @@ export default function RepositoryDetailPage() {
   const seenRepoTerminalRef = useRef<Record<string, string>>({});
   const locallyCancelledJobsRef = useRef<Record<string, number>>({});
 
-  const [repoResult] = useQuery({ query: REPOSITORY_QUERY, variables: { id: repoId } });
+  const [repoResult, reexecuteRepo] = useQuery({ query: REPOSITORY_QUERY, variables: { id: repoId } });
   const [symbolsResult] = useQuery({
     query: SYMBOLS_QUERY,
     variables: { repositoryId: repoId, query: symbolQuery || undefined, kind: symbolKindFilter || undefined, limit: 200 },
@@ -499,6 +780,7 @@ export default function RepositoryDetailPage() {
   const knowledgeScopePath = searchParams.get("path") || "";
   const knowledgeAudience = (searchParams.get("audience") || "developer").toUpperCase();
   const knowledgeDepth = (searchParams.get("depth") || "medium").toUpperCase();
+  const knowledgeGenerationMode = (searchParams.get("mode") || "understanding_first").toUpperCase();
 
   const [knowledgeResult, reexecuteKnowledge] = useQuery({
     query: KNOWLEDGE_ARTIFACTS_QUERY,
@@ -619,6 +901,8 @@ export default function RepositoryDetailPage() {
   }, [repoJobs?.recent, repoResult.data?.repository?.name]);
 
   const [, reindex] = useMutation(REINDEX_REPOSITORY_MUTATION);
+  const [, buildRepositoryUnderstanding] = useMutation(BUILD_REPOSITORY_UNDERSTANDING_MUTATION);
+  const [, updateRepositoryKnowledgeSettings] = useMutation(UPDATE_REPOSITORY_KNOWLEDGE_SETTINGS_MUTATION);
   const [, removeRepo] = useMutation(REMOVE_REPOSITORY_MUTATION);
   const [, analyzeSymbol] = useMutation(ANALYZE_SYMBOL_MUTATION);
   const [, discussCode] = useMutation(DISCUSS_CODE_MUTATION);
@@ -690,6 +974,8 @@ export default function RepositoryDetailPage() {
   const features = useFeatures();
   const symbolScopedAnalysisEnabled = features.symbolScopedAnalysis;
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [understandingCollapsed, setUnderstandingCollapsed] = useState(false);
+  const [understandingShowAllSections, setUnderstandingShowAllSections] = useState(false);
   const [explainQuestion, setExplainQuestion] = useState("");
   const [explainResult, setExplainResult] = useState<{ explanation: string } | null>(null);
   const [tourStopIndex, setTourStopIndex] = useState(0);
@@ -712,6 +998,27 @@ export default function RepositoryDetailPage() {
   const currentWorkflowStory = knowledgeArtifacts.find(
     (a) => a.type === "WORKFLOW_STORY" && a.audience === knowledgeAudience && a.depth === knowledgeDepth
   );
+  const currentUnderstanding: RepositoryUnderstanding | null = repoResult.data?.repository?.repositoryUnderstanding || null;
+  const shouldAutoCollapseUnderstanding = shouldCollapseRepositoryUnderstanding(currentUnderstanding);
+  const understandingSummary = understandingLeadSummary(currentUnderstanding);
+  const understandingSections = understandingHighlightSections(currentUnderstanding);
+  const understandingFeaturedSections = understandingSections.slice(0, 4);
+  const understandingAdditionalSections = understandingSections.slice(4);
+  const understandingBusy = Boolean(
+    currentUnderstanding &&
+      (currentUnderstanding.stage === "BUILDING_TREE" ||
+        currentUnderstanding.stage === "FIRST_PASS_READY" ||
+        currentUnderstanding.stage === "DEEPENING"),
+  );
+
+  useEffect(() => {
+    setUnderstandingCollapsed(shouldAutoCollapseUnderstanding);
+  }, [currentUnderstanding?.id, shouldAutoCollapseUnderstanding]);
+
+  useEffect(() => {
+    setUnderstandingShowAllSections(false);
+  }, [currentUnderstanding?.id]);
+  const repoGenerationModeDefault: RepositoryGenerationMode = (repo?.generationModeDefault || "UNDERSTANDING_FIRST") as RepositoryGenerationMode;
   const repoActiveJobs = useMemo(() => repoJobs?.active ?? [], [repoJobs?.active]);
   const repoRecentJobs = useMemo(() => repoJobs?.recent ?? [], [repoJobs?.recent]);
   const artifactJobMap = useMemo(() => {
@@ -957,6 +1264,7 @@ export default function RepositoryDetailPage() {
           repositoryId: repoId,
           audience: knowledgeAudience,
           depth: knowledgeDepth,
+          generationMode: knowledgeGenerationMode,
           scopeType,
           scopePath: scopeType === "REPOSITORY" ? undefined : scopePath,
         },
@@ -981,6 +1289,7 @@ export default function RepositoryDetailPage() {
           repositoryId: repoId,
           audience: "DEVELOPER",
           depth: "MEDIUM",
+          generationMode: knowledgeGenerationMode,
           scopeType: symbolScopeType,
           scopePath: symbolScopePath,
         },
@@ -1040,8 +1349,40 @@ export default function RepositoryDetailPage() {
   async function handleGenerateLearningPath() {
     setKnowledgeLoading(true);
     try {
-      await generateLearningPath({ input: { repositoryId: repoId, audience: knowledgeAudience, depth: knowledgeDepth } });
+      await generateLearningPath({ input: { repositoryId: repoId, audience: knowledgeAudience, depth: knowledgeDepth, generationMode: knowledgeGenerationMode } });
       reexecuteKnowledge({ requestPolicy: "network-only" });
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  }
+
+  async function handleBuildRepositoryUnderstanding() {
+    setKnowledgeLoading(true);
+    try {
+      await buildRepositoryUnderstanding({
+        input: {
+          repositoryId: repoId,
+          scopeType: knowledgeScopeType,
+          scopePath: knowledgeScopeType === "REPOSITORY" ? undefined : knowledgeScopePath,
+        },
+      });
+      reexecuteRepo({ requestPolicy: "network-only" });
+      void fetchRepoJobs();
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  }
+
+  async function handleSaveRepositoryGenerationMode(nextMode: RepositoryGenerationMode) {
+    setKnowledgeLoading(true);
+    try {
+      await updateRepositoryKnowledgeSettings({
+        input: {
+          repositoryId: repoId,
+          generationModeDefault: nextMode,
+        },
+      });
+      reexecuteRepo({ requestPolicy: "network-only" });
     } finally {
       setKnowledgeLoading(false);
     }
@@ -1050,7 +1391,7 @@ export default function RepositoryDetailPage() {
   async function handleGenerateCodeTour() {
     setKnowledgeLoading(true);
     try {
-      await generateCodeTour({ input: { repositoryId: repoId, audience: knowledgeAudience, depth: knowledgeDepth } });
+      await generateCodeTour({ input: { repositoryId: repoId, audience: knowledgeAudience, depth: knowledgeDepth, generationMode: knowledgeGenerationMode } });
       reexecuteKnowledge({ requestPolicy: "network-only" });
     } finally {
       setKnowledgeLoading(false);
@@ -1084,6 +1425,7 @@ export default function RepositoryDetailPage() {
           repositoryId: repoId,
           audience: knowledgeAudience,
           depth: knowledgeDepth,
+          generationMode: knowledgeGenerationMode,
           scopeType: knowledgeScopeType,
           scopePath: knowledgeScopeType === "REPOSITORY" ? undefined : knowledgeScopePath,
           anchorLabel: workflowStoryAnchorLabel(),
@@ -1122,6 +1464,7 @@ export default function RepositoryDetailPage() {
           repositoryId: repoId,
           audience: knowledgeAudience,
           depth: knowledgeDepth,
+          generationMode: knowledgeGenerationMode,
           question: explainQuestion,
           scopeType: knowledgeScopeType,
           scopePath: knowledgeScopeType === "REPOSITORY" ? undefined : knowledgeScopePath,
@@ -1202,6 +1545,13 @@ export default function RepositoryDetailPage() {
     });
   }
 
+  function setKnowledgeGenerationMode(nextMode: string) {
+    updateSearchParams((next) => {
+      next.set("tab", "knowledge");
+      next.set("mode", nextMode.toLowerCase());
+    });
+  }
+
   function scopeTitle() {
     if (knowledgeScopeType === "MODULE") return knowledgeScopePath || repo?.name || "Module";
     if (knowledgeScopeType === "FILE") return knowledgeScopePath.split("/").at(-1) || "File";
@@ -1243,6 +1593,7 @@ export default function RepositoryDetailPage() {
         {expandedSection === section.id ? (
           <div className="mt-3">
             <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--text-secondary)]">{section.content}</p>
+            {renderCliffNotesSectionProvenance(section)}
             {section.evidence.length > 0 ? (
               <div className="mt-4 rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
                 <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Evidence</p>
@@ -1386,7 +1737,27 @@ export default function RepositoryDetailPage() {
             {repo.path || repo.remoteUrl}
           </a>
         ) : (repo?.path || "Explore the codebase through files, symbols, field guides, reviews, and change impact.")}
-        actions={repo ? <RepoJobsPopover repoId={repo.id} /> : null}
+        actions={repo ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleBuildRepositoryUnderstanding}
+              disabled={knowledgeLoading || understandingBusy}
+            >
+              {knowledgeLoading
+                ? "Starting..."
+                : understandingBusy
+                  ? "Understanding running"
+                  : currentUnderstanding
+                    ? currentUnderstanding.refreshAvailable
+                      ? "Refresh understanding"
+                      : "Rebuild understanding"
+                    : "Build understanding"}
+            </Button>
+            <RepoJobsPopover repoId={repo.id} />
+          </div>
+        ) : null}
       />
       {repo && (
         <Panel className="w-full" padding="sm">
@@ -2142,6 +2513,29 @@ export default function RepositoryDetailPage() {
                       ))}
                     </div>
                   </div>
+                  <div>
+                    <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Engine</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { key: "UNDERSTANDING_FIRST", label: "Understanding First" },
+                        { key: "CLASSIC", label: "Classic" },
+                      ].map((mode) => (
+                        <button
+                          key={mode.key}
+                          type="button"
+                          onClick={() => setKnowledgeGenerationMode(mode.key)}
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                            knowledgeGenerationMode === mode.key
+                              ? "border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-contrast)]"
+                              : "border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                          )}
+                        >
+                          {mode.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
               {availableLenses.length > 0 && (
@@ -2190,6 +2584,150 @@ export default function RepositoryDetailPage() {
 
             <div className="grid gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-2">
+                <div className="rounded-[var(--control-radius)] border border-[var(--border-default)] bg-[var(--bg-base)] p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Repository Understanding</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        {currentUnderstanding
+                          ? "Shared repository understanding powers cliff notes reuse and refresh decisions."
+                          : "No shared repository understanding has been persisted yet."}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-tertiary)]">
+                      <span className={artifactStatusClass}>{understandingStageLabel(currentUnderstanding)}</span>
+                      {currentUnderstanding ? <span className={artifactStatusClass}>{understandingTreeLabel(currentUnderstanding)}</span> : null}
+                      {currentUnderstanding?.refreshAvailable ? <span className={artifactStatusClass}>Refresh available</span> : null}
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <Button variant="secondary" size="sm" onClick={handleBuildRepositoryUnderstanding} disabled={knowledgeLoading}>
+                      {knowledgeLoading ? "Starting..." : currentUnderstanding ? "Refresh understanding" : "Build understanding"}
+                    </Button>
+                    {currentUnderstanding ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setUnderstandingCollapsed((current) => !current)}
+                      >
+                        {understandingCollapsed ? "Show details" : "Hide details"}
+                      </Button>
+                    ) : null}
+                    {currentUnderstanding?.updatedAt ? (
+                      <span className="text-xs text-[var(--text-tertiary)]">
+                        Updated {formatGeneratedAt(currentUnderstanding.updatedAt)}
+                      </span>
+                    ) : null}
+                  </div>
+                  {currentUnderstanding && understandingCollapsed ? (
+                    <div className="mt-4 space-y-3">
+                      {understandingSummary ? (
+                        <div className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-3 text-sm text-[var(--text-secondary)]">
+                          <span className="font-medium text-[var(--text-primary)]">What the system learned:</span>{" "}
+                          {understandingSummary}
+                        </div>
+                      ) : null}
+                      <div className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-[var(--text-secondary)]">
+                        <span className="text-[var(--text-primary)]">
+                          {currentUnderstanding.cachedNodes}/{currentUnderstanding.totalNodes || currentUnderstanding.cachedNodes} nodes
+                        </span>
+                        {" · "}
+                        {currentUnderstanding.strategy || "hierarchical"}
+                        {" · "}
+                        {currentUnderstanding.modelUsed || "Unknown model"}
+                        {understandingSections.length ? (
+                          <>
+                            {" · "}
+                            {understandingSections.length} first-pass sections
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                  {currentUnderstanding && !understandingCollapsed ? (
+                    <>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Nodes</p>
+                          <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
+                            {currentUnderstanding.cachedNodes}/{currentUnderstanding.totalNodes || currentUnderstanding.cachedNodes}
+                          </p>
+                        </div>
+                        <div className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Strategy</p>
+                          <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
+                            {currentUnderstanding.strategy || "hierarchical"}
+                          </p>
+                        </div>
+                        <div className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Model</p>
+                          <p className="mt-1 truncate text-sm font-medium text-[var(--text-primary)]">
+                            {currentUnderstanding.modelUsed || "Unknown"}
+                          </p>
+                        </div>
+                        <div className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Revision</p>
+                          <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
+                            {currentUnderstanding.revisionFp ? currentUnderstanding.revisionFp.slice(0, 12) : "Unknown"}
+                          </p>
+                        </div>
+                      </div>
+                      {understandingFeaturedSections.length ? (
+                        <div className="mt-4 space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">
+                              Understanding Highlights
+                            </p>
+                            <span className="text-xs text-[var(--text-tertiary)]">
+                              {understandingSections.length} sections
+                            </span>
+                          </div>
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            {understandingFeaturedSections.map((section) => (
+                              <div
+                                key={section.title}
+                                className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3"
+                              >
+                                <p className="text-sm font-medium text-[var(--text-primary)]">{section.title}</p>
+                                <p className="mt-1 text-sm text-[var(--text-secondary)]">{section.summary}</p>
+                              </div>
+                            ))}
+                          </div>
+                          {understandingAdditionalSections.length ? (
+                            <div className="space-y-3">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setUnderstandingShowAllSections((current) => !current)}
+                              >
+                                {understandingShowAllSections
+                                  ? `Hide ${understandingAdditionalSections.length} additional sections`
+                                  : `Show ${understandingAdditionalSections.length} additional sections`}
+                              </Button>
+                              {understandingShowAllSections ? (
+                                <div className="grid gap-3 lg:grid-cols-2">
+                                  {understandingAdditionalSections.map((section) => (
+                                    <div
+                                      key={section.title}
+                                      className="rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3"
+                                    >
+                                      <p className="text-sm font-medium text-[var(--text-primary)]">{section.title}</p>
+                                      <p className="mt-1 text-sm text-[var(--text-secondary)]">{section.summary}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {currentUnderstanding?.errorMessage ? (
+                    <p className="mt-3 text-xs text-[var(--color-error,#ef4444)]">{currentUnderstanding.errorMessage}</p>
+                  ) : null}
+                </div>
+
                 {/* Category 1: Field Guide */}
                 <div className="rounded-[var(--control-radius)] border border-[var(--border-default)] bg-[var(--bg-base)] overflow-hidden transition-all">
                   <button
@@ -2238,7 +2776,11 @@ export default function RepositoryDetailPage() {
                                 {isCliffNotesGenerating ? (
                                   <span className={artifactStatusClass}>{knowledgeQueueLabel(currentCliffNotes)}</span>
                                 ) : null}
+                                {currentCliffNotesJob?.status === "generating" && currentCliffNotesJob.progress_phase === "deepening" ? (
+                                  <span className={artifactStatusClass}>Improving in background</span>
+                                ) : null}
                                 {currentCliffNotes.stale ? <span className={artifactStatusClass}>Stale</span> : null}
+                                {currentCliffNotes.refreshAvailable ? <span className={artifactStatusClass}>Refresh available</span> : null}
                                 {currentCliffNotes.status === "FAILED" ? <span className={artifactStatusClass}>Refresh failed</span> : null}
                               </div>
                               <p className="mt-2 text-xs text-[var(--text-tertiary)]">
@@ -2254,6 +2796,21 @@ export default function RepositoryDetailPage() {
                               ) : null}
                               {repoJobReuseLabel(currentCliffNotesJob) ? (
                                 <p className="mt-1 text-xs text-[var(--text-tertiary)]">{repoJobReuseLabel(currentCliffNotesJob)}</p>
+                              ) : null}
+                              {currentCliffNotes.understandingRevisionFp ? (
+                                <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                                  Understanding revision {currentCliffNotes.understandingRevisionFp.slice(0, 12)}
+                                </p>
+                              ) : null}
+                              {artifactRefinementSummary(currentCliffNotes) ? (
+                                <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                                  {artifactRefinementSummary(currentCliffNotes)}
+                                </p>
+                              ) : null}
+                              {artifactDeepeningSummary(currentCliffNotes) ? (
+                                <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                                  {artifactDeepeningSummary(currentCliffNotes)}
+                                </p>
                               ) : null}
                             </div>
                             <div className="flex gap-2">
@@ -2292,6 +2849,22 @@ export default function RepositoryDetailPage() {
                               </div>
                             </div>
                           ) : null}
+                          {currentCliffNotes.refinementUnits?.some((unit) => unit.refinementType === "cliff_notes_deep" && unit.status.toLowerCase() === "failed") ? (
+                            <div className="mb-4 rounded-[var(--radius-sm)] border border-dashed border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+                              <p className="text-sm font-medium text-[var(--text-primary)]">Some background deepening attempts failed.</p>
+                              <div className="mt-2 space-y-1 text-xs text-[var(--text-secondary)]">
+                                {currentCliffNotes.refinementUnits
+                                  .filter((unit) => unit.refinementType === "cliff_notes_deep" && unit.status.toLowerCase() === "failed")
+                                  .map((unit) => (
+                                    <p key={unit.id}>
+                                      {unit.sectionTitle}
+                                      {unit.attemptCount > 0 ? ` · attempt ${unit.attemptCount}` : ""}
+                                      {unit.lastError ? ` · ${unit.lastError}` : ""}
+                                    </p>
+                                  ))}
+                              </div>
+                            </div>
+                          ) : null}
                           {currentCliffNotes.sections
                             .slice()
                             .sort((a, b) => a.orderIndex - b.orderIndex)
@@ -2308,6 +2881,9 @@ export default function RepositoryDetailPage() {
                                     ) : null}
                                   </div>
                                   <div className="flex items-center gap-2">
+                                    {sectionRefinementLabel(section) ? (
+                                      <span className={sectionRefinementClass(section)}>{sectionRefinementLabel(section)}</span>
+                                    ) : null}
                                     <span className={confidenceClass(section.confidence)}>{section.confidence}</span>
                                     {section.inferred ? <span className="text-xs text-[var(--text-tertiary)]">inferred</span> : null}
                                   </div>
@@ -2315,6 +2891,7 @@ export default function RepositoryDetailPage() {
                                 {expandedSection === section.id && (
                                   <div className="mt-3">
                                     <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--text-secondary)]">{section.content}</p>
+                                    {renderCliffNotesSectionProvenance(section)}
                                     {section.evidence.length > 0 && (
                                       <div className="mt-4 rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-3">
                                         <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Evidence</p>
@@ -2895,6 +3472,38 @@ export default function RepositoryDetailPage() {
             <Button variant="secondary" onClick={() => reindex({ id: repoId })}>
               Reindex
             </Button>
+          </div>
+          <div className="mt-6 rounded-[var(--control-radius)] border border-[var(--border-default)] bg-[var(--bg-base)] p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-semibold text-[var(--text-primary)]">Knowledge Engine Default</h4>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                  Sets the repository-level default generation engine. Request-time selections in the field guide still override this.
+                </p>
+              </div>
+              <span className={artifactStatusClass}>{repoGenerationModeDefault === "CLASSIC" ? "Classic" : "Understanding First"}</span>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[
+                { key: "UNDERSTANDING_FIRST", label: "Understanding First" },
+                { key: "CLASSIC", label: "Classic" },
+              ].map((mode) => (
+                <button
+                  key={mode.key}
+                  type="button"
+                  onClick={() => void handleSaveRepositoryGenerationMode(mode.key as RepositoryGenerationMode)}
+                  disabled={knowledgeLoading}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    repoGenerationModeDefault === mode.key
+                      ? "border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-contrast)]"
+                      : "border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                  )}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="mt-8 rounded-[var(--control-radius)] border border-[var(--color-error,#ef4444)] p-4">
             <h4 className="mb-2 font-semibold text-[var(--color-error,#ef4444)]">Danger Zone</h4>

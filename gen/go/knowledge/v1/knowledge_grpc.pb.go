@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	KnowledgeService_GenerateCliffNotes_FullMethodName    = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateCliffNotes"
-	KnowledgeService_GenerateLearningPath_FullMethodName  = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateLearningPath"
-	KnowledgeService_GenerateWorkflowStory_FullMethodName = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateWorkflowStory"
-	KnowledgeService_ExplainSystem_FullMethodName         = "/sourcebridge.knowledge.v1.KnowledgeService/ExplainSystem"
-	KnowledgeService_GenerateCodeTour_FullMethodName      = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateCodeTour"
-	KnowledgeService_GenerateReport_FullMethodName        = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateReport"
+	KnowledgeService_GenerateCliffNotes_FullMethodName          = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateCliffNotes"
+	KnowledgeService_GenerateLearningPath_FullMethodName        = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateLearningPath"
+	KnowledgeService_GenerateArchitectureDiagram_FullMethodName = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateArchitectureDiagram"
+	KnowledgeService_GenerateWorkflowStory_FullMethodName       = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateWorkflowStory"
+	KnowledgeService_ExplainSystem_FullMethodName               = "/sourcebridge.knowledge.v1.KnowledgeService/ExplainSystem"
+	KnowledgeService_GenerateCodeTour_FullMethodName            = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateCodeTour"
+	KnowledgeService_GenerateReport_FullMethodName              = "/sourcebridge.knowledge.v1.KnowledgeService/GenerateReport"
 )
 
 // KnowledgeServiceClient is the client API for KnowledgeService service.
@@ -37,6 +38,8 @@ type KnowledgeServiceClient interface {
 	GenerateCliffNotes(ctx context.Context, in *GenerateCliffNotesRequest, opts ...grpc.CallOption) (*GenerateCliffNotesResponse, error)
 	// GenerateLearningPath produces a guided learning path for a repository.
 	GenerateLearningPath(ctx context.Context, in *GenerateLearningPathRequest, opts ...grpc.CallOption) (*GenerateLearningPathResponse, error)
+	// GenerateArchitectureDiagram produces an AI-authored Mermaid architecture diagram.
+	GenerateArchitectureDiagram(ctx context.Context, in *GenerateArchitectureDiagramRequest, opts ...grpc.CallOption) (*GenerateArchitectureDiagramResponse, error)
 	// GenerateWorkflowStory produces a grounded narrative for how a workflow is used.
 	GenerateWorkflowStory(ctx context.Context, in *GenerateWorkflowStoryRequest, opts ...grpc.CallOption) (*GenerateWorkflowStoryResponse, error)
 	// ExplainSystem produces a transient whole-system explanation.
@@ -69,6 +72,16 @@ func (c *knowledgeServiceClient) GenerateLearningPath(ctx context.Context, in *G
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GenerateLearningPathResponse)
 	err := c.cc.Invoke(ctx, KnowledgeService_GenerateLearningPath_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *knowledgeServiceClient) GenerateArchitectureDiagram(ctx context.Context, in *GenerateArchitectureDiagramRequest, opts ...grpc.CallOption) (*GenerateArchitectureDiagramResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GenerateArchitectureDiagramResponse)
+	err := c.cc.Invoke(ctx, KnowledgeService_GenerateArchitectureDiagram_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +138,8 @@ type KnowledgeServiceServer interface {
 	GenerateCliffNotes(context.Context, *GenerateCliffNotesRequest) (*GenerateCliffNotesResponse, error)
 	// GenerateLearningPath produces a guided learning path for a repository.
 	GenerateLearningPath(context.Context, *GenerateLearningPathRequest) (*GenerateLearningPathResponse, error)
+	// GenerateArchitectureDiagram produces an AI-authored Mermaid architecture diagram.
+	GenerateArchitectureDiagram(context.Context, *GenerateArchitectureDiagramRequest) (*GenerateArchitectureDiagramResponse, error)
 	// GenerateWorkflowStory produces a grounded narrative for how a workflow is used.
 	GenerateWorkflowStory(context.Context, *GenerateWorkflowStoryRequest) (*GenerateWorkflowStoryResponse, error)
 	// ExplainSystem produces a transient whole-system explanation.
@@ -148,6 +163,9 @@ func (UnimplementedKnowledgeServiceServer) GenerateCliffNotes(context.Context, *
 }
 func (UnimplementedKnowledgeServiceServer) GenerateLearningPath(context.Context, *GenerateLearningPathRequest) (*GenerateLearningPathResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GenerateLearningPath not implemented")
+}
+func (UnimplementedKnowledgeServiceServer) GenerateArchitectureDiagram(context.Context, *GenerateArchitectureDiagramRequest) (*GenerateArchitectureDiagramResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GenerateArchitectureDiagram not implemented")
 }
 func (UnimplementedKnowledgeServiceServer) GenerateWorkflowStory(context.Context, *GenerateWorkflowStoryRequest) (*GenerateWorkflowStoryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GenerateWorkflowStory not implemented")
@@ -214,6 +232,24 @@ func _KnowledgeService_GenerateLearningPath_Handler(srv interface{}, ctx context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(KnowledgeServiceServer).GenerateLearningPath(ctx, req.(*GenerateLearningPathRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KnowledgeService_GenerateArchitectureDiagram_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GenerateArchitectureDiagramRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KnowledgeServiceServer).GenerateArchitectureDiagram(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KnowledgeService_GenerateArchitectureDiagram_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KnowledgeServiceServer).GenerateArchitectureDiagram(ctx, req.(*GenerateArchitectureDiagramRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -304,6 +340,10 @@ var KnowledgeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GenerateLearningPath",
 			Handler:    _KnowledgeService_GenerateLearningPath_Handler,
+		},
+		{
+			MethodName: "GenerateArchitectureDiagram",
+			Handler:    _KnowledgeService_GenerateArchitectureDiagram_Handler,
 		},
 		{
 			MethodName: "GenerateWorkflowStory",

@@ -174,6 +174,62 @@ func TestDeleteArtifactCleansUpSectionsAndEvidence(t *testing.T) {
 	}
 }
 
+func TestSupersedeArtifactRegeneratesEvidenceIDs(t *testing.T) {
+	s := NewMemStore()
+
+	artifact, _ := s.StoreKnowledgeArtifact(&Artifact{
+		RepositoryID: "repo-1",
+		Type:         ArtifactCliffNotes,
+		Audience:     AudienceDeveloper,
+		Depth:        DepthDeep,
+		Status:       StatusReady,
+	})
+
+	sections := []Section{{
+		Title:   "Architecture",
+		Content: "v1",
+		Evidence: []Evidence{{
+			ID:         "fixed-ev-id",
+			SourceType: EvidenceFile,
+			SourceID:   "file-1",
+			FilePath:   "main.go",
+			LineStart:  1,
+			LineEnd:    4,
+		}},
+	}}
+	if err := s.SupersedeArtifact(artifact.ID, sections); err != nil {
+		t.Fatalf("SupersedeArtifact initial: %v", err)
+	}
+
+	firstSections := s.GetKnowledgeSections(artifact.ID)
+	if len(firstSections) != 1 {
+		t.Fatalf("expected 1 section, got %d", len(firstSections))
+	}
+	firstEvidence := s.GetKnowledgeEvidence(firstSections[0].ID)
+	if len(firstEvidence) != 1 {
+		t.Fatalf("expected 1 evidence row, got %d", len(firstEvidence))
+	}
+	if firstEvidence[0].ID == "fixed-ev-id" {
+		t.Fatal("expected persisted evidence id to be regenerated")
+	}
+
+	if err := s.SupersedeArtifact(artifact.ID, sections); err != nil {
+		t.Fatalf("SupersedeArtifact repeat: %v", err)
+	}
+
+	secondSections := s.GetKnowledgeSections(artifact.ID)
+	if len(secondSections) != 1 {
+		t.Fatalf("expected 1 section after repeat, got %d", len(secondSections))
+	}
+	secondEvidence := s.GetKnowledgeEvidence(secondSections[0].ID)
+	if len(secondEvidence) != 1 {
+		t.Fatalf("expected 1 evidence row after repeat, got %d", len(secondEvidence))
+	}
+	if secondEvidence[0].ID == "fixed-ev-id" {
+		t.Fatal("expected repeated supersede to regenerate evidence ids")
+	}
+}
+
 func TestSetArtifactFailedPersistsErrorMetadata(t *testing.T) {
 	s := NewMemStore()
 
@@ -240,5 +296,111 @@ func TestUpdateKnowledgeArtifactStatusClearsErrorMetadataOnRecovery(t *testing.T
 	}
 	if fetched.GeneratedAt.IsZero() {
 		t.Fatal("expected generated_at to be set on recovery")
+	}
+}
+
+func TestArtifactsCanCoexistAcrossGenerationModes(t *testing.T) {
+	s := NewMemStore()
+	key := ArtifactKey{
+		RepositoryID: "repo-1",
+		Type:         ArtifactCliffNotes,
+		Audience:     AudienceDeveloper,
+		Depth:        DepthMedium,
+		Scope:        ArtifactScope{ScopeType: ScopeRepository},
+	}
+
+	classic, created, err := s.ClaimArtifactWithMode(key, SourceRevision{CommitSHA: "a"}, GenerationModeClassic)
+	if err != nil {
+		t.Fatalf("ClaimArtifactWithMode classic: %v", err)
+	}
+	if !created {
+		t.Fatal("expected classic artifact to be created")
+	}
+
+	understanding, created, err := s.ClaimArtifactWithMode(key, SourceRevision{CommitSHA: "a"}, GenerationModeUnderstandingFirst)
+	if err != nil {
+		t.Fatalf("ClaimArtifactWithMode understanding_first: %v", err)
+	}
+	if !created {
+		t.Fatal("expected understanding-first artifact to be created")
+	}
+	if classic.ID == understanding.ID {
+		t.Fatal("expected distinct artifacts per generation mode")
+	}
+
+	if got := s.GetArtifactByKeyAndMode(key, GenerationModeClassic); got == nil || got.ID != classic.ID {
+		t.Fatalf("expected classic lookup to return %q, got %#v", classic.ID, got)
+	}
+	if got := s.GetArtifactByKeyAndMode(key, GenerationModeUnderstandingFirst); got == nil || got.ID != understanding.ID {
+		t.Fatalf("expected understanding lookup to return %q, got %#v", understanding.ID, got)
+	}
+}
+
+func TestRepositoryUnderstandingLifecycle(t *testing.T) {
+	s := NewMemStore()
+
+	u, err := s.StoreRepositoryUnderstanding(&RepositoryUnderstanding{
+		RepositoryID: "repo-1",
+		Scope:        (&ArtifactScope{ScopeType: ScopeRepository}).NormalizePtr(),
+		RevisionFP:   "rev-1",
+		Stage:        UnderstandingBuildingTree,
+		TreeStatus:   UnderstandingTreePartial,
+		CachedNodes:  8,
+		TotalNodes:   20,
+		Strategy:     "hierarchical",
+		ModelUsed:    "qwen3:14b",
+	})
+	if err != nil {
+		t.Fatalf("StoreRepositoryUnderstanding: %v", err)
+	}
+	if u.ID == "" {
+		t.Fatal("expected repository understanding ID")
+	}
+
+	updated, err := s.StoreRepositoryUnderstanding(&RepositoryUnderstanding{
+		RepositoryID: "repo-1",
+		Scope:        (&ArtifactScope{ScopeType: ScopeRepository}).NormalizePtr(),
+		RevisionFP:   "rev-2",
+		Stage:        UnderstandingReady,
+		TreeStatus:   UnderstandingTreeComplete,
+		CachedNodes:  20,
+		TotalNodes:   20,
+	})
+	if err != nil {
+		t.Fatalf("StoreRepositoryUnderstanding update: %v", err)
+	}
+	if updated.ID != u.ID {
+		t.Fatalf("expected update to preserve understanding ID, got %q vs %q", updated.ID, u.ID)
+	}
+	if updated.RevisionFP != "rev-2" {
+		t.Fatalf("expected revision rev-2, got %q", updated.RevisionFP)
+	}
+	if updated.TreeStatus != UnderstandingTreeComplete {
+		t.Fatalf("expected complete tree status, got %q", updated.TreeStatus)
+	}
+
+	artifact, err := s.StoreKnowledgeArtifact(&Artifact{
+		RepositoryID: "repo-1",
+		Type:         ArtifactCliffNotes,
+		Audience:     AudienceDeveloper,
+		Depth:        DepthDeep,
+		Status:       StatusGenerating,
+	})
+	if err != nil {
+		t.Fatalf("StoreKnowledgeArtifact: %v", err)
+	}
+	if err := s.AttachArtifactUnderstanding(artifact.ID, updated.ID, updated.RevisionFP); err != nil {
+		t.Fatalf("AttachArtifactUnderstanding: %v", err)
+	}
+
+	linked := s.GetKnowledgeArtifact(artifact.ID)
+	if linked.UnderstandingID != updated.ID {
+		t.Fatalf("expected linked understanding %q, got %q", updated.ID, linked.UnderstandingID)
+	}
+	if linked.UnderstandingRevisionFP != "rev-2" {
+		t.Fatalf("expected linked revision rev-2, got %q", linked.UnderstandingRevisionFP)
+	}
+	if !ArtifactRefreshAvailable(linked, &RepositoryUnderstanding{RevisionFP: "rev-3"}) {
+		t.Fatal("expected refresh to be available when understanding revision advances")
 	}
 }
