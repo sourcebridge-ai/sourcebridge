@@ -124,6 +124,11 @@ func (s *Server) registerEnterpriseRoutes(r chi.Router) {
 	r.Route("/api/v1/reports", func(r chi.Router) {
 		ectx.RegisterReportRoutes(r)
 	})
+
+	// Diagram editor (enterprise-only mutation endpoints)
+	r.Route("/api/v1/diagrams", func(r chi.Router) {
+		ectx.RegisterDiagramEditorRoutes(r)
+	})
 }
 
 func withWorkerLLMMetadata(ctx context.Context, cfg *config.Config, operationGroup string) context.Context {
