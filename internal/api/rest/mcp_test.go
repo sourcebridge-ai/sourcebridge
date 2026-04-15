@@ -127,6 +127,12 @@ func (m *mockKnowledgeStore) StoreKnowledgeSections(artifactID string, sections 
 func (m *mockKnowledgeStore) GetKnowledgeSections(artifactID string) []knowledge.Section {
 	return nil
 }
+func (m *mockKnowledgeStore) StoreRefinementUnits(artifactID string, units []knowledge.RefinementUnit) error {
+	return nil
+}
+func (m *mockKnowledgeStore) GetRefinementUnits(artifactID string) []knowledge.RefinementUnit {
+	return nil
+}
 func (m *mockKnowledgeStore) StoreKnowledgeEvidence(sectionID string, evidence []knowledge.Evidence) error {
 	return nil
 }

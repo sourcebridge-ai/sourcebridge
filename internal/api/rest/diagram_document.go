@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/go-chi/chi/v5"
@@ -44,22 +45,24 @@ func (s *Server) handleGetStructuredDiagram(w http.ResponseWriter, r *http.Reque
 	}
 	diagStore.mu.RUnlock()
 
-	store := s.getStore(r)
-
-	opts := architecture.DiagramOpts{
-		RepoID:      repoID,
-		Level:       "MODULE",
-		ModuleDepth: 1,
-		MaxNodes:    30,
+	depth := 1
+	if raw := r.URL.Query().Get("depth"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 1 && parsed <= 3 {
+			depth = parsed
+		}
+	}
+	maxNodes := 30
+	if raw := r.URL.Query().Get("max_nodes"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 1 && parsed <= 100 {
+			maxNodes = parsed
+		}
 	}
 
-	result, err := architecture.BuildDiagram(store, opts)
+	doc, err := s.buildDeterministicDiagramDoc(r, repoID, depth, maxNodes)
 	if err != nil {
 		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
 		return
 	}
-
-	doc := architecture.DocumentFromDiagramResult(repoID, result)
 	respondJSON(w, http.StatusOK, doc)
 }
 
@@ -154,8 +157,12 @@ func (s *Server) handleExportDiagramMermaid(w http.ResponseWriter, r *http.Reque
 	repoID := chi.URLParam(r, "repoId")
 	doc := getDiagramDoc(repoID)
 	if doc == nil {
-		http.Error(w, `{"error":"no diagram found"}`, http.StatusNotFound)
-		return
+		var err error
+		doc, err = s.buildDeterministicDiagramDoc(r, repoID, 1, 30)
+		if err != nil {
+			http.Error(w, `{"error":"no diagram available"}`, http.StatusNotFound)
+			return
+		}
 	}
 
 	mermaid := doc.GenerateMermaid()
@@ -169,8 +176,12 @@ func (s *Server) handleExportDiagramJSON(w http.ResponseWriter, r *http.Request)
 	repoID := chi.URLParam(r, "repoId")
 	doc := getDiagramDoc(repoID)
 	if doc == nil {
-		http.Error(w, `{"error":"no diagram found"}`, http.StatusNotFound)
-		return
+		var err error
+		doc, err = s.buildDeterministicDiagramDoc(r, repoID, 1, 30)
+		if err != nil {
+			http.Error(w, `{"error":"no diagram available"}`, http.StatusNotFound)
+			return
+		}
 	}
 
 	jsonStr, err := doc.ToJSON()
@@ -199,6 +210,20 @@ func getDiagramDoc(repoID string) *architecture.DiagramDocument {
 		}
 	}
 	return nil
+}
+
+func (s *Server) buildDeterministicDiagramDoc(r *http.Request, repoID string, depth int, maxNodes int) (*architecture.DiagramDocument, error) {
+	store := s.getStore(r)
+	result, err := architecture.BuildDiagram(store, architecture.DiagramOpts{
+		RepoID:      repoID,
+		Level:       "MODULE",
+		ModuleDepth: depth,
+		MaxNodes:    maxNodes,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return architecture.DocumentFromDiagramResult(repoID, result), nil
 }
 
 func respondJSON(w http.ResponseWriter, status int, v interface{}) {
