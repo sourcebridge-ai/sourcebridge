@@ -12,7 +12,12 @@ output that strictly follows the schema described in the user prompt.
 
 Rules:
 - Every claim must be grounded in evidence from the provided snapshot.
-- Use the "evidence" field to cite specific files, symbols, or docs.
+- Use the "evidence" field to cite actual repository files from the snapshot.
+- Only count evidence that names a real repo file path in "file_path" such as
+  "src/server.ts" or "internal/api/graphql/schema.resolvers.go".
+- Do not use placeholder evidence paths like "repository", "repository_summary",
+  "subsystem_auth", "module_overview", or any synthetic label that is not an
+  actual file in the repo.
 - Mark sections as "inferred": true when the conclusion goes beyond \
   direct evidence (e.g. inferred architectural patterns).
 - Set "confidence" to "high" when multiple pieces of evidence converge, \
@@ -43,8 +48,47 @@ _DEPTH_INSTRUCTIONS = {
     "summary": "Keep each section to 2-3 sentences. Prioritize breadth over depth.",
     "medium": "Write 1-2 paragraphs per section. Balance breadth and depth.",
     "deep": (
-        "Write thorough sections with detailed explanations. Include specific code references and explain trade-offs."
+        "Write an evidence-dense maintainer field guide. Every section must name concrete files, functions, types, "
+        "or line ranges from the snapshot. Prefer grounded explanation over broad recap. Avoid generic filler."
     ),
+}
+
+REQUIRED_SECTIONS_DEEP_REPOSITORY = [
+    "System Purpose",
+    "Architecture Overview",
+    "External Dependencies",
+    "Domain Model",
+    "Core System Flows",
+    "Code Structure",
+    "Security Model",
+    "Error Handling Patterns",
+    "Data Flow & Request Lifecycle",
+    "Concurrency & State Management",
+    "Configuration & Feature Flags",
+    "Testing Strategy",
+    "Key Abstractions",
+    "Module Deep Dives",
+    "Complexity & Risk Areas",
+    "Suggested Starting Points",
+]
+
+DEEP_MIN_EVIDENCE = {
+    "System Purpose": 2,
+    "Architecture Overview": 5,
+    "External Dependencies": 3,
+    "Domain Model": 5,
+    "Core System Flows": 5,
+    "Code Structure": 3,
+    "Security Model": 4,
+    "Error Handling Patterns": 3,
+    "Data Flow & Request Lifecycle": 5,
+    "Concurrency & State Management": 3,
+    "Configuration & Feature Flags": 3,
+    "Testing Strategy": 3,
+    "Key Abstractions": 5,
+    "Module Deep Dives": 5,
+    "Complexity & Risk Areas": 4,
+    "Suggested Starting Points": 3,
 }
 
 REQUIRED_SECTIONS_BY_SCOPE = {
@@ -172,7 +216,10 @@ def build_cliff_notes_prompt(
     audience_instruction = _AUDIENCE_INSTRUCTIONS.get(audience, _AUDIENCE_INSTRUCTIONS["developer"])
     depth_instruction = _DEPTH_INSTRUCTIONS.get(depth, _DEPTH_INSTRUCTIONS["medium"])
 
-    required_sections = REQUIRED_SECTIONS_BY_SCOPE.get(scope_type or "repository", REQUIRED_SECTIONS)
+    if depth == "deep" and (scope_type or "repository") == "repository":
+        required_sections = REQUIRED_SECTIONS_DEEP_REPOSITORY
+    else:
+        required_sections = REQUIRED_SECTIONS_BY_SCOPE.get(scope_type or "repository", REQUIRED_SECTIONS)
     scope_label = scope_path or repository_name
     sections_list = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(required_sections))
     scope_instruction = _SCOPE_INSTRUCTIONS.get(scope_type or "repository", _SCOPE_INSTRUCTIONS["repository"])
@@ -223,7 +270,7 @@ def build_cliff_notes_prompt(
 - "evidence": array of objects with:
   - "source_type": "file" | "symbol" | "requirement" | "doc"
   - "source_id": string (ID from the snapshot, or empty)
-  - "file_path": string (file path if applicable)
+  - "file_path": string (required; must be an actual repository file path)
   - "line_start": int (0 if not applicable)
   - "line_end": int (0 if not applicable)
   - "rationale": string (why this evidence supports the section)

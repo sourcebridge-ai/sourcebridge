@@ -82,3 +82,57 @@ Deterministic scaffold JSON:
 Invalid previous output:
 {invalid_output}
 """
+
+
+def build_architecture_component_detail_prompt(
+    repository_name: str,
+    audience: str,
+    subsystem_name: str,
+    detail_context_json: str,
+) -> str:
+    return f"""\
+Generate a component-detail architecture diagram for the "{subsystem_name}" subsystem
+of repository "{repository_name}".
+
+Target audience: {audience}
+
+This is a zoom-in view, not the whole system. Show:
+- 4-8 internal modules/packages within this subsystem
+- technology hints in node labels when they are obvious from file paths or names
+- protocol or data-flow labels on edges when grounded by the context
+- external interfaces as edge stubs, not full extra subsystems
+
+Return Mermaid flowchart syntax only.
+
+Component detail context JSON:
+{detail_context_json}
+"""
+
+
+def build_architecture_component_detail_retry_prompt(
+    repository_name: str,
+    audience: str,
+    subsystem_name: str,
+    detail_context_json: str,
+    invalid_output: str,
+) -> str:
+    return f"""\
+The previous component-detail architecture diagram for "{subsystem_name}" in repository "{repository_name}"
+was invalid or too dense.
+
+Target audience: {audience}
+
+You must return a single valid Mermaid flowchart only.
+Requirements:
+- Start with `flowchart LR` or `flowchart TD`
+- Keep to 4-8 boxes and 12 edges maximum
+- Stay within the subsystem boundary
+- Prefer concrete edge labels, omit uncertain edges
+- No prose, no Markdown fences
+
+Component detail context JSON:
+{detail_context_json}
+
+Invalid previous output:
+{invalid_output}
+"""

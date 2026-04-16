@@ -84,6 +84,12 @@ DEFAULT_FILE_MAX_TOKENS = 640
 DEFAULT_PACKAGE_MAX_TOKENS = 896
 DEFAULT_ROOT_MAX_TOKENS = 1280
 
+TREE_TOKEN_BUDGETS = {
+    "summary": {"leaf": 256, "file": 384, "package": 512, "root": 768},
+    "medium": {"leaf": 384, "file": 640, "package": 896, "root": 1280},
+    "deep": {"leaf": 512, "file": 1024, "package": 1536, "root": 2048},
+}
+
 
 @dataclass
 class HierarchicalConfig:
@@ -121,13 +127,15 @@ class HierarchicalConfig:
     on_stage_completed: Callable[[str, SummaryTree], Awaitable[None]] | None = None
     on_node_completed: Callable[[str, SummaryTree, SummaryNode], Awaitable[None]] | None = None
     on_log: Callable[[str, str, str, dict[str, Any] | None], Awaitable[None]] | None = None
+    depth: str = "medium"
 
     @classmethod
-    def from_env(cls, repository_name: str = "") -> HierarchicalConfig:
+    def from_env(cls, repository_name: str = "", depth: str = "medium") -> HierarchicalConfig:
         """Load tunables from environment variables, falling back to defaults."""
         conc = _env_int("SOURCEBRIDGE_HIERARCHICAL_CONCURRENCY", DEFAULT_LEAF_CONCURRENCY)
         if conc <= 0:
             conc = DEFAULT_LEAF_CONCURRENCY
+        budgets = TREE_TOKEN_BUDGETS.get(depth, TREE_TOKEN_BUDGETS["medium"])
         return cls(
             repository_name=repository_name,
             leaf_concurrency=conc,
@@ -141,20 +149,21 @@ class HierarchicalConfig:
             ),
             leaf_max_tokens=_env_int(
                 "SOURCEBRIDGE_HIERARCHICAL_LEAF_MAX_TOKENS",
-                DEFAULT_LEAF_MAX_TOKENS,
+                budgets["leaf"],
             ),
             file_max_tokens=_env_int(
                 "SOURCEBRIDGE_HIERARCHICAL_FILE_MAX_TOKENS",
-                DEFAULT_FILE_MAX_TOKENS,
+                budgets["file"],
             ),
             package_max_tokens=_env_int(
                 "SOURCEBRIDGE_HIERARCHICAL_PACKAGE_MAX_TOKENS",
-                DEFAULT_PACKAGE_MAX_TOKENS,
+                budgets["package"],
             ),
             root_max_tokens=_env_int(
                 "SOURCEBRIDGE_HIERARCHICAL_ROOT_MAX_TOKENS",
-                DEFAULT_ROOT_MAX_TOKENS,
+                budgets["root"],
             ),
+            depth=depth,
         )
 
 
@@ -188,6 +197,7 @@ class HierarchicalStrategy:
         self,
         corpus: CorpusSource,
         *,
+        depth: str | None = None,
         progress: ProgressCallback = _noop_progress,
     ) -> SummaryTree:
         """Build a summary tree for the supplied corpus.
@@ -196,6 +206,8 @@ class HierarchicalStrategy:
         each level's parents sequentially (parents are fast — one call
         per parent — and sequencing avoids a deeper concurrency bloom).
         """
+        if depth:
+            self._config.depth = depth
         self._fallback_count = 0
         self._provider_compute_errors = 0
         self._root_fallback = False
@@ -221,6 +233,7 @@ class HierarchicalStrategy:
             files=len(file_units),
             packages=len(package_units),
             total=total_nodes,
+            depth=self._config.depth,
         )
         await self._emit_log(
             "leaves",

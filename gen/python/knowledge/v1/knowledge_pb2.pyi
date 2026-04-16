@@ -52,7 +52,7 @@ class GenerateArchitectureDiagramRequest(_message.Message):
     def __init__(self, repository_id: _Optional[str] = ..., repository_name: _Optional[str] = ..., audience: _Optional[str] = ..., depth: _Optional[str] = ..., snapshot_json: _Optional[str] = ..., deterministic_diagram_json: _Optional[str] = ...) -> None: ...
 
 class GenerateArchitectureDiagramResponse(_message.Message):
-    __slots__ = ("mermaid_source", "raw_mermaid_source", "validation_status", "repair_summary", "diagram_summary", "evidence", "inferred_edges", "usage")
+    __slots__ = ("mermaid_source", "raw_mermaid_source", "validation_status", "repair_summary", "diagram_summary", "evidence", "inferred_edges", "usage", "detail_mermaid_source", "detail_raw_mermaid_source", "detail_validation_status", "detail_repair_summary", "detail_diagram_summary", "detail_subsystem_name", "detail_candidate_subsystems", "detail_evidence")
     MERMAID_SOURCE_FIELD_NUMBER: _ClassVar[int]
     RAW_MERMAID_SOURCE_FIELD_NUMBER: _ClassVar[int]
     VALIDATION_STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -61,6 +61,14 @@ class GenerateArchitectureDiagramResponse(_message.Message):
     EVIDENCE_FIELD_NUMBER: _ClassVar[int]
     INFERRED_EDGES_FIELD_NUMBER: _ClassVar[int]
     USAGE_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_MERMAID_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_RAW_MERMAID_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_VALIDATION_STATUS_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_REPAIR_SUMMARY_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_DIAGRAM_SUMMARY_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_SUBSYSTEM_NAME_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_CANDIDATE_SUBSYSTEMS_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_EVIDENCE_FIELD_NUMBER: _ClassVar[int]
     mermaid_source: str
     raw_mermaid_source: str
     validation_status: str
@@ -69,7 +77,15 @@ class GenerateArchitectureDiagramResponse(_message.Message):
     evidence: _containers.RepeatedCompositeFieldContainer[KnowledgeEvidence]
     inferred_edges: _containers.RepeatedScalarFieldContainer[str]
     usage: _types_pb2.LLMUsage
-    def __init__(self, mermaid_source: _Optional[str] = ..., raw_mermaid_source: _Optional[str] = ..., validation_status: _Optional[str] = ..., repair_summary: _Optional[str] = ..., diagram_summary: _Optional[str] = ..., evidence: _Optional[_Iterable[_Union[KnowledgeEvidence, _Mapping]]] = ..., inferred_edges: _Optional[_Iterable[str]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ...) -> None: ...
+    detail_mermaid_source: str
+    detail_raw_mermaid_source: str
+    detail_validation_status: str
+    detail_repair_summary: str
+    detail_diagram_summary: str
+    detail_subsystem_name: str
+    detail_candidate_subsystems: _containers.RepeatedScalarFieldContainer[str]
+    detail_evidence: _containers.RepeatedCompositeFieldContainer[KnowledgeEvidence]
+    def __init__(self, mermaid_source: _Optional[str] = ..., raw_mermaid_source: _Optional[str] = ..., validation_status: _Optional[str] = ..., repair_summary: _Optional[str] = ..., diagram_summary: _Optional[str] = ..., evidence: _Optional[_Iterable[_Union[KnowledgeEvidence, _Mapping]]] = ..., inferred_edges: _Optional[_Iterable[str]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ..., detail_mermaid_source: _Optional[str] = ..., detail_raw_mermaid_source: _Optional[str] = ..., detail_validation_status: _Optional[str] = ..., detail_repair_summary: _Optional[str] = ..., detail_diagram_summary: _Optional[str] = ..., detail_subsystem_name: _Optional[str] = ..., detail_candidate_subsystems: _Optional[_Iterable[str]] = ..., detail_evidence: _Optional[_Iterable[_Union[KnowledgeEvidence, _Mapping]]] = ...) -> None: ...
 
 class CliffNotesDiagnostics(_message.Message):
     __slots__ = ("cached_nodes", "fallback_count", "provider_compute_errors", "leaf_cache_hits", "file_cache_hits", "package_cache_hits", "root_cache_hits", "total_nodes", "corpus_id", "revision_fp", "strategy", "model_used")
@@ -154,7 +170,7 @@ class GenerateWorkflowStoryResponse(_message.Message):
     def __init__(self, sections: _Optional[_Iterable[_Union[KnowledgeSection, _Mapping]]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ...) -> None: ...
 
 class LearningStep(_message.Message):
-    __slots__ = ("order", "title", "objective", "content", "file_paths", "symbol_ids", "estimated_time")
+    __slots__ = ("order", "title", "objective", "content", "file_paths", "symbol_ids", "estimated_time", "prerequisite_steps", "difficulty", "exercises", "checkpoint", "confidence", "refinement_status")
     ORDER_FIELD_NUMBER: _ClassVar[int]
     TITLE_FIELD_NUMBER: _ClassVar[int]
     OBJECTIVE_FIELD_NUMBER: _ClassVar[int]
@@ -162,6 +178,12 @@ class LearningStep(_message.Message):
     FILE_PATHS_FIELD_NUMBER: _ClassVar[int]
     SYMBOL_IDS_FIELD_NUMBER: _ClassVar[int]
     ESTIMATED_TIME_FIELD_NUMBER: _ClassVar[int]
+    PREREQUISITE_STEPS_FIELD_NUMBER: _ClassVar[int]
+    DIFFICULTY_FIELD_NUMBER: _ClassVar[int]
+    EXERCISES_FIELD_NUMBER: _ClassVar[int]
+    CHECKPOINT_FIELD_NUMBER: _ClassVar[int]
+    CONFIDENCE_FIELD_NUMBER: _ClassVar[int]
+    REFINEMENT_STATUS_FIELD_NUMBER: _ClassVar[int]
     order: int
     title: str
     objective: str
@@ -169,7 +191,13 @@ class LearningStep(_message.Message):
     file_paths: _containers.RepeatedScalarFieldContainer[str]
     symbol_ids: _containers.RepeatedScalarFieldContainer[str]
     estimated_time: str
-    def __init__(self, order: _Optional[int] = ..., title: _Optional[str] = ..., objective: _Optional[str] = ..., content: _Optional[str] = ..., file_paths: _Optional[_Iterable[str]] = ..., symbol_ids: _Optional[_Iterable[str]] = ..., estimated_time: _Optional[str] = ...) -> None: ...
+    prerequisite_steps: _containers.RepeatedScalarFieldContainer[int]
+    difficulty: str
+    exercises: _containers.RepeatedScalarFieldContainer[str]
+    checkpoint: str
+    confidence: str
+    refinement_status: str
+    def __init__(self, order: _Optional[int] = ..., title: _Optional[str] = ..., objective: _Optional[str] = ..., content: _Optional[str] = ..., file_paths: _Optional[_Iterable[str]] = ..., symbol_ids: _Optional[_Iterable[str]] = ..., estimated_time: _Optional[str] = ..., prerequisite_steps: _Optional[_Iterable[int]] = ..., difficulty: _Optional[str] = ..., exercises: _Optional[_Iterable[str]] = ..., checkpoint: _Optional[str] = ..., confidence: _Optional[str] = ..., refinement_status: _Optional[str] = ...) -> None: ...
 
 class ExplainSystemRequest(_message.Message):
     __slots__ = ("repository_id", "repository_name", "audience", "question", "snapshot_json", "scope_type", "scope_path", "depth")
@@ -226,20 +254,28 @@ class GenerateCodeTourResponse(_message.Message):
     def __init__(self, stops: _Optional[_Iterable[_Union[CodeTourStop, _Mapping]]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ...) -> None: ...
 
 class CodeTourStop(_message.Message):
-    __slots__ = ("order", "title", "description", "file_path", "line_start", "line_end")
+    __slots__ = ("order", "title", "description", "file_path", "line_start", "line_end", "trail", "modification_hints", "confidence", "refinement_status")
     ORDER_FIELD_NUMBER: _ClassVar[int]
     TITLE_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
     LINE_START_FIELD_NUMBER: _ClassVar[int]
     LINE_END_FIELD_NUMBER: _ClassVar[int]
+    TRAIL_FIELD_NUMBER: _ClassVar[int]
+    MODIFICATION_HINTS_FIELD_NUMBER: _ClassVar[int]
+    CONFIDENCE_FIELD_NUMBER: _ClassVar[int]
+    REFINEMENT_STATUS_FIELD_NUMBER: _ClassVar[int]
     order: int
     title: str
     description: str
     file_path: str
     line_start: int
     line_end: int
-    def __init__(self, order: _Optional[int] = ..., title: _Optional[str] = ..., description: _Optional[str] = ..., file_path: _Optional[str] = ..., line_start: _Optional[int] = ..., line_end: _Optional[int] = ...) -> None: ...
+    trail: str
+    modification_hints: _containers.RepeatedScalarFieldContainer[str]
+    confidence: str
+    refinement_status: str
+    def __init__(self, order: _Optional[int] = ..., title: _Optional[str] = ..., description: _Optional[str] = ..., file_path: _Optional[str] = ..., line_start: _Optional[int] = ..., line_end: _Optional[int] = ..., trail: _Optional[str] = ..., modification_hints: _Optional[_Iterable[str]] = ..., confidence: _Optional[str] = ..., refinement_status: _Optional[str] = ...) -> None: ...
 
 class KnowledgeSection(_message.Message):
     __slots__ = ("title", "content", "summary", "confidence", "inferred", "evidence")

@@ -61,6 +61,8 @@ type architectureDiagramSectionMetadata struct {
 	ExecutionMermaid     string                        `json:"execution_mermaid_source,omitempty"`
 	ExecutionSummary     string                        `json:"execution_summary,omitempty"`
 	SystemSummary        string                        `json:"system_summary,omitempty"`
+	DetailSubsystemName  string                        `json:"detail_subsystem_name,omitempty"`
+	DetailCandidates     []string                      `json:"detail_candidate_subsystems,omitempty"`
 }
 
 type architectureDiagramPromptBundle struct {
@@ -159,6 +161,8 @@ func architectureDiagramMetadataJSON(resp *knowledgev1.GenerateArchitectureDiagr
 		ExecutionMermaid:     buildArchitectureExecutionViewMermaid(*bundle),
 		ExecutionSummary:     buildArchitectureExecutionSummary(*bundle),
 		SystemSummary:        strings.TrimSpace(resp.DiagramSummary),
+		DetailSubsystemName:  strings.TrimSpace(resp.GetDetailSubsystemName()),
+		DetailCandidates:     append([]string(nil), resp.GetDetailCandidateSubsystems()...),
 	}
 	if meta.RawMermaidSource == "" &&
 		meta.ValidationStatus == "" &&
@@ -171,6 +175,33 @@ func architectureDiagramMetadataJSON(resp *knowledgev1.GenerateArchitectureDiagr
 		meta.ExecutionMermaid == "" &&
 		meta.ExecutionSummary == "" &&
 		meta.SystemSummary == "" {
+		return ""
+	}
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func architectureDiagramDetailMetadataJSON(resp *knowledgev1.GenerateArchitectureDiagramResponse) string {
+	if resp == nil {
+		return ""
+	}
+	meta := architectureDiagramSectionMetadata{
+		RawMermaidSource:    strings.TrimSpace(resp.GetDetailRawMermaidSource()),
+		ValidationStatus:    strings.TrimSpace(resp.GetDetailValidationStatus()),
+		RepairSummary:       strings.TrimSpace(resp.GetDetailRepairSummary()),
+		SystemSummary:       strings.TrimSpace(resp.GetDetailDiagramSummary()),
+		DetailSubsystemName: strings.TrimSpace(resp.GetDetailSubsystemName()),
+		DetailCandidates:    append([]string(nil), resp.GetDetailCandidateSubsystems()...),
+	}
+	if meta.RawMermaidSource == "" &&
+		meta.ValidationStatus == "" &&
+		meta.RepairSummary == "" &&
+		meta.SystemSummary == "" &&
+		meta.DetailSubsystemName == "" &&
+		len(meta.DetailCandidates) == 0 {
 		return ""
 	}
 	raw, err := json.Marshal(meta)

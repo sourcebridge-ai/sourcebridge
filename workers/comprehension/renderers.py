@@ -37,9 +37,12 @@ from workers.knowledge.cliff_notes import (
     _parse_evidence,
     _parse_sections,
 )
+from workers.knowledge.evidence import evaluate_evidence_gate, extract_section_evidence_refs
 from workers.knowledge.prompts.cliff_notes import (
     CLIFF_NOTES_SYSTEM,
+    DEEP_MIN_EVIDENCE,
     REQUIRED_SECTIONS,
+    REQUIRED_SECTIONS_DEEP_REPOSITORY,
     REQUIRED_SECTIONS_BY_SCOPE,
 )
 from workers.knowledge.types import CliffNotesResult, CliffNotesSection
@@ -87,19 +90,22 @@ Each section object has these keys:
   - "confidence": "high", "medium", or "low" (string)
   - "inferred": true if you're extrapolating beyond the summaries (boolean)
   - "evidence": array of objects with keys: source_type, source_id, file_path, \
-    line_start, line_end, rationale. Reference actual file paths from above.
+    line_start, line_end, rationale. Every evidence entry must include an actual \
+    repository file path from the summaries above.
 
 Required section titles (produce every one, in this order):
 {required_sections}
 
 Confidence rules:
 - Set confidence to "high" and inferred to false when the summaries above \
-  directly describe what you're writing about. The summaries ARE the evidence.
-- Analyzing code patterns, complexity, risks, or architecture from the summaries \
-  counts as direct evidence — use "high" confidence for these.
+  directly describe what you're writing about and you can cite multiple real repo files.
+- The summaries are context, not evidence by themselves. Synthetic references like \
+  "repository_summary", "subsystem_auth", or other non-file labels are invalid.
+- If you cannot cite real repo files for a claim, lower confidence and keep the \
+  section narrow instead of inventing evidence.
 - Only use "medium" when you are connecting dots NOT mentioned in any summary.
 - Only use "low" when the summaries provide no relevant information at all.
-- Most sections should be "high" confidence since you have detailed summaries.
+- Do not force "high" confidence. Grounding quality matters more than completeness.
 
 Output rules:
 - Return ONLY the JSON array — no text before or after it.
@@ -142,9 +148,12 @@ class CliffNotesRenderer:
         servicer can persist billing metrics the same way the legacy
         single-shot path does.
         """
-        required_sections = list(
-            required_section_titles or REQUIRED_SECTIONS_BY_SCOPE.get(scope_type or "repository", REQUIRED_SECTIONS)
-        )
+        if required_section_titles:
+            required_sections = list(required_section_titles)
+        elif depth == "deep" and (scope_type or "repository") == "repository":
+            required_sections = list(REQUIRED_SECTIONS_DEEP_REPOSITORY)
+        else:
+            required_sections = list(REQUIRED_SECTIONS_BY_SCOPE.get(scope_type or "repository", REQUIRED_SECTIONS))
         root = tree.root()
         if root is None:
             raise ValueError("cannot render cliff notes from an empty summary tree")
@@ -188,15 +197,10 @@ class CliffNotesRenderer:
                 "Each section MUST contain detailed, specific content — not vague summaries."
             ),
             "deep": (
-                "IMPORTANT: This is a DEEP analysis. Your total output must be at least 2500 words "
-                "across all sections. Each section must be 6-10 sentences with thorough, specific detail. "
-                "Name every relevant file, component, function, and pattern. Explain HOW things work internally, "
-                "what trade-offs were made, what the failure modes are, and what a new developer needs to know. "
-                "For Complexity & Risk: identify specific files with high cyclomatic complexity, tight coupling, "
-                "missing error handling, or implicit dependencies. "
-                "For Architecture: describe the data flow, request lifecycle, and state management in detail. "
-                "For Domain Model: list every entity, their relationships, and where they're defined. "
-                "Do NOT be generic — every sentence should reference something concrete from the summaries."
+                "IMPORTANT: This is a DEEP field guide. Produce evidence-dense sections, not broad filler. "
+                "Every section must reference concrete files, functions, types, or line ranges from the summaries. "
+                "Avoid generic phrases like 'the system handles' or 'various components'. "
+                "For repository scope, return all 16 required sections with operationally useful guidance."
             ),
         }.get(depth, "Your total output must be at least 1500 words across all sections.")
 
@@ -495,6 +499,18 @@ class CliffNotesRenderer:
                         inferred=True,
                     )
                 )
+
+        if required_sections == REQUIRED_SECTIONS_DEEP_REPOSITORY:
+            for section in sections:
+                minimum = DEEP_MIN_EVIDENCE.get(section.title, 3)
+                gate = evaluate_evidence_gate(
+                    text=f"{section.summary}\n{section.content}",
+                    evidence=extract_section_evidence_refs(section.evidence),
+                    minimum=minimum,
+                )
+                if gate.below_threshold or gate.forbidden_phrases:
+                    section.confidence = "low"
+                    section.refinement_status = "needs_evidence"
 
         return sections
 

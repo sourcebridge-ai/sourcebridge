@@ -2010,12 +2010,29 @@ func (r *mutationResolver) GenerateArchitectureDiagram(ctx context.Context, inpu
 			Inferred:         len(resp.InferredEdges) > 0,
 			RefinementStatus: "light",
 		}}
+		if strings.TrimSpace(resp.GetDetailMermaidSource()) != "" {
+			sections = append(sections, knowledgepkg.Section{
+				Title:            "AI Architecture Diagram Detail",
+				SectionKey:       "ai_architecture_diagram_detail",
+				Content:          resp.GetDetailMermaidSource(),
+				Summary:          resp.GetDetailDiagramSummary(),
+				Metadata:         architectureDiagramDetailMetadataJSON(resp),
+				Confidence:       knowledgepkg.ConfidenceMedium,
+				Inferred:         false,
+				RefinementStatus: "deep",
+			})
+		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			return err
 		}
 		storedSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
 		if len(storedSections) > 0 && len(resp.Evidence) > 0 {
 			if err := r.KnowledgeStore.StoreKnowledgeEvidence(storedSections[0].ID, mapProtoEvidence(resp.Evidence)); err != nil {
+				return err
+			}
+		}
+		if len(storedSections) > 1 && len(resp.DetailEvidence) > 0 {
+			if err := r.KnowledgeStore.StoreKnowledgeEvidence(storedSections[1].ID, mapProtoEvidence(resp.DetailEvidence)); err != nil {
 				return err
 			}
 		}
@@ -2166,11 +2183,19 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 
 		sections := make([]knowledgepkg.Section, len(resp.Steps))
 		for i, step := range resp.Steps {
+			metaRaw, _ := json.Marshal(map[string]any{
+				"prerequisite_steps": step.PrerequisiteSteps,
+				"difficulty":         step.Difficulty,
+				"exercises":          step.Exercises,
+				"checkpoint":         step.Checkpoint,
+			})
 			sections[i] = knowledgepkg.Section{
 				Title:      step.Title,
 				Content:    step.Content,
 				Summary:    step.Objective,
-				Confidence: knowledgepkg.ConfidenceMedium,
+				Metadata:   string(metaRaw),
+				Confidence: mapProtoConfidence(step.Confidence),
+				RefinementStatus: step.RefinementStatus,
 			}
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
@@ -2354,11 +2379,17 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 			if len(summary) > 160 {
 				summary = summary[:160]
 			}
+			metaRaw, _ := json.Marshal(map[string]any{
+				"trail":              stop.Trail,
+				"modification_hints": stop.ModificationHints,
+			})
 			sections[i] = knowledgepkg.Section{
-				Title:      stop.Title,
-				Content:    stop.Description,
-				Summary:    summary,
-				Confidence: knowledgepkg.ConfidenceMedium,
+				Title:            stop.Title,
+				Content:          stop.Description,
+				Summary:          summary,
+				Metadata:         string(metaRaw),
+				Confidence:       mapProtoConfidence(stop.Confidence),
+				RefinementStatus: stop.RefinementStatus,
 			}
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {

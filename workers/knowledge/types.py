@@ -29,6 +29,7 @@ class CliffNotesSection:
     summary: str  # one-line summary
     confidence: str = "medium"  # "high", "medium", "low"
     inferred: bool = False
+    refinement_status: str = ""
     evidence: list[EvidenceRef] = field(default_factory=list)
 
 

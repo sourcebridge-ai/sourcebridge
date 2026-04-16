@@ -18,10 +18,13 @@ from workers.common.llm.provider import (
 )
 from workers.knowledge.prompts.cliff_notes import (
     CLIFF_NOTES_SYSTEM,
+    DEEP_MIN_EVIDENCE,
     REQUIRED_SECTIONS,
+    REQUIRED_SECTIONS_DEEP_REPOSITORY,
     REQUIRED_SECTIONS_BY_SCOPE,
     build_cliff_notes_prompt,
 )
+from workers.knowledge.evidence import evaluate_evidence_gate, extract_section_evidence_refs, is_valid_evidence_path
 from workers.knowledge.types import CliffNotesResult, CliffNotesSection, EvidenceRef
 from workers.reasoning.types import LLMUsageRecord
 
@@ -172,11 +175,14 @@ def _parse_evidence(raw_evidence: list[dict]) -> list[EvidenceRef]:
     for ev in raw_evidence:
         if not isinstance(ev, dict):
             continue
+        file_path = str(ev.get("file_path", "") or "").strip()
+        if not is_valid_evidence_path(file_path):
+            continue
         result.append(
             EvidenceRef(
                 source_type=ev.get("source_type", "file"),
                 source_id=ev.get("source_id", ""),
-                file_path=ev.get("file_path", ""),
+                file_path=file_path,
                 line_start=ev.get("line_start", 0),
                 line_end=ev.get("line_end", 0),
                 rationale=ev.get("rationale", ""),
@@ -224,7 +230,10 @@ async def generate_cliff_notes(
     Returns a CliffNotesResult with all required sections and an LLMUsageRecord.
     """
     effective_scope = scope_type or "repository"
-    required_sections = REQUIRED_SECTIONS_BY_SCOPE.get(effective_scope, REQUIRED_SECTIONS)
+    if depth == "deep" and effective_scope == "repository":
+        required_sections = REQUIRED_SECTIONS_DEEP_REPOSITORY
+    else:
+        required_sections = REQUIRED_SECTIONS_BY_SCOPE.get(effective_scope, REQUIRED_SECTIONS)
     prompt = build_cliff_notes_prompt(repository_name, audience, depth, snapshot_json, effective_scope, scope_path)
 
     check_prompt_budget(
@@ -295,6 +304,17 @@ async def generate_cliff_notes(
                     inferred=True,
                 )
             )
+
+    if required_sections == REQUIRED_SECTIONS_DEEP_REPOSITORY:
+        for section in sections:
+            gate = evaluate_evidence_gate(
+                text=f"{section.summary}\n{section.content}",
+                evidence=extract_section_evidence_refs(section.evidence),
+                minimum=DEEP_MIN_EVIDENCE.get(section.title, 3),
+            )
+            if gate.below_threshold or gate.forbidden_phrases:
+                section.confidence = "low"
+                section.refinement_status = "needs_evidence"
 
     # --- Baseline quality instrumentation ---
     evidence_by_type: dict[str, int] = {}
