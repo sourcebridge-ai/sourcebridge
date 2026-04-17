@@ -255,8 +255,10 @@ SECTION_PATH_HINTS: dict[str, tuple[str, ...]] = {
 }
 
 SECTION_FOCUS_NOTES: dict[str, str] = {
-    "Domain Model": "focus on repositories, knowledge artifacts, understanding revisions, jobs, and scopes; avoid centering scanners unless they dominate the evidence",
-    "External Dependencies": "mention only concrete external systems such as SurrealDB, LLM provider/configuration, and gRPC/service boundaries; do not list internal APIs as dependencies",
+    "System Purpose": "state what SourceBridge produces for users and operators first: repository understanding, knowledge artifacts, reports, diagrams, and review or QA workflows; do not frame the repo as primarily a REST API or generic code intelligence platform when web, GraphQL, worker, and CLI evidence are present",
+    "Architecture Overview": "explain the cooperating surfaces in this order when evidence exists: web product, GraphQL or API entrypoints, workers, persistence, CLI; do not lead with router wiring alone",
+    "Domain Model": "focus on repositories, scopes, knowledge artifacts, understanding revisions, jobs, reports, and diagrams; avoid centering scanners unless they dominate the evidence",
+    "External Dependencies": "mention only concrete external systems such as SurrealDB, configured LLM providers, and explicit service boundaries; do not list internal APIs, renderers, or diagrams as dependencies",
     "Data Flow & Request Lifecycle": "trace request entrypoints through API layers into stores or workers; prefer concrete request-to-worker-to-store flows over generic service summaries",
     "Concurrency & State Management": "focus on worker loops, queued jobs, resume state, and persistence-backed state transitions rather than generic async language",
     "Testing Strategy": "mention explicit test directories, fake providers, or benchmark scripts when present; otherwise say testing evidence is limited",
@@ -296,7 +298,12 @@ SECTION_ENTITY_HINTS: dict[str, tuple[str, ...]] = {
 }
 
 SECTION_DISFAVORED_PATH_SNIPPETS: dict[str, tuple[str, ...]] = {
-    "System Purpose": ("workers/requirements/scanners/", "workers/common/llm/fake.py", "workers/cli_review.py"),
+    "System Purpose": (
+        "workers/requirements/scanners/",
+        "workers/common/llm/fake.py",
+        "workers/cli_review.py",
+        "internal/api/rest/router.go",
+    ),
     "Architecture Overview": ("workers/requirements/scanners/", "workers/common/llm/fake.py", "workers/cli_review.py"),
     "Core System Flows": ("workers/requirements/scanners/", "workers/common/llm/fake.py"),
     "External Dependencies": (
@@ -304,6 +311,8 @@ SECTION_DISFAVORED_PATH_SNIPPETS: dict[str, tuple[str, ...]] = {
         "workers/requirements/scanners/",
         "workers/knowledge/architecture_diagram.py",
         "workers/cli_review.py",
+        "internal/api/graphql/schema.resolvers.go",
+        "internal/api/rest/router.go",
     ),
     "Key Abstractions": ("internal/db/store.go", "internal/graph/store.go"),
 }
@@ -312,25 +321,27 @@ GROUP_FEWSHOT_EXAMPLES: dict[tuple[str, ...], str] = {
     DEEP_SECTION_GROUPS[0]: """\
 === Quality examples for this slice ===
 Good System Purpose example:
-- "This repository implements a multi-surface code intelligence system. The API layer coordinates requests,
-  worker services perform indexing and knowledge generation, and CLI tools expose direct developer workflows.
-  The purpose is broader than any one interface."
+- "This repository builds and serves SourceBridge knowledge artifacts for a codebase. API and GraphQL surfaces
+  coordinate requests, background workers index repositories and generate understanding, reports, or diagrams,
+  the web app visualizes those results, and the CLI provides operator and developer workflows."
 
 Bad System Purpose example:
-- "This repository is mainly a CLI for indexing code."
+- "This repository is mainly a REST API with various components."
 
 Good Architecture Overview example:
-- "The architecture combines an API/resolver surface, background workers, and user-facing tools. The API triggers
-  long-running knowledge jobs, workers execute analysis and generation, and CLI or web surfaces consume the results."
+- "The architecture combines serve or API entrypoints, GraphQL resolvers, background workers, persistence, and a
+  web product surface. API and GraphQL requests schedule or fetch artifact work, workers build understanding and
+  render outputs, stores persist revisions and jobs, and web or CLI surfaces consume the resulting artifacts."
 
 Bad Architecture Overview example:
-- "The architecture is a CLI plus some helpers."
+- "The architecture is a REST router plus some helpers."
 """,
     DEEP_SECTION_GROUPS[1]: """\
 === Quality examples for this slice ===
 Good Domain Model example:
-- "The domain centers on repositories, generated knowledge artifacts, understanding revisions, and background jobs.
-  Explain those internal entities directly instead of drifting into secondary scanners or tooling."
+- "The domain centers on repositories, scopes, generated knowledge artifacts, understanding revisions, reports,
+  diagrams, and background jobs. Explain those internal entities directly instead of drifting into transport code,
+  scanners, or generic storage helpers."
 
 Bad Domain Model example:
 - "The domain model is mainly API schemas and comments."

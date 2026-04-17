@@ -709,6 +709,32 @@ async def test_system_purpose_evidence_plan_avoids_specialized_scanners_when_bro
     )
     tree.add(
         SummaryNode(
+            id="fr",
+            corpus_id="repo",
+            unit_id="file:internal/api/rest/router.go",
+            level=1,
+            parent_id="package:api",
+            summary_text="REST router wiring for API endpoints.",
+            headline="REST router",
+            source_tokens=260,
+            metadata={"file_path": "internal/api/rest/router.go"},
+        )
+    )
+    tree.add(
+        SummaryNode(
+            id="fg",
+            corpus_id="repo",
+            unit_id="file:internal/api/graphql/schema.resolvers.go",
+            level=1,
+            parent_id="package:api",
+            summary_text="GraphQL resolvers for artifact and repository queries.",
+            headline="GraphQL resolvers",
+            source_tokens=250,
+            metadata={"file_path": "internal/api/graphql/schema.resolvers.go"},
+        )
+    )
+    tree.add(
+        SummaryNode(
             id="fw",
             corpus_id="repo",
             unit_id="file:web/src/app/page.tsx",
@@ -763,6 +789,7 @@ async def test_system_purpose_evidence_plan_avoids_specialized_scanners_when_bro
     )
     system_line = next(line for line in system_prompt.splitlines() if line.startswith("- System Purpose:"))
     assert "workers/requirements/scanners/schema_scanner.py" not in system_line
+    assert "internal/api/rest/router.go" not in system_line
     assert "workers/knowledge/servicer.py" in system_line
     assert "web/src/app/page.tsx" in system_line
     assert "cli/index.go" in system_line
@@ -821,7 +848,7 @@ async def test_domain_model_evidence_plan_prefers_knowledge_models() -> None:
     )
     assert "internal/knowledge/models.go" in domain_line
     assert "internal/llm/job.go" in domain_line
-    assert "focus on repositories, knowledge artifacts, understanding revisions, jobs, and scopes" in domain_line
+    assert "focus on repositories, scopes, knowledge artifacts, understanding revisions, jobs, reports, and diagrams" in domain_line
 
 
 @pytest.mark.asyncio
