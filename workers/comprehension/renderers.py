@@ -289,6 +289,12 @@ SECTION_DEPENDENCY_HINTS: dict[str, tuple[str, ...]] = {
     "Complexity & Risk Areas": ("surreal", "graphql", "grpc", "openrouter", "ollama"),
 }
 
+SECTION_ENTITY_HINTS: dict[str, tuple[str, ...]] = {
+    "Domain Model": ("repository", "knowledge_artifact", "understanding", "job", "requirement", "report", "diagram"),
+    "Key Abstractions": ("knowledge_artifact", "understanding", "job", "report", "diagram", "graph"),
+    "External Dependencies": ("job", "report", "diagram"),
+}
+
 GROUP_FEWSHOT_EXAMPLES: dict[tuple[str, ...], str] = {
     DEEP_SECTION_GROUPS[0]: """\
 === Quality examples for this slice ===
@@ -748,7 +754,7 @@ class CliffNotesRenderer:
                     file_nodes=file_nodes,
                     pre_analysis_block=pre_analysis_block,
                     few_shot_examples_block=GROUP_FEWSHOT_EXAMPLES.get(section_group, ""),
-                    system_shape_guardrail_block=self._build_system_shape_guardrail(
+                    system_shape_guardrail_block=self._build_section_group_guardrail(
                         section_group,
                         group_nodes=group_nodes,
                         file_nodes=file_nodes,
@@ -1376,46 +1382,83 @@ class CliffNotesRenderer:
             return f"{base}\n\n{fact_block}"
         return base
 
-    def _build_system_shape_guardrail(
+    def _build_section_group_guardrail(
         self,
         section_group: tuple[str, ...],
         *,
         group_nodes: list[SummaryNode],
         file_nodes: list[SummaryNode],
     ) -> str:
-        if section_group != DEEP_SECTION_GROUPS[0]:
-            return ""
-        area_examples: dict[str, str] = {}
-        for node in [*file_nodes, *group_nodes]:
-            area = _node_area(node)
-            if not area or area in area_examples:
-                continue
-            area_examples[area] = _node_label(node)
+        if section_group == DEEP_SECTION_GROUPS[0]:
+            area_examples: dict[str, str] = {}
+            for node in [*file_nodes, *group_nodes]:
+                area = _node_area(node)
+                if not area or area in area_examples:
+                    continue
+                area_examples[area] = _node_label(node)
 
-        preferred_order = ("internal_api", "web", "workers", "cli")
-        surface_names = {
-            "internal_api": "API/GraphQL surface",
-            "web": "web product surface",
-            "workers": "background worker surface",
-            "cli": "CLI surface",
-        }
-        bullets = []
-        for area in preferred_order:
-            example = area_examples.get(area)
-            if example:
-                bullets.append(f"- {surface_names[area]}: `{example}`")
-        if not bullets:
-            return ""
-        return (
-            "=== System shape guardrail ===\n"
-            "Treat these evidence anchors as the primary basis for repo-purpose and architecture framing.\n"
-            "If API/web/worker evidence is present, describe the repository as a multi-surface code intelligence "
-            "system and mention CLI as one access path rather than the dominant purpose.\n"
-            "If a web product surface is present, mention it explicitly instead of reducing the repository to APIs "
-            "and workers alone.\n"
-            + "\n".join(bullets)
-            + "\n"
-        )
+            preferred_order = ("internal_api", "web", "workers", "cli")
+            surface_names = {
+                "internal_api": "API/GraphQL surface",
+                "web": "web product surface",
+                "workers": "background worker surface",
+                "cli": "CLI surface",
+            }
+            bullets = []
+            for area in preferred_order:
+                example = area_examples.get(area)
+                if example:
+                    bullets.append(f"- {surface_names[area]}: `{example}`")
+            if not bullets:
+                return ""
+            return (
+                "=== System shape guardrail ===\n"
+                "Treat these evidence anchors as the primary basis for repo-purpose and architecture framing.\n"
+                "If API/web/worker evidence is present, describe the repository as a multi-surface code intelligence "
+                "system and mention CLI as one access path rather than the dominant purpose.\n"
+                "If a web product surface is present, mention it explicitly instead of reducing the repository to APIs "
+                "and workers alone.\n"
+                + "\n".join(bullets)
+                + "\n"
+            )
+        if section_group == DEEP_SECTION_GROUPS[1]:
+            entity_examples: dict[str, str] = {}
+            for node in [*file_nodes, *group_nodes]:
+                metadata = node.metadata or {}
+                for entity in _metadata_values(
+                    metadata,
+                    "fact_entity_signals",
+                    "fact_package_entities",
+                    "fact_root_entities",
+                    "entity_signals",
+                ):
+                    if entity not in entity_examples:
+                        entity_examples[entity] = _node_label(node)
+            bullets = []
+            for entity in (
+                "repository",
+                "knowledge_artifact",
+                "understanding",
+                "job",
+                "requirement",
+                "report",
+                "diagram",
+            ):
+                example = entity_examples.get(entity)
+                if example:
+                    bullets.append(f"- {entity}: `{example}`")
+            if not bullets:
+                return ""
+            return (
+                "=== Domain-model guardrail ===\n"
+                "Treat these entity anchors as the primary basis for `Domain Model` and `Key Abstractions`.\n"
+                "Prefer repositories, knowledge artifacts, understanding revisions, jobs, requirements, and report/"
+                "diagram abstractions over generic stores or resolvers unless the selected evidence is overwhelmingly "
+                "storage-only.\n"
+                + "\n".join(bullets)
+                + "\n"
+            )
+        return ""
 
     def _best_section_seed(
         self,
@@ -1527,7 +1570,8 @@ class CliffNotesRenderer:
         path_hints = SECTION_PATH_HINTS.get(title, ())
         signal_hints = SECTION_SIGNAL_HINTS.get(title, ())
         dependency_hints = SECTION_DEPENDENCY_HINTS.get(title, ())
-        scored: list[tuple[int, int, int, int, int, int, int, SummaryNode]] = []
+        entity_hints = SECTION_ENTITY_HINTS.get(title, ())
+        scored: list[tuple[int, int, int, int, int, int, int, int, SummaryNode]] = []
         for idx, node in enumerate(nodes):
             label = _node_label(node)
             penalty = relevance_penalty(label, profile=relevance_profile, scope_path=scope_path)
@@ -1546,6 +1590,13 @@ class CliffNotesRenderer:
                 "fact_external_dependencies",
                 "external_dependency_signals",
             )
+            entity_signals = _metadata_values(
+                metadata,
+                "fact_entity_signals",
+                "fact_package_entities",
+                "fact_root_entities",
+                "entity_signals",
+            )
             text = " ".join(
                 part
                 for part in [
@@ -1554,6 +1605,7 @@ class CliffNotesRenderer:
                     node.summary_text or "",
                     str(metadata.get("module_label", "") or ""),
                     " ".join(path_signals),
+                    " ".join(entity_signals),
                     " ".join(dependency_signals),
                     " ".join(_metadata_values(metadata, "fact_roles", "fact_package_roles", "fact_root_roles")),
                 ]
@@ -1561,6 +1613,7 @@ class CliffNotesRenderer:
             ).lower()
             hint_hits = sum(1 for hint in path_hints if hint.lower() in text)
             signal_hits = sum(1 for hint in signal_hints if hint.lower() in path_signals or hint.lower() in text)
+            entity_hits = sum(1 for hint in entity_hints if hint.lower() in entity_signals or hint.lower() in text)
             dependency_hits = sum(
                 1 for hint in dependency_hints if hint.lower() in dependency_signals or hint.lower() in text
             )
@@ -1571,6 +1624,7 @@ class CliffNotesRenderer:
                 (
                     penalty,
                     area_rank,
+                    -entity_hits,
                     -signal_hits,
                     -dependency_hits,
                     -hint_hits,
@@ -1797,12 +1851,15 @@ def _metadata_values(metadata: dict[str, object], *keys: str) -> list[str]:
 def _root_fact_orientation(root: SummaryNode) -> str:
     metadata = root.metadata or {}
     signals = _metadata_values(metadata, "fact_root_signals")
+    entities = _metadata_values(metadata, "fact_root_entities")
     roles = _metadata_values(metadata, "fact_root_roles")
     dependencies = _metadata_values(metadata, "fact_external_dependencies")
     key_files = _metadata_values(metadata, "fact_key_files")
     lines: list[str] = []
     if signals:
         lines.append(f"Structured repository signals: {', '.join(signals[:5])}")
+    if entities:
+        lines.append(f"Structured repository entities: {', '.join(entities[:6])}")
     if roles:
         lines.append(f"Structured repository roles: {', '.join(roles[:5])}")
     if dependencies:

@@ -262,6 +262,7 @@ async def test_nonleaf_nodes_carry_compact_fact_metadata() -> None:
     assert "Func1" in (file_node.metadata.get("fact_symbol_names") or [])
     assert file_node.metadata.get("fact_symbol_kinds")
     assert file_node.metadata.get("fact_path_signals") is not None
+    assert file_node.metadata.get("fact_entity_signals") is not None
 
     package_node = tree.get("pkg1")
     assert package_node is not None
@@ -269,6 +270,7 @@ async def test_nonleaf_nodes_carry_compact_fact_metadata() -> None:
     assert package_node.metadata.get("fact_total_symbols") == 4
     assert "pkg1/a.go" in (package_node.metadata.get("fact_key_files") or [])
     assert package_node.metadata.get("fact_package_signals") is not None
+    assert package_node.metadata.get("fact_package_entities") is not None
 
     root = tree.root()
     assert root is not None
@@ -276,6 +278,7 @@ async def test_nonleaf_nodes_carry_compact_fact_metadata() -> None:
     assert root.metadata.get("fact_segment_count") == 8
     assert "pkg1" in (root.metadata.get("fact_package_labels") or [])
     assert root.metadata.get("fact_root_signals") is not None
+    assert root.metadata.get("fact_root_entities") is not None
 
 
 @pytest.mark.asyncio

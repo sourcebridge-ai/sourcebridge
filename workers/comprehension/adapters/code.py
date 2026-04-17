@@ -60,6 +60,25 @@ PATH_SIGNAL_MARKERS: dict[str, tuple[str, ...]] = {
     "integration": INTEGRATION_PATH_MARKERS,
     "config": ("/config", "settings", "feature_flag", "featureflag", ".yaml", ".yml", ".toml"),
 }
+ENTITY_SIGNAL_MARKERS: dict[str, tuple[str, ...]] = {
+    "repository": ("/repo", "/repository", "repository", "repositories"),
+    "knowledge_artifact": (
+        "/knowledge/",
+        "cliff note",
+        "cliff notes",
+        "learning path",
+        "code tour",
+        "workflow story",
+        "artifact",
+        "artifacts",
+    ),
+    "understanding": ("understanding", "snapshot", "summary tree", "hierarchical"),
+    "job": ("/job", "/jobs/", "job", "queue", "worker"),
+    "requirement": ("requirement", "requirements", "traceability", "coverage"),
+    "report": ("report", "baseline", "review"),
+    "diagram": ("diagram", "architecture diagram", "mermaid"),
+    "graph": ("/graph/", "graph", "node", "edge"),
+}
 EXTERNAL_DEPENDENCY_MARKERS = (
     "openai",
     "anthropic",
@@ -289,6 +308,13 @@ class CodeCorpus:
                             doc=doc,
                             kind=kind,
                         )
+                        entity_signals = _infer_entity_signals(
+                            file_path,
+                            name=name,
+                            signature=signature,
+                            doc=doc,
+                            kind=kind,
+                        )
                         external_signals = _infer_external_dependency_signals(signature, doc, file_path=file_path)
 
                         leaf_text = _render_leaf_text(
@@ -318,6 +344,7 @@ class CodeCorpus:
                                     "symbol_kind": kind,
                                     "symbol_roles": roles,
                                     "path_signals": path_signals,
+                                    "entity_signals": entity_signals,
                                     "external_dependency_signals": external_signals,
                                     "start_line": start_line,
                                     "end_line": end_line,
@@ -369,6 +396,19 @@ class CodeCorpus:
                                         signal
                                         for sym in symbol_group
                                         for signal in _infer_path_signals(
+                                            file_path,
+                                            name=str(sym.get("name") or ""),
+                                            signature=str(sym.get("signature") or ""),
+                                            doc=str(sym.get("doc_comment") or ""),
+                                            kind=str(sym.get("kind") or "symbol"),
+                                        )
+                                    }
+                                ),
+                                "entity_signals": sorted(
+                                    {
+                                        signal
+                                        for sym in symbol_group
+                                        for signal in _infer_entity_signals(
                                             file_path,
                                             name=str(sym.get("name") or ""),
                                             signature=str(sym.get("signature") or ""),
@@ -600,6 +640,24 @@ def _infer_path_signals(
     if "http" in haystack or "route" in haystack or "routes" in haystack or "handler" in haystack:
         signals.append("route")
     return sorted(set(signals))
+
+
+def _infer_entity_signals(
+    file_path: str,
+    *,
+    name: str = "",
+    signature: str = "",
+    doc: str = "",
+    kind: str = "",
+) -> list[str]:
+    haystack = " ".join(part.lower() for part in [file_path, name, signature, doc, kind] if part)
+    return sorted(
+        {
+            label
+            for label, markers in ENTITY_SIGNAL_MARKERS.items()
+            if any(marker.lower() in haystack for marker in markers)
+        }
+    )
 
 
 def _infer_external_dependency_signals(signature: str, doc: str, *, file_path: str = "") -> list[str]:

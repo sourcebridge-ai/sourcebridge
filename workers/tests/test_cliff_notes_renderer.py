@@ -760,7 +760,10 @@ async def test_domain_model_hint_seed_beats_larger_store_file() -> None:
             summary_text="Generic summary.",
             headline="Knowledge models",
             source_tokens=80,
-            metadata={"file_path": "internal/knowledge/models.go"},
+            metadata={
+                "file_path": "internal/knowledge/models.go",
+                "fact_entity_signals": ["knowledge_artifact", "understanding", "repository"],
+            },
         )
     )
     tree.add(
@@ -773,7 +776,7 @@ async def test_domain_model_hint_seed_beats_larger_store_file() -> None:
             summary_text="Large graph store implementation.",
             headline="Graph store",
             source_tokens=500,
-            metadata={"file_path": "internal/graph/store.go"},
+            metadata={"file_path": "internal/graph/store.go", "fact_entity_signals": ["graph"]},
         )
     )
     tree.add(
@@ -786,7 +789,7 @@ async def test_domain_model_hint_seed_beats_larger_store_file() -> None:
             summary_text="Job models.",
             headline="Job models",
             source_tokens=90,
-            metadata={"file_path": "internal/llm/job.go"},
+            metadata={"file_path": "internal/llm/job.go", "fact_entity_signals": ["job"]},
         )
     )
 
@@ -811,6 +814,9 @@ async def test_domain_model_hint_seed_beats_larger_store_file() -> None:
     )
     assert "internal/knowledge/models.go" in domain_line
     assert "internal/llm/job.go" in domain_line
+    assert "=== Domain-model guardrail ===" in model_prompt
+    assert "- knowledge_artifact: `internal/knowledge/models.go`" in model_prompt
+    assert "- job: `internal/llm/job.go`" in model_prompt
 
 
 @pytest.mark.asyncio

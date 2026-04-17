@@ -1097,6 +1097,7 @@ def _collect_file_facts(unit: CorpusUnit, children: list[SummaryNode]) -> dict[s
     kind_counts: Counter[str] = Counter()
     role_counts: Counter[str] = Counter()
     signal_counts: Counter[str] = Counter()
+    entity_counts: Counter[str] = Counter()
     external_counts: Counter[str] = Counter()
     symbol_names: list[str] = []
     doc_comments = 0
@@ -1120,6 +1121,8 @@ def _collect_file_facts(unit: CorpusUnit, children: list[SummaryNode]) -> dict[s
             role_counts[str(role)] += 1
         for signal in metadata.get("path_signals") or []:
             signal_counts[str(signal)] += 1
+        for entity in metadata.get("entity_signals") or []:
+            entity_counts[str(entity)] += 1
         for dependency in metadata.get("external_dependency_signals") or []:
             external_counts[str(dependency)] += 1
         if not module_label:
@@ -1132,6 +1135,7 @@ def _collect_file_facts(unit: CorpusUnit, children: list[SummaryNode]) -> dict[s
         "fact_symbol_names": symbol_names,
         "fact_roles": [ROLE_LABELS.get(role, role.replace("_", " ")) for role, _ in role_counts.most_common(3)],
         "fact_path_signals": [signal for signal, _ in signal_counts.most_common(4)],
+        "fact_entity_signals": [entity for entity, _ in entity_counts.most_common(5)],
         "fact_external_dependencies": [dep for dep, _ in external_counts.most_common(4)],
         "fact_doc_comment_count": doc_comments,
         "fact_max_fan_in": max_fan_in,
@@ -1144,6 +1148,7 @@ def _collect_package_facts(unit: CorpusUnit, children: list[SummaryNode]) -> dic
     role_counts: Counter[str] = Counter()
     kind_counts: Counter[str] = Counter()
     signal_counts: Counter[str] = Counter()
+    entity_counts: Counter[str] = Counter()
     external_counts: Counter[str] = Counter()
     file_paths: list[str] = []
     module_labels: list[str] = []
@@ -1169,6 +1174,8 @@ def _collect_package_facts(unit: CorpusUnit, children: list[SummaryNode]) -> dic
             role_counts[str(role)] += 1
         for signal in metadata.get("fact_path_signals") or []:
             signal_counts[str(signal)] += 1
+        for entity in metadata.get("fact_entity_signals") or []:
+            entity_counts[str(entity)] += 1
         for dependency in metadata.get("fact_external_dependencies") or []:
             external_counts[str(dependency)] += 1
 
@@ -1179,6 +1186,7 @@ def _collect_package_facts(unit: CorpusUnit, children: list[SummaryNode]) -> dic
         "fact_package_roles": [role for role, _ in role_counts.most_common(3)],
         "fact_package_symbol_kinds": [kind for kind, _ in kind_counts.most_common(3)],
         "fact_package_signals": [signal for signal, _ in signal_counts.most_common(4)],
+        "fact_package_entities": [entity for entity, _ in entity_counts.most_common(5)],
         "fact_external_dependencies": [dep for dep, _ in external_counts.most_common(5)],
         "fact_key_files": file_paths[:4],
         "fact_module_labels": _dedupe_preserve_order(module_labels)[:3] or [unit.label],
@@ -1194,6 +1202,7 @@ def _collect_root_facts(
     language_counts: Counter[str] = Counter()
     role_counts: Counter[str] = Counter()
     signal_counts: Counter[str] = Counter()
+    entity_counts: Counter[str] = Counter()
     external_counts: Counter[str] = Counter()
     package_labels: list[str] = []
     key_files: list[str] = []
@@ -1212,6 +1221,8 @@ def _collect_root_facts(
             role_counts[str(role)] += 1
         for signal in metadata.get("fact_package_signals") or []:
             signal_counts[str(signal)] += 1
+        for entity in metadata.get("fact_package_entities") or []:
+            entity_counts[str(entity)] += 1
         for dependency in metadata.get("fact_external_dependencies") or []:
             external_counts[str(dependency)] += 1
 
@@ -1223,6 +1234,7 @@ def _collect_root_facts(
         "fact_languages": [language for language, _ in language_counts.most_common(4)],
         "fact_root_roles": [role for role, _ in role_counts.most_common(4)],
         "fact_root_signals": [signal for signal, _ in signal_counts.most_common(5)],
+        "fact_root_entities": [entity for entity, _ in entity_counts.most_common(6)],
         "fact_external_dependencies": [dep for dep, _ in external_counts.most_common(6)],
         "fact_key_files": _dedupe_preserve_order(key_files)[:6],
     }
@@ -1238,6 +1250,8 @@ def _format_file_fact_lines(facts: dict[str, Any]) -> list[str]:
         lines.append(f"Roles: {', '.join(str(v) for v in facts['fact_roles'])}")
     if facts.get("fact_path_signals"):
         lines.append(f"Execution signals: {', '.join(str(v) for v in facts['fact_path_signals'])}")
+    if facts.get("fact_entity_signals"):
+        lines.append(f"Domain entities: {', '.join(str(v) for v in facts['fact_entity_signals'])}")
     if facts.get("fact_symbol_names"):
         lines.append(f"Representative symbols: {', '.join(str(v) for v in facts['fact_symbol_names'])}")
     if facts.get("fact_external_dependencies"):
@@ -1264,6 +1278,8 @@ def _format_package_fact_lines(facts: dict[str, Any]) -> list[str]:
         lines.append(f"Dominant roles: {', '.join(str(v) for v in facts['fact_package_roles'])}")
     if facts.get("fact_package_signals"):
         lines.append(f"Execution signals: {', '.join(str(v) for v in facts['fact_package_signals'])}")
+    if facts.get("fact_package_entities"):
+        lines.append(f"Domain entities: {', '.join(str(v) for v in facts['fact_package_entities'])}")
     if facts.get("fact_package_symbol_kinds"):
         lines.append(f"Common symbol kinds: {', '.join(str(v) for v in facts['fact_package_symbol_kinds'])}")
     if facts.get("fact_key_files"):
@@ -1288,6 +1304,8 @@ def _format_root_fact_lines(facts: dict[str, Any]) -> list[str]:
         lines.append(f"Repository roles: {', '.join(str(v) for v in facts['fact_root_roles'])}")
     if facts.get("fact_root_signals"):
         lines.append(f"Execution signals: {', '.join(str(v) for v in facts['fact_root_signals'])}")
+    if facts.get("fact_root_entities"):
+        lines.append(f"Repository entities: {', '.join(str(v) for v in facts['fact_root_entities'])}")
     if facts.get("fact_key_files"):
         lines.append(f"Representative files: {', '.join(str(v) for v in facts['fact_key_files'])}")
     if facts.get("fact_external_dependencies"):
