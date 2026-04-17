@@ -373,6 +373,43 @@ async def test_deep_repository_render_splits_into_parallel_groups() -> None:
 
 
 @pytest.mark.asyncio
+async def test_deep_targeted_render_uses_narrow_section_path() -> None:
+    provider = _RecordingProvider(
+        response_text=json.dumps(
+            [
+                {
+                    "title": "Domain Model",
+                    "content": "Domain Model grounded in internal/api/auth.go and internal/store/repo.go",
+                    "summary": "Grounded domain model",
+                    "confidence": "high",
+                    "inferred": False,
+                    "evidence": [
+                        {"source_type": "file", "file_path": "internal/api/auth.go", "line_start": 1, "line_end": 5},
+                        {"source_type": "file", "file_path": "internal/store/repo.go", "line_start": 1, "line_end": 5},
+                    ],
+                }
+            ]
+        )
+    )
+    renderer = CliffNotesRenderer(provider=provider)
+    tree = _build_tree()
+
+    result, usage = await renderer.render(
+        tree,
+        repository_name="Sample",
+        audience="developer",
+        depth="deep",
+        scope_type="repository",
+        required_section_titles=["Domain Model"],
+    )
+
+    assert [section.title for section in result.sections] == ["Domain Model"]
+    assert usage.operation == "cliff_notes_render_targeted"
+    assert provider.calls == 1
+    assert "Rewrite ONLY the `Domain Model` section" in provider.captured_prompt
+
+
+@pytest.mark.asyncio
 async def test_deep_repository_render_falls_back_per_group_not_whole_artifact() -> None:
     provider = _FlakyProvider(
         response_text=_valid_deep_response_payload(),

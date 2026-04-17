@@ -654,19 +654,34 @@ class CliffNotesRenderer:
 
         try:
             if depth == "deep" and (scope_type or "repository") == "repository":
-                sections, usage = await self._render_deep_repository_groups(
-                    repository_name=repository_name,
-                    audience=audience,
-                    scope_type=scope_type,
-                    scope_path=scope_path,
-                    root=root,
-                    required_sections=required_sections,
-                    all_group_nodes=all_group_nodes,
-                    all_file_nodes=all_file_nodes,
-                    pre_analysis_block=pa_block,
-                    relevance_profile=relevance_profile,
-                    evidence_store_text=evidence_store_text,
-                )
+                targeted_titles = [title for title in required_sections if title in DEEP_REPAIR_SECTION_TITLES]
+                if targeted_titles and len(targeted_titles) == len(required_sections) and len(required_sections) <= 2:
+                    sections, usage = await self._render_targeted_deep_sections(
+                        repository_name=repository_name,
+                        audience=audience,
+                        scope_type=scope_type,
+                        scope_path=scope_path,
+                        root=root,
+                        required_sections=required_sections,
+                        all_group_nodes=all_group_nodes,
+                        all_file_nodes=all_file_nodes,
+                        relevance_profile=relevance_profile,
+                        evidence_store_text=evidence_store_text,
+                    )
+                else:
+                    sections, usage = await self._render_deep_repository_groups(
+                        repository_name=repository_name,
+                        audience=audience,
+                        scope_type=scope_type,
+                        scope_path=scope_path,
+                        root=root,
+                        required_sections=required_sections,
+                        all_group_nodes=all_group_nodes,
+                        all_file_nodes=all_file_nodes,
+                        pre_analysis_block=pa_block,
+                        relevance_profile=relevance_profile,
+                        evidence_store_text=evidence_store_text,
+                    )
             else:
                 prompt = self._build_render_prompt(
                     repository_name=repository_name,
@@ -746,6 +761,120 @@ class CliffNotesRenderer:
             )
 
         return CliffNotesResult(sections=sections), usage
+
+    async def _render_targeted_deep_sections(
+        self,
+        *,
+        repository_name: str,
+        audience: str,
+        scope_type: str,
+        scope_path: str,
+        root: SummaryNode,
+        required_sections: list[str],
+        all_group_nodes: list[SummaryNode],
+        all_file_nodes: list[SummaryNode],
+        relevance_profile: str,
+        evidence_store_text: str,
+    ) -> tuple[list[CliffNotesSection], LLMUsageRecord]:
+        semaphore = asyncio.Semaphore(self.deep_repair_parallelism)
+
+        async def render_one(title: str) -> tuple[str, CliffNotesSection, LLMResponse | None, bool]:
+            async with semaphore:
+                group_nodes = self._select_group_nodes_for_sections(
+                    [title],
+                    all_group_nodes=all_group_nodes,
+                    relevance_profile=relevance_profile,
+                    scope_path=scope_path,
+                    limit=3,
+                )
+                file_nodes = self._select_file_nodes_for_sections(
+                    [title],
+                    all_file_nodes=all_file_nodes,
+                    relevance_profile=relevance_profile,
+                    scope_path=scope_path,
+                    limit=6,
+                )
+                prompt = CLIFF_NOTES_SECTION_REPAIR_TEMPLATE.format(
+                    repository_name=repository_name or "repository",
+                    audience=audience,
+                    section_title=title,
+                    root_summary=root.summary_text or "(no repository summary available)",
+                    section_evidence_plan=self._build_section_evidence_plan(
+                        [title],
+                        all_group_nodes=group_nodes,
+                        all_file_nodes=file_nodes,
+                        relevance_profile=relevance_profile,
+                        scope_path=scope_path,
+                    ),
+                    group_summaries=self._format_summaries(group_nodes, label_prefix="Subsystem"),
+                    file_summaries=self._format_summaries(file_nodes, label_prefix="File"),
+                    current_draft=self._seed_targeted_section_draft(
+                        title,
+                        root=root,
+                        group_nodes=group_nodes,
+                        file_nodes=file_nodes,
+                    ),
+                )
+                check_prompt_budget(
+                    prompt,
+                    system=CLIFF_NOTES_SYSTEM,
+                    context=f"hierarchical_render:cliff_notes:targeted:{title}",
+                )
+                try:
+                    response = await self._render_with_retry(
+                        prompt=prompt,
+                        scope_type=f"{scope_type}:targeted:{title}",
+                    )
+                    section = self._parse_sections(
+                        response.content,
+                        [title],
+                        evidence_store_text=evidence_store_text,
+                    )[0]
+                    return title, section, response, False
+                except Exception as exc:
+                    log.warning(
+                        "cliff_notes_renderer_targeted_fallback",
+                        repository=repository_name,
+                        scope_type=scope_type,
+                        section_title=title,
+                        error=str(exc),
+                    )
+                    fallback = self._fallback_sections(
+                        required_sections=[title],
+                        root=root,
+                        groups=group_nodes,
+                        files=file_nodes,
+                        scope_type=f"{scope_type}:targeted",
+                        scope_path=scope_path,
+                    )[0]
+                    return title, fallback, None, True
+
+        rendered = await asyncio.gather(*(render_one(title) for title in required_sections))
+        by_title: dict[str, CliffNotesSection] = {}
+        input_tokens = 0
+        output_tokens = 0
+        model_used = self.model_override or "llm"
+        used_fallback = False
+        for title, section, response, fell_back in rendered:
+            by_title[title] = section
+            used_fallback = used_fallback or fell_back
+            if response is not None:
+                input_tokens += response.input_tokens
+                output_tokens += response.output_tokens
+                model_used = response.model or model_used
+        usage = LLMUsageRecord(
+            provider="llm",
+            model=model_used,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            operation=(
+                "cliff_notes_render_targeted_partial"
+                if used_fallback
+                else "cliff_notes_render_targeted"
+            ),
+            entity_name=repository_name,
+        )
+        return [by_title[title] for title in required_sections], usage
 
     async def _render_deep_repository_groups(
         self,
@@ -988,6 +1117,21 @@ class CliffNotesRenderer:
             if repaired is not None:
                 by_title[title] = repaired
         return [by_title[section.title] for section in sections]
+
+    def _seed_targeted_section_draft(
+        self,
+        title: str,
+        *,
+        root: SummaryNode,
+        group_nodes: list[SummaryNode],
+        file_nodes: list[SummaryNode],
+    ) -> str:
+        return (
+            f"Focus section: {title}.\n\n"
+            f"Repository orientation:\n{(root.summary_text or '(no repository summary available)').strip()}\n\n"
+            f"Notable subsystems:\n{self._summary_bullets(group_nodes, max_items=3)}\n\n"
+            f"Notable files:\n{self._summary_bullets(file_nodes, max_items=5)}"
+        )
 
     def _should_accept_repaired_section(
         self,
