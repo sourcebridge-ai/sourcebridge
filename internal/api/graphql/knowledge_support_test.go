@@ -221,8 +221,11 @@ func TestCliffNotesDeepeningTargetsIncludeLowConfidenceOrInferredSections(t *tes
 	if len(targets) != 7 {
 		t.Fatalf("expected 7 targets, got %#v", targets)
 	}
-	if targets[0] != "Architecture Overview" || targets[1] != "Domain Model" || targets[2] != "External Dependencies" || targets[3] != "Key Abstractions" {
-		t.Fatalf("unexpected default priority targets: %#v", targets)
+	if targets[0] != "Testing Strategy" || targets[1] != "Concurrency & Background Work" || targets[2] != "Configuration & Feature Flags" {
+		t.Fatalf("expected explicit weak sections first, got %#v", targets)
+	}
+	if !containsString(targets, "Architecture Overview") || !containsString(targets, "Domain Model") || !containsString(targets, "External Dependencies") || !containsString(targets, "Key Abstractions") {
+		t.Fatalf("expected default deepening sections to remain, got %#v", targets)
 	}
 	if !containsString(targets, "Testing Strategy") || !containsString(targets, "Configuration & Feature Flags") || !containsString(targets, "Concurrency & Background Work") {
 		t.Fatalf("expected dynamic weak-section targets, got %#v", targets)

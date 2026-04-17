@@ -708,45 +708,42 @@ func cliffNotesDeepeningTargets(store knowledgepkg.KnowledgeStore, artifact *kno
 		refinementBySectionKey[unit.SectionKey] = unit
 	}
 	var pending []string
-	for _, title := range targets {
-		sec, ok := byTitle[title]
-		if !ok || strings.EqualFold(sec.RefinementStatus, "deep") {
-			continue
+	seen := make(map[string]struct{}, len(current))
+	appendPending := func(sec knowledgepkg.Section) bool {
+		if sec.Title == "" || strings.EqualFold(sec.RefinementStatus, "deep") {
+			return false
+		}
+		if _, ok := seen[sec.Title]; ok {
+			return false
 		}
 		if unit, ok := refinementBySectionKey[sec.SectionKey]; ok {
 			switch unit.Status {
 			case knowledgepkg.RefinementQueued, knowledgepkg.RefinementRunning, knowledgepkg.RefinementCompleted:
-				continue
+				return false
 			}
 		}
-		pending = append(pending, title)
-	}
-	seen := make(map[string]struct{}, len(pending))
-	for _, title := range pending {
-		seen[title] = struct{}{}
+		pending = append(pending, sec.Title)
+		seen[sec.Title] = struct{}{}
+		return true
 	}
 	for _, sec := range current {
-		if sec.Title == "" || strings.EqualFold(sec.RefinementStatus, "deep") {
-			continue
-		}
-		if _, ok := seen[sec.Title]; ok {
-			continue
-		}
 		status := strings.TrimSpace(sec.RefinementStatus)
-		needsDeepening := sec.Confidence == knowledgepkg.ConfidenceLow || sec.Inferred
 		if status == "needs_evidence" || status == "unsupported_claims" {
-			needsDeepening = true
+			appendPending(sec)
 		}
+	}
+	for _, sec := range current {
+		needsDeepening := sec.Confidence == knowledgepkg.ConfidenceLow || sec.Inferred
 		if needsDeepening {
-			if unit, ok := refinementBySectionKey[sec.SectionKey]; ok {
-				switch unit.Status {
-				case knowledgepkg.RefinementQueued, knowledgepkg.RefinementRunning, knowledgepkg.RefinementCompleted:
-					continue
-				}
-			}
-			pending = append(pending, sec.Title)
-			seen[sec.Title] = struct{}{}
+			appendPending(sec)
 		}
+	}
+	for _, title := range targets {
+		sec, ok := byTitle[title]
+		if !ok {
+			continue
+		}
+		appendPending(sec)
 	}
 	return pending
 }
