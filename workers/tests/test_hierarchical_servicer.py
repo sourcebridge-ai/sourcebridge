@@ -256,11 +256,10 @@ async def test_hierarchical_path_returns_required_sections(monkeypatch: pytest.M
     assert usage.operation == "cliff_notes_render"
     assert diagnostics["leaf_cache_hits"] == 0
 
-    # Sanity: there should be many hierarchical summary calls + exactly
-    # one final render call. The snapshot has 4 symbol leaves + 3 files
-    # + 2 packages + 1 root = 10 hierarchical calls, plus 1 render = 11.
-    # Exact counts depend on file dedupe; we assert >= 8 as a floor.
-    assert provider.counter >= 8
+    # Leaves are deterministic now, so the LLM work starts at file-level
+    # synthesis plus the final render pass. Keep a floor instead of an
+    # exact count because renderer grouping can vary by depth.
+    assert provider.counter >= 7
     # The final call should be the render (it's the one that includes
     # the Output format banner).
     assert any("=== Task ===" in p for p in provider.prompts)
@@ -312,9 +311,9 @@ async def test_render_only_deep_reuses_cached_medium_tree(monkeypatch: pytest.Mo
     )
 
     assert len(result.sections) >= len(REQUIRED_SECTIONS)
-    assert usage.operation == "cliff_notes_render_parallel"
+    assert usage.operation == "cliff_notes_render_parallel_repaired"
     assert diagnostics["root_cache_hits"] == 1
-    assert provider.counter == 4
+    assert provider.counter == 8
 
 
 @pytest.mark.asyncio

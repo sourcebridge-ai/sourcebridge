@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from time import monotonic
@@ -88,6 +89,15 @@ TREE_TOKEN_BUDGETS = {
     "summary": {"leaf": 256, "file": 384, "package": 512, "root": 768},
     "medium": {"leaf": 384, "file": 640, "package": 896, "root": 1280},
     "deep": {"leaf": 512, "file": 1024, "package": 1536, "root": 2048},
+}
+
+ROLE_LABELS = {
+    "entry_points": "entry-point code",
+    "public_api": "public API surface",
+    "complex_symbols": "complex logic",
+    "test_symbols": "test coverage",
+    "high_fan_out_symbols": "high fan-out behavior",
+    "high_fan_in_symbols": "high fan-in behavior",
 }
 
 
@@ -584,6 +594,48 @@ class HierarchicalStrategy:
                 tree.add(cached)
                 return
 
+        deterministic_summary = _deterministic_leaf_summary(unit)
+        if deterministic_summary is not None:
+            elapsed_ms = int((monotonic() - leaf_started) * 1000)
+            node = SummaryNode(
+                id=str(uuid.uuid4()),
+                corpus_id=tree.corpus_id,
+                unit_id=unit.id,
+                level=0,
+                parent_id=unit.parent_id,
+                summary_text=deterministic_summary,
+                headline=_first_line(deterministic_summary),
+                summary_tokens=len(deterministic_summary.split()),
+                source_tokens=unit.size_tokens or 1,
+                content_hash=unit.content_hash,
+                model_used="deterministic",
+                strategy=self.name,
+                revision_fp=tree.revision_fp,
+                metadata=dict(unit.metadata),
+            )
+            log.info(
+                "hierarchical_leaf_completed_deterministic",
+                corpus_id=corpus.corpus_id,
+                unit_id=unit.id,
+                file_path=file_path,
+                segment_label=unit.label,
+                elapsed_ms=elapsed_ms,
+            )
+            await self._emit_log(
+                "leaves",
+                "hierarchical_leaf_completed_deterministic",
+                f"Completed deterministic leaf {unit.label}",
+                {
+                    "unit_id": unit.id,
+                    "file_path": file_path,
+                    "segment_label": unit.label,
+                    "elapsed_ms": elapsed_ms,
+                },
+            )
+            tree.add(node)
+            await self._emit_node_checkpoint("leaves", tree, node)
+            return
+
         try:
             code = corpus.leaf_content(unit)
         except ValueError as exc:
@@ -693,11 +745,13 @@ class HierarchicalStrategy:
 
         file_path = str(unit.metadata.get("file_path", "")) if unit.metadata else unit.id
         language = str(unit.metadata.get("language", "")) if unit.metadata else ""
+        file_facts = _collect_file_facts(unit, children)
         prompt = build_file_prompt(
             repository_name=self._config.repository_name,
             file_path=file_path,
             language=language,
             segment_summaries=child_summaries,
+            file_facts=_format_file_fact_lines(file_facts),
         )
         summary, model, _, tokens_out = await self._call_llm(
             prompt,
@@ -720,7 +774,7 @@ class HierarchicalStrategy:
             model_used=model,
             strategy=self.name,
             revision_fp=tree.revision_fp,
-            metadata=dict(unit.metadata),
+            metadata={**dict(unit.metadata), **file_facts},
         )
         tree.add(node)
         await self._emit_node_checkpoint("files", tree, node)
@@ -743,10 +797,12 @@ class HierarchicalStrategy:
             tree.add(self._stub_node(unit, tree, "Package has no summarized files."))
             return
 
+        package_facts = _collect_package_facts(unit, children)
         prompt = build_package_prompt(
             repository_name=self._config.repository_name,
             package_label=unit.label,
             file_summaries=child_summaries,
+            package_facts=_format_package_fact_lines(package_facts),
         )
         summary, model, _, tokens_out = await self._call_llm(
             prompt,
@@ -769,7 +825,7 @@ class HierarchicalStrategy:
             model_used=model,
             strategy=self.name,
             revision_fp=tree.revision_fp,
-            metadata=dict(unit.metadata),
+            metadata={**dict(unit.metadata), **package_facts},
         )
         tree.add(node)
         await self._emit_node_checkpoint("packages", tree, node)
@@ -795,11 +851,13 @@ class HierarchicalStrategy:
             tree.add(self._stub_node(unit, tree, "Repository has no summarizable packages."))
             return
 
+        root_facts = _collect_root_facts(children, file_count=file_count, segment_count=segment_count)
         prompt = build_root_prompt(
             repository_name=self._config.repository_name,
             package_summaries=child_summaries,
             file_count=file_count,
             segment_count=segment_count,
+            root_facts=_format_root_fact_lines(root_facts),
         )
         summary, model, _, tokens_out = await self._call_llm(
             prompt,
@@ -822,7 +880,7 @@ class HierarchicalStrategy:
             model_used=model,
             strategy=self.name,
             revision_fp=tree.revision_fp,
-            metadata=dict(unit.metadata),
+            metadata={**dict(unit.metadata), **root_facts},
         )
         tree.add(node)
         await self._emit_node_checkpoint("root", tree, node)
@@ -974,6 +1032,278 @@ class HierarchicalStrategy:
         if not child_fingerprints:
             return ""
         return corpus_content_hash("|".join([unit.label, *child_fingerprints]))
+
+
+def _deterministic_leaf_summary(unit: CorpusUnit) -> str | None:
+    metadata = unit.metadata or {}
+    if not metadata.get("deterministic_leaf"):
+        return None
+
+    file_path = str(metadata.get("file_path") or "")
+    language = str(metadata.get("language") or "unknown")
+    module_label = str(metadata.get("module_label") or "")
+
+    if metadata.get("chunked"):
+        symbol_count = int(metadata.get("symbol_count") or 0)
+        symbol_names = [str(name) for name in (metadata.get("symbol_names") or []) if str(name)]
+        roles = [ROLE_LABELS.get(str(role), str(role).replace("_", " ")) for role in (metadata.get("symbol_roles") or [])]
+        headline = f"Groups {symbol_count or 'multiple'} related symbols in {file_path or unit.label}"
+        body_parts = [
+            f"This deterministic leaf groups {symbol_count or 'multiple'} symbols from `{file_path or unit.label}` so later stages can summarize the file without restating each signature."
+        ]
+        if symbol_names:
+            preview = ", ".join(symbol_names[:4])
+            if len(symbol_names) > 4:
+                preview += ", and others"
+            body_parts.append(f"Included symbols: {preview}.")
+        if roles:
+            body_parts.append(f"The grouped symbols contribute repository roles such as {', '.join(roles[:3])}.")
+        if module_label:
+            body_parts.append(f"The file sits under the `{module_label}` module.")
+        return f"{headline}\n\n{' '.join(body_parts)}"
+
+    symbol_name = str(metadata.get("symbol_name") or unit.label or "symbol")
+    symbol_kind = str(metadata.get("symbol_kind") or "symbol")
+    roles = [ROLE_LABELS.get(str(role), str(role).replace("_", " ")) for role in (metadata.get("symbol_roles") or [])]
+    fan_in = int(metadata.get("fan_in") or 0)
+    fan_out = int(metadata.get("fan_out") or 0)
+    has_doc_comment = bool(metadata.get("has_doc_comment"))
+    start_line = int(metadata.get("start_line") or 0)
+    end_line = int(metadata.get("end_line") or 0)
+
+    headline = f"Defines {symbol_kind} `{symbol_name}`"
+    body_parts = [
+        f"This deterministic leaf records `{symbol_name}` from `{file_path or unit.label}` as a {symbol_kind} in {language}."
+    ]
+    if start_line and end_line:
+        body_parts.append(f"It is indexed at lines {start_line}-{end_line}.")
+    if module_label:
+        body_parts.append(f"It belongs to the `{module_label}` module.")
+    if roles:
+        body_parts.append(f"Its repository role is visible through {', '.join(roles[:3])}.")
+    if fan_in or fan_out:
+        flow_parts: list[str] = []
+        if fan_in:
+            flow_parts.append(f"fan-in {fan_in}")
+        if fan_out:
+            flow_parts.append(f"fan-out {fan_out}")
+        body_parts.append(f"Indexed graph signals show {' and '.join(flow_parts)}.")
+    if has_doc_comment:
+        body_parts.append("A doc comment is available for later summarization stages.")
+    return f"{headline}\n\n{' '.join(body_parts)}"
+
+
+def _collect_file_facts(unit: CorpusUnit, children: list[SummaryNode]) -> dict[str, Any]:
+    kind_counts: Counter[str] = Counter()
+    role_counts: Counter[str] = Counter()
+    signal_counts: Counter[str] = Counter()
+    external_counts: Counter[str] = Counter()
+    symbol_names: list[str] = []
+    doc_comments = 0
+    max_fan_in = 0
+    max_fan_out = 0
+    module_label = str((unit.metadata or {}).get("module_label") or "")
+
+    for child in children:
+        metadata = child.metadata or {}
+        symbol_kind = str(metadata.get("symbol_kind") or "")
+        if symbol_kind:
+            kind_counts[symbol_kind] += 1
+        name = str(metadata.get("symbol_name") or "")
+        if name and len(symbol_names) < 5:
+            symbol_names.append(name)
+        if bool(metadata.get("has_doc_comment")):
+            doc_comments += 1
+        max_fan_in = max(max_fan_in, int(metadata.get("fan_in") or 0))
+        max_fan_out = max(max_fan_out, int(metadata.get("fan_out") or 0))
+        for role in metadata.get("symbol_roles") or []:
+            role_counts[str(role)] += 1
+        for signal in metadata.get("path_signals") or []:
+            signal_counts[str(signal)] += 1
+        for dependency in metadata.get("external_dependency_signals") or []:
+            external_counts[str(dependency)] += 1
+        if not module_label:
+            module_label = str(metadata.get("module_label") or "")
+
+    return {
+        "module_label": module_label,
+        "fact_symbol_count": len(children),
+        "fact_symbol_kinds": [f"{kind} ({count})" for kind, count in kind_counts.most_common(3)],
+        "fact_symbol_names": symbol_names,
+        "fact_roles": [ROLE_LABELS.get(role, role.replace("_", " ")) for role, _ in role_counts.most_common(3)],
+        "fact_path_signals": [signal for signal, _ in signal_counts.most_common(4)],
+        "fact_external_dependencies": [dep for dep, _ in external_counts.most_common(4)],
+        "fact_doc_comment_count": doc_comments,
+        "fact_max_fan_in": max_fan_in,
+        "fact_max_fan_out": max_fan_out,
+    }
+
+
+def _collect_package_facts(unit: CorpusUnit, children: list[SummaryNode]) -> dict[str, Any]:
+    language_counts: Counter[str] = Counter()
+    role_counts: Counter[str] = Counter()
+    kind_counts: Counter[str] = Counter()
+    signal_counts: Counter[str] = Counter()
+    external_counts: Counter[str] = Counter()
+    file_paths: list[str] = []
+    module_labels: list[str] = []
+    total_symbols = 0
+
+    for child in children:
+        metadata = child.metadata or {}
+        language = str(metadata.get("language") or "")
+        if language:
+            language_counts[language] += 1
+        file_path = str(metadata.get("file_path") or "")
+        if file_path:
+            file_paths.append(file_path)
+        module_label = str(metadata.get("module_label") or "")
+        if module_label:
+            module_labels.append(module_label)
+        total_symbols += int(metadata.get("fact_symbol_count") or 0)
+        for label in metadata.get("fact_symbol_kinds") or []:
+            kind = str(label).split(" (", 1)[0].strip()
+            if kind:
+                kind_counts[kind] += 1
+        for role in metadata.get("fact_roles") or []:
+            role_counts[str(role)] += 1
+        for signal in metadata.get("fact_path_signals") or []:
+            signal_counts[str(signal)] += 1
+        for dependency in metadata.get("fact_external_dependencies") or []:
+            external_counts[str(dependency)] += 1
+
+    return {
+        "fact_file_count": len(children),
+        "fact_total_symbols": total_symbols,
+        "fact_languages": [f"{language} ({count})" for language, count in language_counts.most_common(3)],
+        "fact_package_roles": [role for role, _ in role_counts.most_common(3)],
+        "fact_package_symbol_kinds": [kind for kind, _ in kind_counts.most_common(3)],
+        "fact_package_signals": [signal for signal, _ in signal_counts.most_common(4)],
+        "fact_external_dependencies": [dep for dep, _ in external_counts.most_common(5)],
+        "fact_key_files": file_paths[:4],
+        "fact_module_labels": _dedupe_preserve_order(module_labels)[:3] or [unit.label],
+    }
+
+
+def _collect_root_facts(
+    children: list[SummaryNode],
+    *,
+    file_count: int,
+    segment_count: int,
+) -> dict[str, Any]:
+    language_counts: Counter[str] = Counter()
+    role_counts: Counter[str] = Counter()
+    signal_counts: Counter[str] = Counter()
+    external_counts: Counter[str] = Counter()
+    package_labels: list[str] = []
+    key_files: list[str] = []
+    total_symbols = 0
+
+    for child in children:
+        metadata = child.metadata or {}
+        package_labels.append(child.unit_id)
+        total_symbols += int(metadata.get("fact_total_symbols") or 0)
+        key_files.extend([str(path) for path in (metadata.get("fact_key_files") or []) if str(path)])
+        for label in metadata.get("fact_languages") or []:
+            language = str(label).split(" (", 1)[0].strip()
+            if language:
+                language_counts[language] += 1
+        for role in metadata.get("fact_package_roles") or []:
+            role_counts[str(role)] += 1
+        for signal in metadata.get("fact_package_signals") or []:
+            signal_counts[str(signal)] += 1
+        for dependency in metadata.get("fact_external_dependencies") or []:
+            external_counts[str(dependency)] += 1
+
+    return {
+        "fact_file_count": file_count,
+        "fact_segment_count": segment_count,
+        "fact_total_symbols": total_symbols,
+        "fact_package_labels": package_labels[:6],
+        "fact_languages": [language for language, _ in language_counts.most_common(4)],
+        "fact_root_roles": [role for role, _ in role_counts.most_common(4)],
+        "fact_root_signals": [signal for signal, _ in signal_counts.most_common(5)],
+        "fact_external_dependencies": [dep for dep, _ in external_counts.most_common(6)],
+        "fact_key_files": _dedupe_preserve_order(key_files)[:6],
+    }
+
+
+def _format_file_fact_lines(facts: dict[str, Any]) -> list[str]:
+    lines = [f"Symbols indexed: {int(facts.get('fact_symbol_count') or 0)}"]
+    if facts.get("module_label"):
+        lines.append(f"Module: {facts['module_label']}")
+    if facts.get("fact_symbol_kinds"):
+        lines.append(f"Symbol mix: {', '.join(str(v) for v in facts['fact_symbol_kinds'])}")
+    if facts.get("fact_roles"):
+        lines.append(f"Roles: {', '.join(str(v) for v in facts['fact_roles'])}")
+    if facts.get("fact_path_signals"):
+        lines.append(f"Execution signals: {', '.join(str(v) for v in facts['fact_path_signals'])}")
+    if facts.get("fact_symbol_names"):
+        lines.append(f"Representative symbols: {', '.join(str(v) for v in facts['fact_symbol_names'])}")
+    if facts.get("fact_external_dependencies"):
+        lines.append(f"External dependency hints: {', '.join(str(v) for v in facts['fact_external_dependencies'])}")
+    if facts.get("fact_doc_comment_count"):
+        lines.append(f"Doc-commented symbols: {facts['fact_doc_comment_count']}")
+    fan_notes: list[str] = []
+    if facts.get("fact_max_fan_in"):
+        fan_notes.append(f"max fan-in {facts['fact_max_fan_in']}")
+    if facts.get("fact_max_fan_out"):
+        fan_notes.append(f"max fan-out {facts['fact_max_fan_out']}")
+    if fan_notes:
+        lines.append(f"Graph signals: {', '.join(fan_notes)}")
+    return lines
+
+
+def _format_package_fact_lines(facts: dict[str, Any]) -> list[str]:
+    lines = [f"Files indexed: {int(facts.get('fact_file_count') or 0)}"]
+    if facts.get("fact_total_symbols"):
+        lines.append(f"Total symbols represented: {facts['fact_total_symbols']}")
+    if facts.get("fact_languages"):
+        lines.append(f"Languages: {', '.join(str(v) for v in facts['fact_languages'])}")
+    if facts.get("fact_package_roles"):
+        lines.append(f"Dominant roles: {', '.join(str(v) for v in facts['fact_package_roles'])}")
+    if facts.get("fact_package_signals"):
+        lines.append(f"Execution signals: {', '.join(str(v) for v in facts['fact_package_signals'])}")
+    if facts.get("fact_package_symbol_kinds"):
+        lines.append(f"Common symbol kinds: {', '.join(str(v) for v in facts['fact_package_symbol_kinds'])}")
+    if facts.get("fact_key_files"):
+        lines.append(f"Representative files: {', '.join(str(v) for v in facts['fact_key_files'])}")
+    if facts.get("fact_external_dependencies"):
+        lines.append(f"External dependency hints: {', '.join(str(v) for v in facts['fact_external_dependencies'])}")
+    return lines
+
+
+def _format_root_fact_lines(facts: dict[str, Any]) -> list[str]:
+    lines = [
+        f"Repository files indexed: {int(facts.get('fact_file_count') or 0)}",
+        f"Repository segments indexed: {int(facts.get('fact_segment_count') or 0)}",
+    ]
+    if facts.get("fact_total_symbols"):
+        lines.append(f"Total symbols represented: {facts['fact_total_symbols']}")
+    if facts.get("fact_package_labels"):
+        lines.append(f"Packages represented: {', '.join(str(v) for v in facts['fact_package_labels'])}")
+    if facts.get("fact_languages"):
+        lines.append(f"Languages: {', '.join(str(v) for v in facts['fact_languages'])}")
+    if facts.get("fact_root_roles"):
+        lines.append(f"Repository roles: {', '.join(str(v) for v in facts['fact_root_roles'])}")
+    if facts.get("fact_root_signals"):
+        lines.append(f"Execution signals: {', '.join(str(v) for v in facts['fact_root_signals'])}")
+    if facts.get("fact_key_files"):
+        lines.append(f"Representative files: {', '.join(str(v) for v in facts['fact_key_files'])}")
+    if facts.get("fact_external_dependencies"):
+        lines.append(f"External dependency hints: {', '.join(str(v) for v in facts['fact_external_dependencies'])}")
+    return lines
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
 
 
 def _first_line(text: str) -> str:

@@ -85,6 +85,47 @@ class _FailingProvider:
         yield ""
 
 
+@dataclass
+class _FlakyProvider:
+    response_text: str
+    fail_on_calls: set[int] | None = None
+    fail_on_prompt_substring: str | None = None
+    calls: int = 0
+
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        model: str | None = None,
+    ) -> LLMResponse:
+        self.calls += 1
+        if self.fail_on_prompt_substring and self.fail_on_prompt_substring in prompt:
+            raise RuntimeError("Compute error.")
+        if self.fail_on_calls and self.calls in self.fail_on_calls:
+            raise RuntimeError("Compute error.")
+        return LLMResponse(
+            content=self.response_text,
+            model=model or "fake-model",
+            input_tokens=len(prompt) // 4,
+            output_tokens=len(self.response_text) // 4,
+            stop_reason="end_turn",
+        )
+
+    async def stream(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        model: str | None = None,
+    ) -> AsyncIterator[str]:
+        yield ""
+
+
 def _build_tree() -> SummaryTree:
     """A small 4-level tree with 1 root, 2 packages, 3 files, 4 leaves.
     Sufficient to exercise the renderer's selection + formatting."""
@@ -100,7 +141,13 @@ def _build_tree() -> SummaryTree:
             summary_text="Headline\n\nRoot summary of the sample repository.",
             headline="Sample repo headline",
             source_tokens=500,
-            metadata={"repository_name": "Sample"},
+            metadata={
+                "repository_name": "Sample",
+                "fact_root_signals": ["api", "worker", "store"],
+                "fact_root_roles": ["public api surface", "high fan-out behavior"],
+                "fact_external_dependencies": ["graphql", "surreal"],
+                "fact_key_files": ["internal/api/auth.go", "internal/store/repo.go"],
+            },
         )
     )
     tree.add(
@@ -114,7 +161,7 @@ def _build_tree() -> SummaryTree:
             summary_text="API headline\n\nExposes the public HTTP API.",
             headline="API package",
             source_tokens=300,
-            metadata={"module_label": "api"},
+            metadata={"module_label": "api", "fact_package_signals": ["api", "route"]},
         )
     )
     tree.add(
@@ -128,7 +175,7 @@ def _build_tree() -> SummaryTree:
             summary_text="Store headline\n\nPersists domain objects.",
             headline="Store package",
             source_tokens=200,
-            metadata={"module_label": "store"},
+            metadata={"module_label": "store", "fact_package_signals": ["store"]},
         )
     )
     tree.add(
@@ -141,7 +188,7 @@ def _build_tree() -> SummaryTree:
             summary_text="Auth handlers for login/logout.",
             headline="Auth handlers",
             source_tokens=150,
-            metadata={"file_path": "internal/api/auth.go"},
+            metadata={"file_path": "internal/api/auth.go", "fact_path_signals": ["api", "auth", "route"]},
         )
     )
     tree.add(
@@ -154,7 +201,7 @@ def _build_tree() -> SummaryTree:
             summary_text="Router wiring.",
             headline="Router",
             source_tokens=100,
-            metadata={"file_path": "internal/api/router.go"},
+            metadata={"file_path": "internal/api/router.go", "fact_path_signals": ["api", "route"]},
         )
     )
     tree.add(
@@ -167,7 +214,11 @@ def _build_tree() -> SummaryTree:
             summary_text="Repository pattern over SurrealDB.",
             headline="Repository",
             source_tokens=200,
-            metadata={"file_path": "internal/store/repo.go"},
+            metadata={
+                "file_path": "internal/store/repo.go",
+                "fact_path_signals": ["store"],
+                "fact_external_dependencies": ["surreal"],
+            },
         )
     )
     return tree
@@ -311,13 +362,38 @@ async def test_deep_repository_render_splits_into_parallel_groups() -> None:
         scope_type="repository",
     )
 
-    assert provider.calls == 4
-    assert usage.operation == "cliff_notes_render_parallel"
+    assert provider.calls == 8
+    assert usage.operation == "cliff_notes_render_parallel_repaired"
     assert len(result.sections) == len(REQUIRED_SECTIONS_DEEP_REPOSITORY)
     prompts = provider.captured_prompts or []
-    assert len(prompts) == 4
+    assert len(prompts) == 8
     assert any("- System Purpose" in prompt and "- Architecture Overview" in prompt for prompt in prompts)
     assert any("- Security Model" in prompt and "- Configuration & Feature Flags" in prompt for prompt in prompts)
+    assert any("Rewrite ONLY the `Domain Model` section" in prompt for prompt in prompts)
+
+
+@pytest.mark.asyncio
+async def test_deep_repository_render_falls_back_per_group_not_whole_artifact() -> None:
+    provider = _FlakyProvider(
+        response_text=_valid_deep_response_payload(),
+        fail_on_prompt_substring="- Security Model",
+    )
+    renderer = CliffNotesRenderer(provider=provider)
+    tree = _build_tree()
+
+    result, usage = await renderer.render(
+        tree,
+        repository_name="Sample",
+        audience="developer",
+        depth="deep",
+        scope_type="repository",
+    )
+
+    assert len(result.sections) == len(REQUIRED_SECTIONS_DEEP_REPOSITORY)
+    assert usage.operation == "cliff_notes_render_parallel_repaired_partial"
+    fallback_sections = [section for section in result.sections if section.confidence == "low"]
+    assert fallback_sections
+    assert any("hierarchical summaries" in section.content for section in fallback_sections)
 
 
 @pytest.mark.asyncio
@@ -479,6 +555,30 @@ async def test_deep_system_slice_includes_system_shape_guardrail() -> None:
 
 
 @pytest.mark.asyncio
+async def test_deep_prompt_includes_root_fact_orientation() -> None:
+    provider = _RecordingProvider(response_text=_valid_deep_response_payload())
+    renderer = CliffNotesRenderer(provider=provider)
+    tree = _build_tree()
+
+    await renderer.render(
+        tree,
+        repository_name="Sample",
+        audience="developer",
+        depth="deep",
+        scope_type="repository",
+    )
+
+    prompts = provider.captured_prompts or []
+    system_prompt = next(
+        prompt
+        for prompt in prompts
+        if "- System Purpose" in prompt and "- Architecture Overview" in prompt
+    )
+    assert "Structured repository signals: api, worker, store" in system_prompt
+    assert "Structured external dependency hints: graphql, surreal" in system_prompt
+
+
+@pytest.mark.asyncio
 async def test_system_purpose_evidence_plan_spans_multiple_surfaces() -> None:
     provider = _RecordingProvider(response_text=_valid_deep_response_payload())
     renderer = CliffNotesRenderer(provider=provider)
@@ -546,6 +646,171 @@ async def test_system_purpose_evidence_plan_spans_multiple_surfaces() -> None:
     assert "web/src/app/page.tsx" in system_line
     assert "workers/knowledge/servicer.py" in system_line
     assert "cli/index.go" in system_line
+
+
+@pytest.mark.asyncio
+async def test_external_dependencies_evidence_plan_uses_fact_signals() -> None:
+    provider = _RecordingProvider(response_text=_valid_deep_response_payload())
+    renderer = CliffNotesRenderer(provider=provider)
+    tree = _build_tree()
+    tree.add(
+        SummaryNode(
+            id="fd",
+            corpus_id="repo",
+            unit_id="file:internal/platform/client.go",
+            level=1,
+            parent_id="package:store",
+            summary_text="Generic client helpers.",
+            headline="Client helpers",
+            source_tokens=80,
+            metadata={
+                "file_path": "internal/platform/client.go",
+                "fact_external_dependencies": ["openrouter", "grpc"],
+                "fact_path_signals": ["integration"],
+            },
+        )
+    )
+
+    await renderer.render(
+        tree,
+        repository_name="Sample",
+        audience="developer",
+        depth="deep",
+        scope_type="repository",
+    )
+
+    prompts = provider.captured_prompts or []
+    ops_prompt = next(
+        prompt
+        for prompt in prompts
+        if "- External Dependencies" in prompt and "- Security Model" in prompt
+    )
+    deps_line = next(line for line in ops_prompt.splitlines() if line.startswith("- External Dependencies:"))
+    assert "internal/platform/client.go" in deps_line
+
+
+@pytest.mark.asyncio
+async def test_domain_model_evidence_plan_prefers_knowledge_models() -> None:
+    provider = _RecordingProvider(response_text=_valid_deep_response_payload())
+    renderer = CliffNotesRenderer(provider=provider)
+    tree = _build_tree()
+    tree.add(
+        SummaryNode(
+            id="fm",
+            corpus_id="repo",
+            unit_id="file:internal/knowledge/models.go",
+            level=1,
+            parent_id="package:store",
+            summary_text="Knowledge artifact, understanding, and scope model definitions.",
+            headline="Knowledge models",
+            source_tokens=230,
+            metadata={"file_path": "internal/knowledge/models.go"},
+        )
+    )
+    tree.add(
+        SummaryNode(
+            id="fj",
+            corpus_id="repo",
+            unit_id="file:internal/llm/job.go",
+            level=1,
+            parent_id="package:store",
+            summary_text="Job status, job priority, and orchestration model definitions.",
+            headline="Job models",
+            source_tokens=220,
+            metadata={"file_path": "internal/llm/job.go"},
+        )
+    )
+
+    await renderer.render(
+        tree,
+        repository_name="Sample",
+        audience="developer",
+        depth="deep",
+        scope_type="repository",
+    )
+
+    prompts = provider.captured_prompts or []
+    model_prompt = next(
+        prompt
+        for prompt in prompts
+        if "- Domain Model" in prompt and "- Key Abstractions" in prompt
+    )
+    domain_line = next(
+        line
+        for line in model_prompt.splitlines()
+        if line.startswith("- Domain Model:")
+    )
+    assert "internal/knowledge/models.go" in domain_line
+    assert "internal/llm/job.go" in domain_line
+    assert "focus on repositories, knowledge artifacts, understanding revisions, jobs, and scopes" in domain_line
+
+
+@pytest.mark.asyncio
+async def test_domain_model_hint_seed_beats_larger_store_file() -> None:
+    provider = _RecordingProvider(response_text=_valid_deep_response_payload())
+    renderer = CliffNotesRenderer(provider=provider)
+    tree = _build_tree()
+    tree.add(
+        SummaryNode(
+            id="fm",
+            corpus_id="repo",
+            unit_id="file:internal/knowledge/models.go",
+            level=1,
+            parent_id="package:store",
+            summary_text="Generic summary.",
+            headline="Knowledge models",
+            source_tokens=80,
+            metadata={"file_path": "internal/knowledge/models.go"},
+        )
+    )
+    tree.add(
+        SummaryNode(
+            id="fg",
+            corpus_id="repo",
+            unit_id="file:internal/graph/store.go",
+            level=1,
+            parent_id="package:store",
+            summary_text="Large graph store implementation.",
+            headline="Graph store",
+            source_tokens=500,
+            metadata={"file_path": "internal/graph/store.go"},
+        )
+    )
+    tree.add(
+        SummaryNode(
+            id="fj",
+            corpus_id="repo",
+            unit_id="file:internal/llm/job.go",
+            level=1,
+            parent_id="package:store",
+            summary_text="Job models.",
+            headline="Job models",
+            source_tokens=90,
+            metadata={"file_path": "internal/llm/job.go"},
+        )
+    )
+
+    await renderer.render(
+        tree,
+        repository_name="Sample",
+        audience="developer",
+        depth="deep",
+        scope_type="repository",
+    )
+
+    prompts = provider.captured_prompts or []
+    model_prompt = next(
+        prompt
+        for prompt in prompts
+        if "- Domain Model" in prompt and "- Key Abstractions" in prompt
+    )
+    domain_line = next(
+        line
+        for line in model_prompt.splitlines()
+        if line.startswith("- Domain Model:")
+    )
+    assert "internal/knowledge/models.go" in domain_line
+    assert "internal/llm/job.go" in domain_line
 
 
 @pytest.mark.asyncio
