@@ -308,6 +308,66 @@ func TestCliffNotesDeepeningOutcomeCompletesForDeepSections(t *testing.T) {
 	}
 }
 
+func TestShouldAcceptDeepenedSectionRejectsWeakerReplacement(t *testing.T) {
+	current := knowledgepkg.Section{
+		Title:            "Domain Model",
+		Content:          "Detailed grounded section",
+		Confidence:       knowledgepkg.ConfidenceHigh,
+		RefinementStatus: "deep",
+		Evidence: []knowledgepkg.Evidence{
+			{FilePath: "internal/api/auth.go"},
+			{FilePath: "internal/store/repo.go"},
+		},
+	}
+	incoming := knowledgepkg.Section{
+		Title:            "Domain Model",
+		Content:          "Thinner replacement",
+		Confidence:       knowledgepkg.ConfidenceLow,
+		RefinementStatus: "needs_evidence",
+		Evidence:         nil,
+	}
+
+	if shouldAcceptDeepenedSection(current, incoming) {
+		t.Fatal("expected weaker deepened section to be rejected")
+	}
+}
+
+func TestSelectAcceptedDeepenedSectionsKeepsOnlyImprovements(t *testing.T) {
+	existing := []knowledgepkg.Section{
+		{
+			Title:            "Domain Model",
+			Content:          "Detailed grounded section",
+			Confidence:       knowledgepkg.ConfidenceHigh,
+			RefinementStatus: "deep",
+			Evidence:         []knowledgepkg.Evidence{{FilePath: "internal/api/auth.go"}, {FilePath: "internal/store/repo.go"}},
+		},
+	}
+	incoming := []knowledgepkg.Section{
+		{
+			Title:            "Domain Model",
+			Content:          "Thinner replacement",
+			Confidence:       knowledgepkg.ConfidenceLow,
+			RefinementStatus: "needs_evidence",
+			Evidence:         nil,
+		},
+		{
+			Title:            "Key Abstractions",
+			Content:          "Improved abstractions section",
+			Confidence:       knowledgepkg.ConfidenceHigh,
+			RefinementStatus: "deep",
+			Evidence:         []knowledgepkg.Evidence{{FilePath: "workers/knowledge/servicer.py"}},
+		},
+	}
+
+	accepted := selectAcceptedDeepenedSections(existing, incoming, []string{"Domain Model", "Key Abstractions"})
+	if len(accepted) != 1 {
+		t.Fatalf("expected only one accepted replacement, got %#v", accepted)
+	}
+	if accepted[0].Title != "Key Abstractions" {
+		t.Fatalf("expected Key Abstractions to remain, got %#v", accepted)
+	}
+}
+
 func TestCliffNotesRenderPlanForArtifactUsesUnderstandingBackedDeepRender(t *testing.T) {
 	store := knowledgepkg.NewMemStore()
 	artifact, err := store.StoreKnowledgeArtifact(&knowledgepkg.Artifact{

@@ -859,6 +859,55 @@ func cliffNotesDeepeningOutcome(sections []knowledgepkg.Section, selectedTitles 
 	return knowledgepkg.RefinementFailed, fmt.Sprintf("deepening did not materially improve sections: %s", strings.Join(weakTitles, ", "))
 }
 
+func shouldAcceptDeepenedSection(current, incoming knowledgepkg.Section) bool {
+	currentRefs := len(current.Evidence)
+	incomingRefs := len(incoming.Evidence)
+	currentLow := current.Confidence == knowledgepkg.ConfidenceLow
+	incomingLow := incoming.Confidence == knowledgepkg.ConfidenceLow
+	currentStatus := strings.TrimSpace(current.RefinementStatus)
+	incomingStatus := strings.TrimSpace(incoming.RefinementStatus)
+	currentWeak := currentStatus == "needs_evidence" || currentStatus == "unsupported_claims"
+	incomingWeak := incomingStatus == "needs_evidence" || incomingStatus == "unsupported_claims"
+	if currentRefs > 0 && incomingRefs == 0 {
+		return false
+	}
+	if incomingLow && !currentLow {
+		return false
+	}
+	if incomingWeak && !currentWeak {
+		return false
+	}
+	if incomingRefs < currentRefs && len(strings.TrimSpace(incoming.Content)) <= len(strings.TrimSpace(current.Content)) {
+		return false
+	}
+	return true
+}
+
+func selectAcceptedDeepenedSections(existing, incoming []knowledgepkg.Section, selectedTitles []string) []knowledgepkg.Section {
+	if len(incoming) == 0 {
+		return nil
+	}
+	existingByTitle := make(map[string]knowledgepkg.Section, len(existing))
+	for _, sec := range existing {
+		existingByTitle[sec.Title] = sec
+	}
+	selected := make(map[string]struct{}, len(selectedTitles))
+	for _, title := range selectedTitles {
+		selected[title] = struct{}{}
+	}
+	accepted := make([]knowledgepkg.Section, 0, len(incoming))
+	for _, sec := range incoming {
+		if _, ok := selected[sec.Title]; !ok {
+			continue
+		}
+		current, ok := existingByTitle[sec.Title]
+		if !ok || shouldAcceptDeepenedSection(current, sec) {
+			accepted = append(accepted, sec)
+		}
+	}
+	return accepted
+}
+
 func understandingScopeForArtifact(scope knowledgepkg.ArtifactScope) knowledgepkg.ArtifactScope {
 	return scope.Normalize()
 }
@@ -1693,11 +1742,13 @@ func (r *Resolver) enqueueSingleCliffNotesDeepening(
 					RefinementStatus: refinementStatus,
 				})
 			}
+			existingSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
+			acceptedIncoming := selectAcceptedDeepenedSections(existingSections, incoming, selectedTitles)
 			selected := make(map[string]struct{}, len(selectedTitles))
 			for _, title := range selectedTitles {
 				selected[title] = struct{}{}
 			}
-			merged := knowledgepkg.MergeSectionsByTitle(r.KnowledgeStore.GetKnowledgeSections(artifact.ID), incoming, selected)
+			merged := knowledgepkg.MergeSectionsByTitle(existingSections, acceptedIncoming, selected)
 			if err := r.KnowledgeStore.SupersedeArtifact(artifact.ID, merged); err != nil {
 				markCliffNotesDeepRefinementStatus(r.KnowledgeStore, artifact, r.KnowledgeStore.GetKnowledgeSections(artifact.ID), selectedTitles, knowledgepkg.RefinementFailed, err.Error())
 				return err
