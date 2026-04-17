@@ -417,9 +417,89 @@ async def test_deep_system_slice_diversifies_top_level_areas() -> None:
         for prompt in prompts
         if "- System Purpose" in prompt and "- Architecture Overview" in prompt
     )
+    assert system_prompt.index("workers/knowledge/servicer.py") < system_prompt.index("cli/index.go")
+    assert system_prompt.index("internal/api/auth.go") < system_prompt.index("cli/index.go")
     assert "cli/index.go" in system_prompt
     assert "workers/knowledge/servicer.py" in system_prompt
     assert "web/src/app/page.tsx" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_deep_system_slice_includes_system_shape_guardrail() -> None:
+    provider = _RecordingProvider(response_text=_valid_deep_response_payload())
+    renderer = CliffNotesRenderer(provider=provider)
+    tree = _build_tree()
+    tree.add(
+        SummaryNode(
+            id="fc",
+            corpus_id="repo",
+            unit_id="file:cli/index.go",
+            level=1,
+            parent_id="package:api",
+            summary_text="CLI indexing entrypoint.",
+            headline="CLI entry",
+            source_tokens=170,
+            metadata={"file_path": "cli/index.go"},
+        )
+    )
+    tree.add(
+        SummaryNode(
+            id="fw",
+            corpus_id="repo",
+            unit_id="file:web/app/page.tsx",
+            level=1,
+            parent_id="package:api",
+            summary_text="Repository landing page.",
+            headline="Web entry",
+            source_tokens=180,
+            metadata={"file_path": "web/src/app/page.tsx"},
+        )
+    )
+
+    await renderer.render(
+        tree,
+        repository_name="Sample",
+        audience="developer",
+        depth="deep",
+        scope_type="repository",
+    )
+
+    prompts = provider.captured_prompts or []
+    system_prompt = next(
+        prompt
+        for prompt in prompts
+        if "- System Purpose" in prompt and "- Architecture Overview" in prompt
+    )
+    assert "=== System shape guardrail ===" in system_prompt
+    assert "multi-surface code intelligence system" in system_prompt
+    assert "- API/GraphQL surface: `internal/api/auth.go`" in system_prompt
+    assert "- web product surface: `web/src/app/page.tsx`" in system_prompt
+    assert "- CLI surface: `cli/index.go`" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_deep_system_slice_includes_contrastive_examples() -> None:
+    provider = _RecordingProvider(response_text=_valid_deep_response_payload())
+    renderer = CliffNotesRenderer(provider=provider)
+    tree = _build_tree()
+
+    await renderer.render(
+        tree,
+        repository_name="Sample",
+        audience="developer",
+        depth="deep",
+        scope_type="repository",
+    )
+
+    prompts = provider.captured_prompts or []
+    system_prompt = next(
+        prompt
+        for prompt in prompts
+        if "- System Purpose" in prompt and "- Architecture Overview" in prompt
+    )
+    assert "Good System Purpose example:" in system_prompt
+    assert "Bad System Purpose example:" in system_prompt
+    assert "Good Architecture Overview example:" in system_prompt
 
 
 @pytest.mark.asyncio

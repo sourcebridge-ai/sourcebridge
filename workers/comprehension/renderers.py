@@ -58,7 +58,7 @@ from workers.reasoning.types import LLMUsageRecord
 log = structlog.get_logger()
 
 SECTION_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "System Purpose": ("entry", "serve", "cli", "web", "api", "worker", "product", "command"),
+    "System Purpose": ("entry", "serve", "web", "api", "worker", "product", "graphql", "knowledge", "artifact", "ui"),
     "Architecture Overview": ("api", "graphql", "worker", "web", "service", "orchestr", "artifact", "knowledge"),
     "External Dependencies": ("openai", "anthropic", "openrouter", "surreal", "docker", "cloudflare", "ollama", "kubectl"),
     "Domain Model": ("repository", "artifact", "understanding", "job", "section", "knowledge", "graph", "requirement"),
@@ -103,6 +103,34 @@ GROUP_INSTRUCTIONS: dict[tuple[str, ...], str] = {
     ),
 }
 
+SYSTEM_GROUP_PREFERRED_AREAS: tuple[str, ...] = ("internal_api", "workers", "web", "cli")
+
+SECTION_AREA_PRIORITIES: dict[str, tuple[str, ...]] = {
+    "System Purpose": ("internal_api", "web", "workers", "cli"),
+    "Architecture Overview": ("internal_api", "workers", "web", "cli"),
+    "Core System Flows": ("workers", "internal_api", "web", "cli"),
+}
+
+GROUP_FEWSHOT_EXAMPLES: dict[tuple[str, ...], str] = {
+    DEEP_SECTION_GROUPS[0]: """\
+=== Quality examples for this slice ===
+Good System Purpose example:
+- "This repository implements a multi-surface code intelligence system. The API layer coordinates requests,
+  worker services perform indexing and knowledge generation, and CLI tools expose direct developer workflows.
+  The purpose is broader than any one interface."
+
+Bad System Purpose example:
+- "This repository is mainly a CLI for indexing code."
+
+Good Architecture Overview example:
+- "The architecture combines an API/resolver surface, background workers, and user-facing tools. The API triggers
+  long-running knowledge jobs, workers execute analysis and generation, and CLI or web surfaces consume the results."
+
+Bad Architecture Overview example:
+- "The architecture is a CLI plus some helpers."
+""",
+}
+
 
 def _is_provider_compute_error(exc: Exception) -> bool:
     text = str(exc).lower()
@@ -131,6 +159,10 @@ Scope: {scope_type}{scope_path_suffix}
 {file_summaries}
 
 {pre_analysis_block}
+
+{few_shot_examples_block}
+
+{system_shape_guardrail_block}
 
 === Active relevance profile ===
 {relevance_profile}
@@ -339,6 +371,8 @@ class CliffNotesRenderer:
                     group_nodes=group_nodes,
                     file_nodes=file_nodes,
                     pre_analysis_block=pa_block,
+                    few_shot_examples_block="",
+                    system_shape_guardrail_block="",
                     relevance_profile=relevance_profile,
                     depth_instructions=depth_instructions,
                     required_sections=required_sections,
@@ -448,6 +482,12 @@ class CliffNotesRenderer:
                     group_nodes=group_nodes,
                     file_nodes=file_nodes,
                     pre_analysis_block=pre_analysis_block,
+                    few_shot_examples_block=GROUP_FEWSHOT_EXAMPLES.get(section_group, ""),
+                    system_shape_guardrail_block=self._build_system_shape_guardrail(
+                        section_group,
+                        group_nodes=group_nodes,
+                        file_nodes=file_nodes,
+                    ),
                     relevance_profile=relevance_profile,
                     depth_instructions=(
                         "IMPORTANT: This is a DEEP themed field guide slice. Produce evidence-dense sections, "
@@ -521,6 +561,8 @@ class CliffNotesRenderer:
         group_nodes: list[SummaryNode],
         file_nodes: list[SummaryNode],
         pre_analysis_block: str,
+        few_shot_examples_block: str,
+        system_shape_guardrail_block: str,
         relevance_profile: str,
         depth_instructions: str,
         required_sections: list[str],
@@ -541,6 +583,8 @@ class CliffNotesRenderer:
             group_summaries=self._format_summaries(group_nodes, label_prefix="Subsystem"),
             file_summaries=self._format_summaries(file_nodes, label_prefix="File"),
             pre_analysis_block=pre_analysis_block,
+            few_shot_examples_block=few_shot_examples_block,
+            system_shape_guardrail_block=system_shape_guardrail_block,
             relevance_profile=relevance_profile,
             depth_instructions=depth_instructions,
             section_count=len(required_sections),
@@ -735,10 +779,26 @@ class CliffNotesRenderer:
         selected: list[SummaryNode] = []
         seen: set[str] = set()
         seen_areas: set[str] = set()
-        diversify = any(
+        system_slice = any(
             section in {"System Purpose", "Architecture Overview", "Core System Flows", "Suggested Starting Points"}
             for section in sections
         )
+        diversify = system_slice
+        if system_slice:
+            for area in SYSTEM_GROUP_PREFERRED_AREAS:
+                for node in all_file_nodes:
+                    if node.unit_id in seen:
+                        continue
+                    if _node_area(node) != area:
+                        continue
+                    if relevance_penalty(_node_label(node), profile=relevance_profile, scope_path=scope_path) != 0:
+                        continue
+                    selected.append(node)
+                    seen.add(node.unit_id)
+                    seen_areas.add(area)
+                    break
+                if len(selected) >= limit:
+                    return selected
         for title in sections:
             for node in self._rank_nodes_for_section(
                 title,
@@ -788,6 +848,45 @@ class CliffNotesRenderer:
             )
         return base
 
+    def _build_system_shape_guardrail(
+        self,
+        section_group: tuple[str, ...],
+        *,
+        group_nodes: list[SummaryNode],
+        file_nodes: list[SummaryNode],
+    ) -> str:
+        if section_group != DEEP_SECTION_GROUPS[0]:
+            return ""
+        area_examples: dict[str, str] = {}
+        for node in [*file_nodes, *group_nodes]:
+            area = _node_area(node)
+            if not area or area in area_examples:
+                continue
+            area_examples[area] = _node_label(node)
+
+        preferred_order = ("internal_api", "web", "workers", "cli")
+        surface_names = {
+            "internal_api": "API/GraphQL surface",
+            "web": "web product surface",
+            "workers": "background worker surface",
+            "cli": "CLI surface",
+        }
+        bullets = []
+        for area in preferred_order:
+            example = area_examples.get(area)
+            if example:
+                bullets.append(f"- {surface_names[area]}: `{example}`")
+        if not bullets:
+            return ""
+        return (
+            "=== System shape guardrail ===\n"
+            "Treat these evidence anchors as the primary basis for repo-purpose and architecture framing.\n"
+            "If API/web/worker evidence is present, describe the repository as a multi-surface code intelligence "
+            "system and mention CLI as one access path rather than the dominant purpose.\n"
+            + "\n".join(bullets)
+            + "\n"
+        )
+
     def _rank_nodes_for_section(
         self,
         title: str,
@@ -799,10 +898,13 @@ class CliffNotesRenderer:
         scope_path: str,
     ) -> list[SummaryNode]:
         keywords = SECTION_KEYWORDS.get(title, ())
-        scored: list[tuple[int, int, int, int, SummaryNode]] = []
+        area_priorities = SECTION_AREA_PRIORITIES.get(title, ())
+        scored: list[tuple[int, int, int, int, int, SummaryNode]] = []
         for idx, node in enumerate(nodes):
             label = _node_label(node)
             penalty = relevance_penalty(label, profile=relevance_profile, scope_path=scope_path)
+            area = _node_area(node)
+            area_rank = area_priorities.index(area) if area in area_priorities else len(area_priorities)
             text = " ".join(
                 part
                 for part in [
@@ -819,6 +921,7 @@ class CliffNotesRenderer:
             scored.append(
                 (
                     penalty,
+                    area_rank,
                     -keyword_hits,
                     -node.source_tokens,
                     idx,
