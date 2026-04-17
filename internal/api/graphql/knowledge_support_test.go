@@ -368,6 +368,44 @@ func TestSelectAcceptedDeepenedSectionsKeepsOnlyImprovements(t *testing.T) {
 	}
 }
 
+func TestCliffNotesDeepeningTargetsRequeuesFailedWeakSections(t *testing.T) {
+	store := knowledgepkg.NewMemStore()
+	artifact, err := store.StoreKnowledgeArtifact(&knowledgepkg.Artifact{
+		RepositoryID: "repo-1",
+		Type:         knowledgepkg.ArtifactCliffNotes,
+		Audience:     knowledgepkg.AudienceDeveloper,
+		Depth:        knowledgepkg.DepthDeep,
+		Scope:        &knowledgepkg.ArtifactScope{ScopeType: knowledgepkg.ScopeRepository},
+		Status:       knowledgepkg.StatusReady,
+	})
+	if err != nil {
+		t.Fatalf("StoreKnowledgeArtifact: %v", err)
+	}
+	sections := []knowledgepkg.Section{
+		{Title: "Domain Model", SectionKey: "domain_model", RefinementStatus: "needs_evidence", Confidence: knowledgepkg.ConfidenceLow},
+		{Title: "Architecture Overview", SectionKey: "architecture_overview", RefinementStatus: "deep", Confidence: knowledgepkg.ConfidenceHigh},
+	}
+	if err := store.StoreKnowledgeSections(artifact.ID, sections); err != nil {
+		t.Fatalf("StoreKnowledgeSections: %v", err)
+	}
+	if err := store.StoreRefinementUnits(artifact.ID, []knowledgepkg.RefinementUnit{
+		{
+			SectionKey:     "domain_model",
+			SectionTitle:   "Domain Model",
+			RefinementType: cliffNotesDeepRefinementType,
+			Status:         knowledgepkg.RefinementFailed,
+			LastError:      "deepening did not materially improve sections: Domain Model",
+		},
+	}); err != nil {
+		t.Fatalf("StoreRefinementUnits: %v", err)
+	}
+
+	targets := cliffNotesDeepeningTargets(store, artifact)
+	if !containsString(targets, "Domain Model") {
+		t.Fatalf("expected failed weak section to be requeued, got %#v", targets)
+	}
+}
+
 func TestCliffNotesRenderPlanForArtifactUsesUnderstandingBackedDeepRender(t *testing.T) {
 	store := knowledgepkg.NewMemStore()
 	artifact, err := store.StoreKnowledgeArtifact(&knowledgepkg.Artifact{
