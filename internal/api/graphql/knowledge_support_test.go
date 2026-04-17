@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sourcebridge/sourcebridge/internal/graph"
@@ -271,6 +272,39 @@ func TestMarkCliffNotesDeepRefinementStatusTracksAttempts(t *testing.T) {
 	}
 	if unit.LastError != "boom" {
 		t.Fatalf("expected last error boom, got %q", unit.LastError)
+	}
+}
+
+func TestCliffNotesDeepeningOutcomeFailsForWeakSections(t *testing.T) {
+	sections := []knowledgepkg.Section{
+		{Title: "Domain Model", SectionKey: "domain_model", RefinementStatus: "needs_evidence", Confidence: knowledgepkg.ConfidenceLow},
+		{Title: "Key Abstractions", SectionKey: "key_abstractions", RefinementStatus: "deep", Confidence: knowledgepkg.ConfidenceHigh},
+	}
+
+	status, lastError := cliffNotesDeepeningOutcome(sections, []string{"Domain Model", "Key Abstractions"})
+	if status != knowledgepkg.RefinementFailed {
+		t.Fatalf("expected failed status, got %q", status)
+	}
+	if lastError == "" {
+		t.Fatalf("expected non-empty error, got %q", lastError)
+	}
+	if !strings.Contains(lastError, "Domain Model") {
+		t.Fatalf("expected Domain Model in error, got %q", lastError)
+	}
+}
+
+func TestCliffNotesDeepeningOutcomeCompletesForDeepSections(t *testing.T) {
+	sections := []knowledgepkg.Section{
+		{Title: "Domain Model", SectionKey: "domain_model", RefinementStatus: "deep", Confidence: knowledgepkg.ConfidenceHigh},
+		{Title: "Key Abstractions", SectionKey: "key_abstractions", RefinementStatus: "deep", Confidence: knowledgepkg.ConfidenceMedium},
+	}
+
+	status, lastError := cliffNotesDeepeningOutcome(sections, []string{"Domain Model", "Key Abstractions"})
+	if status != knowledgepkg.RefinementCompleted {
+		t.Fatalf("expected completed status, got %q", status)
+	}
+	if lastError != "" {
+		t.Fatalf("expected empty error, got %q", lastError)
 	}
 }
 

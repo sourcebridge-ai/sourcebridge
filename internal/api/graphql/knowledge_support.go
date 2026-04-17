@@ -833,6 +833,32 @@ func markCliffNotesDeepRefinementStatus(
 	_ = store.StoreRefinementUnits(artifact.ID, units)
 }
 
+func cliffNotesDeepeningOutcome(sections []knowledgepkg.Section, selectedTitles []string) (knowledgepkg.RefinementStatus, string) {
+	if len(selectedTitles) == 0 {
+		return knowledgepkg.RefinementCompleted, ""
+	}
+	byTitle := make(map[string]knowledgepkg.Section, len(sections))
+	for _, sec := range sections {
+		byTitle[sec.Title] = sec
+	}
+	var weakTitles []string
+	for _, title := range selectedTitles {
+		sec, ok := byTitle[title]
+		if !ok {
+			weakTitles = append(weakTitles, title)
+			continue
+		}
+		refinementStatus := strings.TrimSpace(sec.RefinementStatus)
+		if refinementStatus != "deep" || sec.Confidence == knowledgepkg.ConfidenceLow {
+			weakTitles = append(weakTitles, title)
+		}
+	}
+	if len(weakTitles) == 0 {
+		return knowledgepkg.RefinementCompleted, ""
+	}
+	return knowledgepkg.RefinementFailed, fmt.Sprintf("deepening did not materially improve sections: %s", strings.Join(weakTitles, ", "))
+}
+
 func understandingScopeForArtifact(scope knowledgepkg.ArtifactScope) knowledgepkg.ArtifactScope {
 	return scope.Normalize()
 }
@@ -1676,7 +1702,8 @@ func (r *Resolver) enqueueSingleCliffNotesDeepening(
 				markCliffNotesDeepRefinementStatus(r.KnowledgeStore, artifact, r.KnowledgeStore.GetKnowledgeSections(artifact.ID), selectedTitles, knowledgepkg.RefinementFailed, err.Error())
 				return err
 			}
-			markCliffNotesDeepRefinementStatus(r.KnowledgeStore, artifact, merged, selectedTitles, knowledgepkg.RefinementCompleted, "")
+			outcome, outcomeError := cliffNotesDeepeningOutcome(merged, selectedTitles)
+			markCliffNotesDeepRefinementStatus(r.KnowledgeStore, artifact, merged, selectedTitles, outcome, outcomeError)
 			rt.ReportProgress(1.0, "ready", "Section deepening complete")
 			return nil
 		},
