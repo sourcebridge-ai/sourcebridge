@@ -111,14 +111,15 @@ def wait_repo_ready(api_url: str, token: str, repo_id: str, timeout_s: int = 180
     last_status = ""
     while time.time() - started < timeout_s:
         data = graphql(api_url, token, f'{{ repository(id: "{repo_id}") {{ status }} }}')
-        status = (((data.get("data") or {}).get("repository") or {}).get("status") or "").upper()
+        raw_status = (((data.get("data") or {}).get("repository") or {}).get("status") or "").strip()
+        status = raw_status.upper()
         if status == "READY":
             return
         if status == "ERROR":
             raise RuntimeError("repository indexing failed")
-        if status and status != last_status:
-            print(f"[bench] repository status={status}", flush=True)
-            last_status = status
+        if raw_status and raw_status != last_status:
+            print(f"[bench] repository status={raw_status}", flush=True)
+            last_status = raw_status
         time.sleep(5)
     raise RuntimeError("timed out waiting for repository ready")
 
