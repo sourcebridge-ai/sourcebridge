@@ -65,6 +65,7 @@ Summarize this file based on the summaries of its segments below.
 Constraints:
 - Output format: first line is a headline (≤100 chars), then a blank line, then a body of 3-4 short sentences.
 - Explain what role this file plays in the repository, not a line-by-line walkthrough.
+- Treat the structured file facts as authoritative scaffolding for the file's role, shape, and signals.
 - Cross-reference segments when one depends on another.
 - Flag anything unusual (complex logic, heavy side effects, test/mock status).
 - Keep the body under 160 words.
@@ -74,6 +75,9 @@ Context:
 - File: {file_path}
 - Language: {language}
 - Segment count: {segment_count}
+
+Structured file facts:
+{file_facts}
 
 Segment summaries:
 {segment_summaries}
@@ -89,6 +93,7 @@ Summarize this package/module based on the summaries of its files below.
 Constraints:
 - Output format: first line is a headline (≤100 chars), then a blank line, then a body of 4-5 short sentences.
 - Explain what this package is for, how its files cooperate, and what depends on it.
+- Use the structured package facts to identify the package's dominant execution role before you generalize from file summaries.
 - Flag cross-package collaboration you can infer from the file summaries.
 - Keep the body under 220 words.
 
@@ -96,6 +101,9 @@ Context:
 - Repository: {repository_name}
 - Package: {package_label}
 - File count: {file_count}
+
+Structured package facts:
+{package_facts}
 
 File summaries:
 {file_summaries}
@@ -114,6 +122,7 @@ Constraints:
 - Output format: headline (≤120 chars), blank line, then 6-8 short sentences.
 - Cover: what the repo is, who it serves, the main building blocks, the
   primary execution flows, and any notable dependencies/infrastructure.
+- Start from the structured repository facts so the summary reflects the indexed system shape before stylistic synthesis.
 - Do NOT invent details that aren't in the package summaries.
 - Do NOT include marketing language.
 - Keep the body under 320 words.
@@ -123,6 +132,9 @@ Context:
 - Package count: {package_count}
 - Total files: {file_count}
 - Total segments: {segment_count}
+
+Structured repository facts:
+{root_facts}
 
 Package summaries:
 {package_summaries}
@@ -155,14 +167,17 @@ def build_file_prompt(
     file_path: str,
     language: str,
     segment_summaries: list[str],
+    file_facts: list[str],
 ) -> str:
     """Build a file-level summary prompt from child segment summaries."""
     formatted = "\n\n".join(f"- {s.strip()}" for s in segment_summaries if s.strip())
+    facts = "\n".join(f"- {fact.strip()}" for fact in file_facts if fact.strip())
     return FILE_SUMMARY_TEMPLATE.format(
         repository_name=repository_name or "unknown",
         file_path=file_path or "unknown",
         language=language or "unknown",
         segment_count=len(segment_summaries),
+        file_facts=facts or "(no structured file facts)",
         segment_summaries=formatted or "(no segment summaries)",
     )
 
@@ -172,13 +187,16 @@ def build_package_prompt(
     repository_name: str,
     package_label: str,
     file_summaries: list[str],
+    package_facts: list[str],
 ) -> str:
     """Build a package-level summary prompt from child file summaries."""
     formatted = "\n\n".join(f"- {s.strip()}" for s in file_summaries if s.strip())
+    facts = "\n".join(f"- {fact.strip()}" for fact in package_facts if fact.strip())
     return PACKAGE_SUMMARY_TEMPLATE.format(
         repository_name=repository_name or "unknown",
         package_label=package_label or "package",
         file_count=len(file_summaries),
+        package_facts=facts or "(no structured package facts)",
         file_summaries=formatted or "(no file summaries)",
     )
 
@@ -189,13 +207,16 @@ def build_root_prompt(
     package_summaries: list[str],
     file_count: int,
     segment_count: int,
+    root_facts: list[str],
 ) -> str:
     """Build the repo-level summary prompt from child package summaries."""
     formatted = "\n\n".join(f"- {s.strip()}" for s in package_summaries if s.strip())
+    facts = "\n".join(f"- {fact.strip()}" for fact in root_facts if fact.strip())
     return ROOT_SUMMARY_TEMPLATE.format(
         repository_name=repository_name or "unknown",
         package_count=len(package_summaries),
         file_count=file_count,
         segment_count=segment_count,
+        root_facts=facts or "(no structured repository facts)",
         package_summaries=formatted or "(no package summaries)",
     )

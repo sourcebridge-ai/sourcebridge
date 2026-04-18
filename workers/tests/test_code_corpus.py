@@ -201,3 +201,57 @@ def test_code_corpus_chunks_noisy_integration_files_without_losing_symbol_names(
     joined = "\n".join(bodies)
     assert "helper_0" in joined
     assert "helper_7" in joined
+
+
+def test_code_corpus_infers_path_and_dependency_signals() -> None:
+    snap = {
+        "repository_id": "repo-signal",
+        "repository_name": "SignalRepo",
+        "file_count": 1,
+        "symbol_count": 1,
+        "entry_points": [
+            {
+                "id": "sym-auth",
+                "name": "HandleLogin",
+                "kind": "function",
+                "signature": "func HandleLogin(client graphql.Client, token string) error",
+                "doc_comment": "Routes login requests through the GraphQL auth client.",
+                "file_path": "internal/api/auth.go",
+            }
+        ],
+    }
+    corpus = CodeCorpus(snapshot=snap)
+    leaf = next(iter(walk_leaves(corpus)))
+    metadata = leaf.metadata
+    assert "api" in (metadata.get("path_signals") or [])
+    assert "auth" in (metadata.get("path_signals") or [])
+    assert "route" in (metadata.get("path_signals") or [])
+    assert "repository" not in (metadata.get("entity_signals") or [])
+    assert "graphql" in (metadata.get("external_dependency_signals") or [])
+
+
+def test_code_corpus_infers_domain_entity_signals() -> None:
+    snap = {
+        "repository_id": "repo-entity",
+        "repository_name": "EntityRepo",
+        "file_count": 1,
+        "symbol_count": 1,
+        "entry_points": [
+            {
+                "id": "sym-knowledge",
+                "name": "BuildCliffNotesArtifact",
+                "kind": "function",
+                "signature": "func BuildCliffNotesArtifact(job Job, repo Repository) Artifact",
+                "doc_comment": "Builds a knowledge artifact for repository understanding jobs.",
+                "file_path": "internal/knowledge/artifact_builder.go",
+            }
+        ],
+    }
+    corpus = CodeCorpus(snapshot=snap)
+    leaf = next(iter(walk_leaves(corpus)))
+    metadata = leaf.metadata
+    entities = metadata.get("entity_signals") or []
+    assert "repository" in entities
+    assert "knowledge_artifact" in entities
+    assert "understanding" in entities
+    assert "job" in entities

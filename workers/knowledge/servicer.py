@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import json
 import os
 
@@ -52,6 +53,14 @@ from workers.knowledge.workflow_story import generate_workflow_story
 from workers.reasoning.types import LLMUsageRecord
 
 log = structlog.get_logger()
+
+
+def _supports_kwarg(fn: object, name: str) -> bool:
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    return name in sig.parameters
 
 
 # SOURCEBRIDGE_CLIFF_NOTES_STRATEGY is a comma-separated preference chain
@@ -253,7 +262,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         return {
             "hierarchical": HierarchicalStrategy(
                 provider=provider,
-                config=HierarchicalConfig.from_env(repository_name=repo_name),
+                config=HierarchicalConfig.from_env(repository_name=repo_name, depth=depth),
             ),
             "long_context_direct": LongContextDirectStrategy(
                 provider=provider,
@@ -476,14 +485,29 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             "packages": len(by_level.get(2, [])),
             "root": len(by_level.get(3, [])),
         }
+        corpus_revision_fp = corpus.revision_fingerprint()
         cached_tree = None
         if self._summary_node_cache is not None:
             try:
-                cached_tree = await self._summary_node_cache.load_tree(
-                    corpus_id=corpus.corpus_id,
-                    corpus_type=corpus.corpus_type,
-                    strategy="hierarchical",
-                )
+                load_kwargs = {
+                    "corpus_id": corpus.corpus_id,
+                    "corpus_type": corpus.corpus_type,
+                    "strategy": "hierarchical",
+                }
+                if _supports_kwarg(self._summary_node_cache.load_tree, "depth"):
+                    load_kwargs["depth"] = depth
+                cached_tree = await self._summary_node_cache.load_tree(**load_kwargs)
+                render_only = bool(getattr(render_meta, "render_only", False))
+                understanding_depth = str(getattr(render_meta, "understanding_depth", "") or "").strip().lower()
+                if (
+                    render_only
+                    and cached_tree is None
+                    and understanding_depth
+                    and understanding_depth != depth
+                    and _supports_kwarg(self._summary_node_cache.load_tree, "depth")
+                ):
+                    load_kwargs["depth"] = understanding_depth
+                    cached_tree = await self._summary_node_cache.load_tree(**load_kwargs)
             except Exception as exc:
                 log.warning(
                     "summary_node_cache_load_failed",
@@ -603,7 +627,10 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 await sync_resume_state(tree, cached_nodes_loaded=cached_nodes_loaded)
                 return
             try:
-                await self._summary_node_cache.store_tree(tree, stage=stage)
+                store_kwargs = {"stage": stage}
+                if _supports_kwarg(self._summary_node_cache.store_tree, "depth"):
+                    store_kwargs["depth"] = depth
+                await self._summary_node_cache.store_tree(tree, **store_kwargs)
             except Exception as exc:
                 log.warning(
                     "summary_node_cache_store_failed",
@@ -618,7 +645,10 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             if self._summary_node_cache is None:
                 return
             try:
-                await self._summary_node_cache.store_node(tree, node, stage=stage)
+                store_kwargs = {"stage": stage}
+                if _supports_kwarg(self._summary_node_cache.store_node, "depth"):
+                    store_kwargs["depth"] = depth
+                await self._summary_node_cache.store_node(tree, node, **store_kwargs)
             except Exception as exc:
                 log.warning(
                     "summary_node_cache_node_store_failed",
@@ -646,6 +676,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
 
         cfg = HierarchicalConfig.from_env(
             repository_name=request.repository_name or corpus.root().label,
+            depth=depth,
         )
         cfg.cached_tree = cached_tree
         cfg.on_stage_completed = persist_stage
@@ -658,6 +689,8 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
 
         render_only = bool(getattr(render_meta, "render_only", False))
         selected_section_titles = list(getattr(render_meta, "selected_section_titles", None) or [])
+        relevance_profile = str(getattr(render_meta, "relevance_profile", "") or "").strip().lower() or "product_core"
+        understanding_depth = str(getattr(render_meta, "understanding_depth", "") or "").strip().lower()
 
         log.info(
             "cliff_notes_hierarchical_started",
@@ -695,7 +728,17 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             await sync_resume_state(cached_tree, cached_nodes_loaded=len(cached_tree.nodes))
 
         try:
-            if render_only and cached_tree is not None and cached_tree.root() is not None:
+            if render_only:
+                if cached_tree is None or cached_tree.root() is None:
+                    raise RuntimeError(
+                        "render-only cliff notes requested without a reusable understanding tree; "
+                        "rebuild understanding instead of triggering a hidden hierarchical pass"
+                    )
+                if corpus_revision_fp and cached_tree.revision_fp and cached_tree.revision_fp != corpus_revision_fp:
+                    raise RuntimeError(
+                        "render-only cliff notes requested with a stale understanding tree revision; "
+                        "rebuild understanding before rendering"
+                    )
                 tree = cached_tree
                 diagnostics = {
                     "fallback_count": 0,
@@ -713,11 +756,13 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     {
                         "cached_nodes": len(cached_tree.nodes),
                         "selected_sections": selected_section_titles,
+                        "understanding_depth": understanding_depth or depth,
+                        "relevance_profile": relevance_profile,
                     },
                 )
                 await sync_resume_state(tree, cached_nodes_loaded=len(cached_tree.nodes))
             else:
-                tree = await strategy.build_tree(corpus)
+                tree = await strategy.build_tree(corpus, depth=depth)
                 diagnostics = strategy.diagnostics()
                 await sync_resume_state(
                     tree,
@@ -779,6 +824,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 scope_path=request.scope_path,
                 pre_analysis=pre_analysis,
                 required_section_titles=selected_section_titles or None,
+                relevance_profile=relevance_profile,
             )
 
             if usage.operation == "cliff_notes_render_fallback":
@@ -944,6 +990,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     confidence=sec.confidence,
                     inferred=sec.inferred,
                     evidence=evidence,
+                    refinement_status=sec.refinement_status,
                 )
             )
 
@@ -1051,6 +1098,12 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     file_paths=step.file_paths,
                     symbol_ids=step.symbol_ids,
                     estimated_time=step.estimated_time,
+                    prerequisite_steps=step.prerequisite_steps,
+                    difficulty=step.difficulty,
+                    exercises=step.exercises,
+                    checkpoint=step.checkpoint,
+                    confidence=step.confidence,
+                    refinement_status=step.refinement_status,
                 )
             )
 
@@ -1139,6 +1192,18 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     rationale=ev.rationale,
                 )
             )
+        detail_evidence = []
+        for ev in result.get("detail_evidence", []):
+            detail_evidence.append(
+                knowledge_pb2.KnowledgeEvidence(
+                    source_type=ev.source_type,
+                    source_id=ev.source_id,
+                    file_path=ev.file_path,
+                    line_start=ev.line_start,
+                    line_end=ev.line_end,
+                    rationale=ev.rationale,
+                )
+            )
         response = knowledge_pb2.GenerateArchitectureDiagramResponse(
             mermaid_source=str(result.get("mermaid_source", "")),
             raw_mermaid_source=str(result.get("raw_mermaid_source", "")),
@@ -1148,6 +1213,14 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             evidence=evidence,
             inferred_edges=[str(item) for item in result.get("inferred_edges", [])],
             usage=_llm_usage_proto(usage),
+            detail_mermaid_source=str(result.get("detail_mermaid_source", "")),
+            detail_raw_mermaid_source=str(result.get("detail_raw_mermaid_source", "")),
+            detail_validation_status=str(result.get("detail_validation_status", "")),
+            detail_repair_summary=str(result.get("detail_repair_summary", "")),
+            detail_diagram_summary=str(result.get("detail_diagram_summary", "")),
+            detail_subsystem_name=str(result.get("detail_subsystem_name", "")),
+            detail_candidate_subsystems=[str(item) for item in result.get("detail_candidate_subsystems", [])],
+            detail_evidence=detail_evidence,
         )
         if job_logger is not None:
             await job_logger.info(
@@ -1420,6 +1493,10 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     file_path=stop.file_path,
                     line_start=stop.line_start,
                     line_end=stop.line_end,
+                    trail=stop.trail,
+                    modification_hints=stop.modification_hints,
+                    confidence=stop.confidence,
+                    refinement_status=stop.refinement_status,
                 )
             )
 

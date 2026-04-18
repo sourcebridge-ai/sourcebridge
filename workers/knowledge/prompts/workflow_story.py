@@ -17,6 +17,18 @@ REQUIRED_WORKFLOW_STORY_SECTIONS = [
     "Where to Inspect or Modify",
 ]
 
+REQUIRED_WORKFLOW_STORY_SECTIONS_DEEP = [
+    "Goal",
+    "Likely Actor",
+    "Trigger",
+    "Main Steps",
+    "Behind the Scenes",
+    "Key Branches or Failure Points",
+    "Error Recovery",
+    "Observability",
+    "Where to Inspect or Modify",
+]
+
 WORKFLOW_STORY_SYSTEM = """\
 You are a senior product-minded software engineer creating a grounded workflow story.
 
@@ -50,8 +62,12 @@ def build_workflow_story_prompt(
     depth_guidance = {
         "summary": "Keep the story short: 5-7 concise sections and 3-5 main steps.",
         "medium": "Use 7 structured sections with 4-6 main steps.",
-        "deep": "Use 7 structured sections with fuller detail and 5-8 main steps.",
+        "deep": (
+            "Use 9 structured sections with 6-10 main steps. Every section must ground behavior in specific "
+            "files and functions. Include Error Recovery and Observability."
+        ),
     }
+    required_sections = REQUIRED_WORKFLOW_STORY_SECTIONS_DEEP if depth == "deep" else REQUIRED_WORKFLOW_STORY_SECTIONS
 
     scope_line = f"Repository scope for {repository_name}"
     if scope_type and scope_type != "repository":
@@ -110,7 +126,7 @@ Create a Workflow Story for this scope:
 {execution_block}
 **Output format**
 Return a JSON array of section objects with exactly these section titles in this order:
-{", ".join(REQUIRED_WORKFLOW_STORY_SECTIONS)}
+{", ".join(required_sections)}
 
 Each section object must have:
 - "title": string
@@ -135,6 +151,8 @@ Writing guidance:
 - Main Steps: ordered, readable steps in the user's journey
 - Behind the Scenes: what the app and backend do
 - Key Branches or Failure Points: what can diverge or go wrong
+- Error Recovery: how failures are caught, recovered, or surfaced
+- Observability: relevant logs, metrics, traces, or explicit absence of them
 - Where to Inspect or Modify: the most relevant files/symbols to read or change
 - Do not leave sections blank or say "insufficient data" unless the snapshot is truly empty.
 - Prefer specific files, symbols, routes, or steps from the execution path over generic architecture recap.

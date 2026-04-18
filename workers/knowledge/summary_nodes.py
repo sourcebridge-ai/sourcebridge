@@ -64,16 +64,21 @@ class SurrealSummaryNodeCache:
         corpus_id: str,
         corpus_type: str = "code",
         strategy: str = "hierarchical",
+        depth: str = "medium",
     ) -> SummaryTree | None:
         await self._ensure_connected()
-        sql = f"SELECT * FROM ca_summary_node WHERE corpus_id = {_sql_string(corpus_id)} ORDER BY level, unit_id;"
+        strategy_key = f"{strategy}:{depth}"
+        sql = (
+            f"SELECT * FROM ca_summary_node WHERE corpus_id = {_sql_string(corpus_id)} "
+            f"AND strategy = {_sql_string(strategy_key)} ORDER BY level, unit_id;"
+        )
         rows = _normalize_query_result(await self.client.query(sql))
         if not rows:
             return None
         tree = SummaryTree(
             corpus_id=corpus_id,
             corpus_type=corpus_type,
-            strategy=str(rows[0].get("strategy") or strategy),
+            strategy=str(rows[0].get("strategy") or strategy_key),
             revision_fp=str(rows[0].get("revision_fp") or ""),
         )
         for row in rows:
@@ -81,13 +86,13 @@ class SurrealSummaryNodeCache:
         log.info("summary_node_cache_loaded", corpus_id=corpus_id, nodes=len(tree.nodes))
         return tree
 
-    async def store_tree(self, tree: SummaryTree, *, stage: str | None = None) -> None:
+    async def store_tree(self, tree: SummaryTree, *, stage: str | None = None, depth: str = "medium") -> None:
         await self._ensure_connected()
         if not tree.nodes:
             return
         statements: list[str] = []
         for node in tree.nodes.values():
-            statements.append(self._upsert_statement(tree, node))
+            statements.append(self._upsert_statement(tree, node, depth=depth))
         await self.client.query("\n".join(statements))
         log.info(
             "summary_node_cache_stored",
@@ -96,9 +101,11 @@ class SurrealSummaryNodeCache:
             stage=stage,
         )
 
-    async def store_node(self, tree: SummaryTree, node: SummaryNode, *, stage: str | None = None) -> None:
+    async def store_node(
+        self, tree: SummaryTree, node: SummaryNode, *, stage: str | None = None, depth: str = "medium"
+    ) -> None:
         await self._ensure_connected()
-        await self.client.query(self._upsert_statement(tree, node))
+        await self.client.query(self._upsert_statement(tree, node, depth=depth))
         log.info(
             "summary_node_cache_node_stored",
             corpus_id=tree.corpus_id,
@@ -136,7 +143,7 @@ class SurrealSummaryNodeCache:
             metadata=metadata,
         )
 
-    def _upsert_statement(self, tree: SummaryTree, node: SummaryNode) -> str:
+    def _upsert_statement(self, tree: SummaryTree, node: SummaryNode, *, depth: str) -> str:
         record_id = node.id or str(uuid.uuid4())
         child_ids = json.dumps(node.child_ids)
         metadata = json.dumps(node.metadata, sort_keys=True)
@@ -147,7 +154,8 @@ class SurrealSummaryNodeCache:
         headline = _sql_string(node.headline)
         content_hash = _sql_string(node.content_hash)
         model_used = _sql_string(node.model_used)
-        strategy = _sql_string(node.strategy or tree.strategy)
+        base_strategy = (node.strategy or tree.strategy).split(":")[0]
+        strategy = _sql_string(f"{base_strategy}:{depth}")
         revision_fp = _sql_string(node.revision_fp or tree.revision_fp)
         child_ids_sql = _sql_string(child_ids)
         metadata_sql = _sql_string(metadata)

@@ -18,6 +18,7 @@ from workers.common.llm.provider import (
     require_nonempty,
 )
 from workers.knowledge.cliff_notes import _parse_sections
+from workers.knowledge.evidence import evaluate_evidence_gate, extract_code_tour_stop_evidence
 from workers.knowledge.prompts.code_tour import (
     CODE_TOUR_SYSTEM,
     build_code_tour_prompt,
@@ -37,6 +38,10 @@ class TourStop:
     file_path: str
     line_start: int = 0
     line_end: int = 0
+    trail: str = ""
+    modification_hints: list[str] = field(default_factory=list)
+    confidence: str = "medium"
+    refinement_status: str = ""
 
 
 @dataclass
@@ -107,8 +112,21 @@ async def generate_code_tour(
                 file_path=raw.get("file_path", ""),
                 line_start=raw.get("line_start", 0),
                 line_end=raw.get("line_end", 0),
+                trail=raw.get("trail", ""),
+                modification_hints=raw.get("modification_hints", []),
             )
         )
+
+    if depth == "deep":
+        for stop in stops:
+            gate = evaluate_evidence_gate(
+                text=f"{stop.description}\n" + "\n".join(stop.modification_hints),
+                evidence=extract_code_tour_stop_evidence(stop.file_path, stop.line_start, stop.line_end),
+                minimum=1,
+            )
+            if gate.below_threshold or gate.forbidden_phrases or not stop.trail:
+                stop.confidence = "low"
+                stop.refinement_status = "needs_evidence"
 
     usage = LLMUsageRecord(
         provider="llm",

@@ -18,6 +18,7 @@ from workers.common.llm.provider import (
     require_nonempty,
 )
 from workers.knowledge.cliff_notes import _parse_sections
+from workers.knowledge.evidence import evaluate_evidence_gate, extract_step_file_symbol_evidence
 from workers.knowledge.prompts.learning_path import (
     LEARNING_PATH_SYSTEM,
     build_learning_path_prompt,
@@ -38,6 +39,12 @@ class LearningStep:
     file_paths: list[str] = field(default_factory=list)
     symbol_ids: list[str] = field(default_factory=list)
     estimated_time: str = ""
+    prerequisite_steps: list[int] = field(default_factory=list)
+    difficulty: str = "intermediate"
+    exercises: list[str] = field(default_factory=list)
+    checkpoint: str = ""
+    confidence: str = "medium"
+    refinement_status: str = ""
 
 
 @dataclass
@@ -110,8 +117,23 @@ async def generate_learning_path(
                 file_paths=raw.get("file_paths", []),
                 symbol_ids=raw.get("symbol_ids", []),
                 estimated_time=raw.get("estimated_time", ""),
+                prerequisite_steps=raw.get("prerequisite_steps", []),
+                difficulty=raw.get("difficulty", "intermediate") or "intermediate",
+                exercises=raw.get("exercises", []),
+                checkpoint=raw.get("checkpoint", ""),
             )
         )
+
+    if depth == "deep":
+        for step in steps:
+            gate = evaluate_evidence_gate(
+                text=f"{step.objective}\n{step.content}\n" + "\n".join(step.exercises),
+                evidence=extract_step_file_symbol_evidence(step.content, step.file_paths),
+                minimum=2,
+            )
+            if gate.below_threshold or gate.forbidden_phrases or not step.exercises:
+                step.confidence = "low"
+                step.refinement_status = "needs_evidence"
 
     usage = LLMUsageRecord(
         provider="llm",

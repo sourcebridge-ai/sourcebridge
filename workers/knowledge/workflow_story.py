@@ -24,8 +24,10 @@ from workers.knowledge.cliff_notes import (
     _parse_evidence,
     _parse_sections,
 )
+from workers.knowledge.evidence import evaluate_evidence_gate, extract_section_evidence_refs
 from workers.knowledge.prompts.workflow_story import (
     REQUIRED_WORKFLOW_STORY_SECTIONS,
+    REQUIRED_WORKFLOW_STORY_SECTIONS_DEEP,
     WORKFLOW_STORY_SYSTEM,
     build_workflow_story_prompt,
 )
@@ -130,7 +132,7 @@ def _gather_scope_evidence(snapshot: dict[str, Any], limit: int = 4) -> list[Evi
     return evidence[:limit]
 
 
-def _title_lookup(sections: list[CliffNotesSection]) -> dict[str, CliffNotesSection]:
+def _title_lookup(sections: list[CliffNotesSection], required_sections: list[str]) -> dict[str, CliffNotesSection]:
     """Build a lookup mapping required section titles to LLM sections.
 
     Uses exact match first, then falls back to case-insensitive prefix matching
@@ -139,7 +141,7 @@ def _title_lookup(sections: list[CliffNotesSection]) -> dict[str, CliffNotesSect
     """
     exact = {section.title: section for section in sections}
     result: dict[str, CliffNotesSection] = {}
-    for required in REQUIRED_WORKFLOW_STORY_SECTIONS:
+    for required in required_sections:
         if required in exact:
             result[required] = exact[required]
             continue
@@ -361,6 +363,28 @@ def _build_workflow_fallbacks(
             inferred=True,
             evidence=shared_evidence[:3],
         ),
+        "Error Recovery": CliffNotesSection(
+            title="Error Recovery",
+            content=(
+                "Recovery behavior is not explicitly traced in the snapshot, so start by checking the branch "
+                "handlers and nearby tests for error-return paths, retries, and user-facing messages."
+            ),
+            summary="Inspect nearby branch handlers and tests for recovery behavior.",
+            confidence="low",
+            inferred=True,
+            evidence=shared_evidence[:2],
+        ),
+        "Observability": CliffNotesSection(
+            title="Observability",
+            content=(
+                "The snapshot does not surface explicit logs or metrics for this workflow. Verify nearby handlers, "
+                "worker entrypoints, and tests for logging calls, metrics increments, or trace spans."
+            ),
+            summary="Observability is thin or not surfaced in the snapshot.",
+            confidence="low",
+            inferred=True,
+            evidence=shared_evidence[:1],
+        ),
         "Where to Inspect or Modify": CliffNotesSection(
             title="Where to Inspect or Modify",
             content=inspect,
@@ -375,10 +399,12 @@ def _build_workflow_fallbacks(
 def _merge_with_fallbacks(
     sections: list[CliffNotesSection],
     fallback_sections: dict[str, CliffNotesSection],
+    *,
+    required_sections: list[str],
 ) -> list[CliffNotesSection]:
-    by_title = _title_lookup(sections)
+    by_title = _title_lookup(sections, required_sections)
     merged: list[CliffNotesSection] = []
-    for title in REQUIRED_WORKFLOW_STORY_SECTIONS:
+    for title in required_sections:
         fallback = fallback_sections[title]
         existing = by_title.get(title)
         if existing is None or _is_placeholder_content(existing.content):
@@ -469,10 +495,11 @@ async def generate_workflow_story(
             ]
 
         seen_titles: set[str] = set()
+        required_sections = REQUIRED_WORKFLOW_STORY_SECTIONS_DEEP if depth == "deep" else REQUIRED_WORKFLOW_STORY_SECTIONS
         for index, raw in enumerate(raw_sections):
             fallback_title = (
-                REQUIRED_WORKFLOW_STORY_SECTIONS[index]
-                if index < len(REQUIRED_WORKFLOW_STORY_SECTIONS)
+                required_sections[index]
+                if index < len(required_sections)
                 else f"Section {index + 1}"
             )
             normalized = _coerce_section(raw, fallback_title=fallback_title)
@@ -499,7 +526,20 @@ async def generate_workflow_story(
         snapshot=snapshot,
         execution_path=execution_path,
     )
-    sections = _merge_with_fallbacks(sections, fallback_sections)
+    required_sections = REQUIRED_WORKFLOW_STORY_SECTIONS_DEEP if depth == "deep" else REQUIRED_WORKFLOW_STORY_SECTIONS
+    sections = _merge_with_fallbacks(sections, fallback_sections, required_sections=required_sections)
+
+    if depth == "deep":
+        minimums = {"Main Steps": 3, "Behind the Scenes": 3, "Error Recovery": 2, "Observability": 1, "Where to Inspect or Modify": 3}
+        for section in sections:
+            gate = evaluate_evidence_gate(
+                text=f"{section.summary}\n{section.content}",
+                evidence=extract_section_evidence_refs(section.evidence),
+                minimum=minimums.get(section.title, 2),
+            )
+            if gate.below_threshold or gate.forbidden_phrases:
+                section.confidence = "low"
+                section.refinement_status = "needs_evidence"
 
     # --- Baseline quality instrumentation ---
     evidence_by_type: dict[str, int] = {}

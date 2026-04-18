@@ -262,17 +262,25 @@ func (x *GenerateArchitectureDiagramRequest) GetDeterministicDiagramJson() strin
 }
 
 type GenerateArchitectureDiagramResponse struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	MermaidSource    string                 `protobuf:"bytes,1,opt,name=mermaid_source,json=mermaidSource,proto3" json:"mermaid_source,omitempty"`
-	RawMermaidSource string                 `protobuf:"bytes,2,opt,name=raw_mermaid_source,json=rawMermaidSource,proto3" json:"raw_mermaid_source,omitempty"`
-	ValidationStatus string                 `protobuf:"bytes,3,opt,name=validation_status,json=validationStatus,proto3" json:"validation_status,omitempty"` // "valid", "repaired", "invalid"
-	RepairSummary    string                 `protobuf:"bytes,4,opt,name=repair_summary,json=repairSummary,proto3" json:"repair_summary,omitempty"`
-	DiagramSummary   string                 `protobuf:"bytes,5,opt,name=diagram_summary,json=diagramSummary,proto3" json:"diagram_summary,omitempty"`
-	Evidence         []*KnowledgeEvidence   `protobuf:"bytes,6,rep,name=evidence,proto3" json:"evidence,omitempty"`
-	InferredEdges    []string               `protobuf:"bytes,7,rep,name=inferred_edges,json=inferredEdges,proto3" json:"inferred_edges,omitempty"`
-	Usage            *v1.LLMUsage           `protobuf:"bytes,8,opt,name=usage,proto3" json:"usage,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	MermaidSource             string                 `protobuf:"bytes,1,opt,name=mermaid_source,json=mermaidSource,proto3" json:"mermaid_source,omitempty"`
+	RawMermaidSource          string                 `protobuf:"bytes,2,opt,name=raw_mermaid_source,json=rawMermaidSource,proto3" json:"raw_mermaid_source,omitempty"`
+	ValidationStatus          string                 `protobuf:"bytes,3,opt,name=validation_status,json=validationStatus,proto3" json:"validation_status,omitempty"` // "valid", "repaired", "invalid"
+	RepairSummary             string                 `protobuf:"bytes,4,opt,name=repair_summary,json=repairSummary,proto3" json:"repair_summary,omitempty"`
+	DiagramSummary            string                 `protobuf:"bytes,5,opt,name=diagram_summary,json=diagramSummary,proto3" json:"diagram_summary,omitempty"`
+	Evidence                  []*KnowledgeEvidence   `protobuf:"bytes,6,rep,name=evidence,proto3" json:"evidence,omitempty"`
+	InferredEdges             []string               `protobuf:"bytes,7,rep,name=inferred_edges,json=inferredEdges,proto3" json:"inferred_edges,omitempty"`
+	Usage                     *v1.LLMUsage           `protobuf:"bytes,8,opt,name=usage,proto3" json:"usage,omitempty"`
+	DetailMermaidSource       string                 `protobuf:"bytes,9,opt,name=detail_mermaid_source,json=detailMermaidSource,proto3" json:"detail_mermaid_source,omitempty"`
+	DetailRawMermaidSource    string                 `protobuf:"bytes,10,opt,name=detail_raw_mermaid_source,json=detailRawMermaidSource,proto3" json:"detail_raw_mermaid_source,omitempty"`
+	DetailValidationStatus    string                 `protobuf:"bytes,11,opt,name=detail_validation_status,json=detailValidationStatus,proto3" json:"detail_validation_status,omitempty"`
+	DetailRepairSummary       string                 `protobuf:"bytes,12,opt,name=detail_repair_summary,json=detailRepairSummary,proto3" json:"detail_repair_summary,omitempty"`
+	DetailDiagramSummary      string                 `protobuf:"bytes,13,opt,name=detail_diagram_summary,json=detailDiagramSummary,proto3" json:"detail_diagram_summary,omitempty"`
+	DetailSubsystemName       string                 `protobuf:"bytes,14,opt,name=detail_subsystem_name,json=detailSubsystemName,proto3" json:"detail_subsystem_name,omitempty"`
+	DetailCandidateSubsystems []string               `protobuf:"bytes,15,rep,name=detail_candidate_subsystems,json=detailCandidateSubsystems,proto3" json:"detail_candidate_subsystems,omitempty"`
+	DetailEvidence            []*KnowledgeEvidence   `protobuf:"bytes,16,rep,name=detail_evidence,json=detailEvidence,proto3" json:"detail_evidence,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *GenerateArchitectureDiagramResponse) Reset() {
@@ -357,6 +365,62 @@ func (x *GenerateArchitectureDiagramResponse) GetInferredEdges() []string {
 func (x *GenerateArchitectureDiagramResponse) GetUsage() *v1.LLMUsage {
 	if x != nil {
 		return x.Usage
+	}
+	return nil
+}
+
+func (x *GenerateArchitectureDiagramResponse) GetDetailMermaidSource() string {
+	if x != nil {
+		return x.DetailMermaidSource
+	}
+	return ""
+}
+
+func (x *GenerateArchitectureDiagramResponse) GetDetailRawMermaidSource() string {
+	if x != nil {
+		return x.DetailRawMermaidSource
+	}
+	return ""
+}
+
+func (x *GenerateArchitectureDiagramResponse) GetDetailValidationStatus() string {
+	if x != nil {
+		return x.DetailValidationStatus
+	}
+	return ""
+}
+
+func (x *GenerateArchitectureDiagramResponse) GetDetailRepairSummary() string {
+	if x != nil {
+		return x.DetailRepairSummary
+	}
+	return ""
+}
+
+func (x *GenerateArchitectureDiagramResponse) GetDetailDiagramSummary() string {
+	if x != nil {
+		return x.DetailDiagramSummary
+	}
+	return ""
+}
+
+func (x *GenerateArchitectureDiagramResponse) GetDetailSubsystemName() string {
+	if x != nil {
+		return x.DetailSubsystemName
+	}
+	return ""
+}
+
+func (x *GenerateArchitectureDiagramResponse) GetDetailCandidateSubsystems() []string {
+	if x != nil {
+		return x.DetailCandidateSubsystems
+	}
+	return nil
+}
+
+func (x *GenerateArchitectureDiagramResponse) GetDetailEvidence() []*KnowledgeEvidence {
+	if x != nil {
+		return x.DetailEvidence
 	}
 	return nil
 }
@@ -791,16 +855,22 @@ func (x *GenerateWorkflowStoryResponse) GetUsage() *v1.LLMUsage {
 }
 
 type LearningStep struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Order         int32                  `protobuf:"varint,1,opt,name=order,proto3" json:"order,omitempty"`
-	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
-	Objective     string                 `protobuf:"bytes,3,opt,name=objective,proto3" json:"objective,omitempty"`
-	Content       string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"` // markdown
-	FilePaths     []string               `protobuf:"bytes,5,rep,name=file_paths,json=filePaths,proto3" json:"file_paths,omitempty"`
-	SymbolIds     []string               `protobuf:"bytes,6,rep,name=symbol_ids,json=symbolIds,proto3" json:"symbol_ids,omitempty"`
-	EstimatedTime string                 `protobuf:"bytes,7,opt,name=estimated_time,json=estimatedTime,proto3" json:"estimated_time,omitempty"` // e.g. "15 minutes"
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Order             int32                  `protobuf:"varint,1,opt,name=order,proto3" json:"order,omitempty"`
+	Title             string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Objective         string                 `protobuf:"bytes,3,opt,name=objective,proto3" json:"objective,omitempty"`
+	Content           string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"` // markdown
+	FilePaths         []string               `protobuf:"bytes,5,rep,name=file_paths,json=filePaths,proto3" json:"file_paths,omitempty"`
+	SymbolIds         []string               `protobuf:"bytes,6,rep,name=symbol_ids,json=symbolIds,proto3" json:"symbol_ids,omitempty"`
+	EstimatedTime     string                 `protobuf:"bytes,7,opt,name=estimated_time,json=estimatedTime,proto3" json:"estimated_time,omitempty"` // e.g. "15 minutes"
+	PrerequisiteSteps []int32                `protobuf:"varint,8,rep,packed,name=prerequisite_steps,json=prerequisiteSteps,proto3" json:"prerequisite_steps,omitempty"`
+	Difficulty        string                 `protobuf:"bytes,9,opt,name=difficulty,proto3" json:"difficulty,omitempty"`
+	Exercises         []string               `protobuf:"bytes,10,rep,name=exercises,proto3" json:"exercises,omitempty"`
+	Checkpoint        string                 `protobuf:"bytes,11,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	Confidence        string                 `protobuf:"bytes,12,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	RefinementStatus  string                 `protobuf:"bytes,13,opt,name=refinement_status,json=refinementStatus,proto3" json:"refinement_status,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *LearningStep) Reset() {
@@ -878,6 +948,48 @@ func (x *LearningStep) GetSymbolIds() []string {
 func (x *LearningStep) GetEstimatedTime() string {
 	if x != nil {
 		return x.EstimatedTime
+	}
+	return ""
+}
+
+func (x *LearningStep) GetPrerequisiteSteps() []int32 {
+	if x != nil {
+		return x.PrerequisiteSteps
+	}
+	return nil
+}
+
+func (x *LearningStep) GetDifficulty() string {
+	if x != nil {
+		return x.Difficulty
+	}
+	return ""
+}
+
+func (x *LearningStep) GetExercises() []string {
+	if x != nil {
+		return x.Exercises
+	}
+	return nil
+}
+
+func (x *LearningStep) GetCheckpoint() string {
+	if x != nil {
+		return x.Checkpoint
+	}
+	return ""
+}
+
+func (x *LearningStep) GetConfidence() string {
+	if x != nil {
+		return x.Confidence
+	}
+	return ""
+}
+
+func (x *LearningStep) GetRefinementStatus() string {
+	if x != nil {
+		return x.RefinementStatus
 	}
 	return ""
 }
@@ -1181,15 +1293,19 @@ func (x *GenerateCodeTourResponse) GetUsage() *v1.LLMUsage {
 }
 
 type CodeTourStop struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Order         int32                  `protobuf:"varint,1,opt,name=order,proto3" json:"order,omitempty"`
-	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
-	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"` // markdown
-	FilePath      string                 `protobuf:"bytes,4,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
-	LineStart     int32                  `protobuf:"varint,5,opt,name=line_start,json=lineStart,proto3" json:"line_start,omitempty"`
-	LineEnd       int32                  `protobuf:"varint,6,opt,name=line_end,json=lineEnd,proto3" json:"line_end,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Order             int32                  `protobuf:"varint,1,opt,name=order,proto3" json:"order,omitempty"`
+	Title             string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Description       string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"` // markdown
+	FilePath          string                 `protobuf:"bytes,4,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
+	LineStart         int32                  `protobuf:"varint,5,opt,name=line_start,json=lineStart,proto3" json:"line_start,omitempty"`
+	LineEnd           int32                  `protobuf:"varint,6,opt,name=line_end,json=lineEnd,proto3" json:"line_end,omitempty"`
+	Trail             string                 `protobuf:"bytes,7,opt,name=trail,proto3" json:"trail,omitempty"`
+	ModificationHints []string               `protobuf:"bytes,8,rep,name=modification_hints,json=modificationHints,proto3" json:"modification_hints,omitempty"`
+	Confidence        string                 `protobuf:"bytes,9,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	RefinementStatus  string                 `protobuf:"bytes,10,opt,name=refinement_status,json=refinementStatus,proto3" json:"refinement_status,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *CodeTourStop) Reset() {
@@ -1264,17 +1380,46 @@ func (x *CodeTourStop) GetLineEnd() int32 {
 	return 0
 }
 
+func (x *CodeTourStop) GetTrail() string {
+	if x != nil {
+		return x.Trail
+	}
+	return ""
+}
+
+func (x *CodeTourStop) GetModificationHints() []string {
+	if x != nil {
+		return x.ModificationHints
+	}
+	return nil
+}
+
+func (x *CodeTourStop) GetConfidence() string {
+	if x != nil {
+		return x.Confidence
+	}
+	return ""
+}
+
+func (x *CodeTourStop) GetRefinementStatus() string {
+	if x != nil {
+		return x.RefinementStatus
+	}
+	return ""
+}
+
 // KnowledgeSection is a structured section of a knowledge artifact.
 type KnowledgeSection struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Title         string                 `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
-	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`       // markdown body
-	Summary       string                 `protobuf:"bytes,3,opt,name=summary,proto3" json:"summary,omitempty"`       // one-line summary
-	Confidence    string                 `protobuf:"bytes,4,opt,name=confidence,proto3" json:"confidence,omitempty"` // "high", "medium", "low"
-	Inferred      bool                   `protobuf:"varint,5,opt,name=inferred,proto3" json:"inferred,omitempty"`    // true if LLM-inferred rather than directly evidenced
-	Evidence      []*KnowledgeEvidence   `protobuf:"bytes,6,rep,name=evidence,proto3" json:"evidence,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Title            string                 `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
+	Content          string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`       // markdown body
+	Summary          string                 `protobuf:"bytes,3,opt,name=summary,proto3" json:"summary,omitempty"`       // one-line summary
+	Confidence       string                 `protobuf:"bytes,4,opt,name=confidence,proto3" json:"confidence,omitempty"` // "high", "medium", "low"
+	Inferred         bool                   `protobuf:"varint,5,opt,name=inferred,proto3" json:"inferred,omitempty"`    // true if LLM-inferred rather than directly evidenced
+	Evidence         []*KnowledgeEvidence   `protobuf:"bytes,6,rep,name=evidence,proto3" json:"evidence,omitempty"`
+	RefinementStatus string                 `protobuf:"bytes,7,opt,name=refinement_status,json=refinementStatus,proto3" json:"refinement_status,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *KnowledgeSection) Reset() {
@@ -1347,6 +1492,13 @@ func (x *KnowledgeSection) GetEvidence() []*KnowledgeEvidence {
 		return x.Evidence
 	}
 	return nil
+}
+
+func (x *KnowledgeSection) GetRefinementStatus() string {
+	if x != nil {
+		return x.RefinementStatus
+	}
+	return ""
 }
 
 // KnowledgeEvidence links a knowledge section to a source artifact.
@@ -1823,7 +1975,7 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\baudience\x18\x03 \x01(\tR\baudience\x12\x14\n" +
 	"\x05depth\x18\x04 \x01(\tR\x05depth\x12#\n" +
 	"\rsnapshot_json\x18\x05 \x01(\tR\fsnapshotJson\x12<\n" +
-	"\x1adeterministic_diagram_json\x18\x06 \x01(\tR\x18deterministicDiagramJson\"\xa0\x03\n" +
+	"\x1adeterministic_diagram_json\x18\x06 \x01(\tR\x18deterministicDiagramJson\"\xfe\x06\n" +
 	"#GenerateArchitectureDiagramResponse\x12%\n" +
 	"\x0emermaid_source\x18\x01 \x01(\tR\rmermaidSource\x12,\n" +
 	"\x12raw_mermaid_source\x18\x02 \x01(\tR\x10rawMermaidSource\x12+\n" +
@@ -1832,7 +1984,16 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\x0fdiagram_summary\x18\x05 \x01(\tR\x0ediagramSummary\x12H\n" +
 	"\bevidence\x18\x06 \x03(\v2,.sourcebridge.knowledge.v1.KnowledgeEvidenceR\bevidence\x12%\n" +
 	"\x0einferred_edges\x18\a \x03(\tR\rinferredEdges\x126\n" +
-	"\x05usage\x18\b \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\"\xd9\x03\n" +
+	"\x05usage\x18\b \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\x122\n" +
+	"\x15detail_mermaid_source\x18\t \x01(\tR\x13detailMermaidSource\x129\n" +
+	"\x19detail_raw_mermaid_source\x18\n" +
+	" \x01(\tR\x16detailRawMermaidSource\x128\n" +
+	"\x18detail_validation_status\x18\v \x01(\tR\x16detailValidationStatus\x122\n" +
+	"\x15detail_repair_summary\x18\f \x01(\tR\x13detailRepairSummary\x124\n" +
+	"\x16detail_diagram_summary\x18\r \x01(\tR\x14detailDiagramSummary\x122\n" +
+	"\x15detail_subsystem_name\x18\x0e \x01(\tR\x13detailSubsystemName\x12>\n" +
+	"\x1bdetail_candidate_subsystems\x18\x0f \x03(\tR\x19detailCandidateSubsystems\x12U\n" +
+	"\x0fdetail_evidence\x18\x10 \x03(\v2,.sourcebridge.knowledge.v1.KnowledgeEvidenceR\x0edetailEvidence\"\xd9\x03\n" +
 	"\x15CliffNotesDiagnostics\x12!\n" +
 	"\fcached_nodes\x18\x01 \x01(\x05R\vcachedNodes\x12%\n" +
 	"\x0efallback_count\x18\x02 \x01(\x05R\rfallbackCount\x126\n" +
@@ -1875,7 +2036,7 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\x13execution_path_json\x18\t \x01(\tR\x11executionPathJson\"\xa0\x01\n" +
 	"\x1dGenerateWorkflowStoryResponse\x12G\n" +
 	"\bsections\x18\x01 \x03(\v2+.sourcebridge.knowledge.v1.KnowledgeSectionR\bsections\x126\n" +
-	"\x05usage\x18\x02 \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\"\xd7\x01\n" +
+	"\x05usage\x18\x02 \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\"\xb1\x03\n" +
 	"\fLearningStep\x12\x14\n" +
 	"\x05order\x18\x01 \x01(\x05R\x05order\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x1c\n" +
@@ -1885,7 +2046,20 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"file_paths\x18\x05 \x03(\tR\tfilePaths\x12\x1d\n" +
 	"\n" +
 	"symbol_ids\x18\x06 \x03(\tR\tsymbolIds\x12%\n" +
-	"\x0eestimated_time\x18\a \x01(\tR\restimatedTime\"\x95\x02\n" +
+	"\x0eestimated_time\x18\a \x01(\tR\restimatedTime\x12-\n" +
+	"\x12prerequisite_steps\x18\b \x03(\x05R\x11prerequisiteSteps\x12\x1e\n" +
+	"\n" +
+	"difficulty\x18\t \x01(\tR\n" +
+	"difficulty\x12\x1c\n" +
+	"\texercises\x18\n" +
+	" \x03(\tR\texercises\x12\x1e\n" +
+	"\n" +
+	"checkpoint\x18\v \x01(\tR\n" +
+	"checkpoint\x12\x1e\n" +
+	"\n" +
+	"confidence\x18\f \x01(\tR\n" +
+	"confidence\x12+\n" +
+	"\x11refinement_status\x18\r \x01(\tR\x10refinementStatus\"\x95\x02\n" +
 	"\x14ExplainSystemRequest\x12#\n" +
 	"\rrepository_id\x18\x01 \x01(\tR\frepositoryId\x12'\n" +
 	"\x0frepository_name\x18\x02 \x01(\tR\x0erepositoryName\x12\x1a\n" +
@@ -1910,7 +2084,7 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\x05theme\x18\x06 \x01(\tR\x05theme\"\x91\x01\n" +
 	"\x18GenerateCodeTourResponse\x12=\n" +
 	"\x05stops\x18\x01 \x03(\v2'.sourcebridge.knowledge.v1.CodeTourStopR\x05stops\x126\n" +
-	"\x05usage\x18\x02 \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\"\xb3\x01\n" +
+	"\x05usage\x18\x02 \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\"\xc5\x02\n" +
 	"\fCodeTourStop\x12\x14\n" +
 	"\x05order\x18\x01 \x01(\x05R\x05order\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12 \n" +
@@ -1918,7 +2092,14 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\tfile_path\x18\x04 \x01(\tR\bfilePath\x12\x1d\n" +
 	"\n" +
 	"line_start\x18\x05 \x01(\x05R\tlineStart\x12\x19\n" +
-	"\bline_end\x18\x06 \x01(\x05R\alineEnd\"\xe2\x01\n" +
+	"\bline_end\x18\x06 \x01(\x05R\alineEnd\x12\x14\n" +
+	"\x05trail\x18\a \x01(\tR\x05trail\x12-\n" +
+	"\x12modification_hints\x18\b \x03(\tR\x11modificationHints\x12\x1e\n" +
+	"\n" +
+	"confidence\x18\t \x01(\tR\n" +
+	"confidence\x12+\n" +
+	"\x11refinement_status\x18\n" +
+	" \x01(\tR\x10refinementStatus\"\x8f\x02\n" +
 	"\x10KnowledgeSection\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x18\n" +
@@ -1927,7 +2108,8 @@ const file_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"confidence\x18\x04 \x01(\tR\n" +
 	"confidence\x12\x1a\n" +
 	"\binferred\x18\x05 \x01(\bR\binferred\x12H\n" +
-	"\bevidence\x18\x06 \x03(\v2,.sourcebridge.knowledge.v1.KnowledgeEvidenceR\bevidence\"\xc6\x01\n" +
+	"\bevidence\x18\x06 \x03(\v2,.sourcebridge.knowledge.v1.KnowledgeEvidenceR\bevidence\x12+\n" +
+	"\x11refinement_status\x18\a \x01(\tR\x10refinementStatus\"\xc6\x01\n" +
 	"\x11KnowledgeEvidence\x12\x1f\n" +
 	"\vsource_type\x18\x01 \x01(\tR\n" +
 	"sourceType\x12\x1b\n" +
@@ -2032,36 +2214,37 @@ var file_knowledge_v1_knowledge_proto_depIdxs = []int32{
 	4,  // 2: sourcebridge.knowledge.v1.GenerateCliffNotesResponse.diagnostics:type_name -> sourcebridge.knowledge.v1.CliffNotesDiagnostics
 	16, // 3: sourcebridge.knowledge.v1.GenerateArchitectureDiagramResponse.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
 	20, // 4: sourcebridge.knowledge.v1.GenerateArchitectureDiagramResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	9,  // 5: sourcebridge.knowledge.v1.GenerateLearningPathResponse.steps:type_name -> sourcebridge.knowledge.v1.LearningStep
-	20, // 6: sourcebridge.knowledge.v1.GenerateLearningPathResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	15, // 7: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.sections:type_name -> sourcebridge.knowledge.v1.KnowledgeSection
-	20, // 8: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	16, // 9: sourcebridge.knowledge.v1.ExplainSystemResponse.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
-	20, // 10: sourcebridge.knowledge.v1.ExplainSystemResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	14, // 11: sourcebridge.knowledge.v1.GenerateCodeTourResponse.stops:type_name -> sourcebridge.knowledge.v1.CodeTourStop
-	20, // 12: sourcebridge.knowledge.v1.GenerateCodeTourResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	16, // 13: sourcebridge.knowledge.v1.KnowledgeSection.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
-	19, // 14: sourcebridge.knowledge.v1.GenerateReportResponse.sections:type_name -> sourcebridge.knowledge.v1.ReportSectionResult
-	20, // 15: sourcebridge.knowledge.v1.GenerateReportResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
-	0,  // 16: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:input_type -> sourcebridge.knowledge.v1.GenerateCliffNotesRequest
-	5,  // 17: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:input_type -> sourcebridge.knowledge.v1.GenerateLearningPathRequest
-	2,  // 18: sourcebridge.knowledge.v1.KnowledgeService.GenerateArchitectureDiagram:input_type -> sourcebridge.knowledge.v1.GenerateArchitectureDiagramRequest
-	7,  // 19: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:input_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryRequest
-	10, // 20: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:input_type -> sourcebridge.knowledge.v1.ExplainSystemRequest
-	12, // 21: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:input_type -> sourcebridge.knowledge.v1.GenerateCodeTourRequest
-	17, // 22: sourcebridge.knowledge.v1.KnowledgeService.GenerateReport:input_type -> sourcebridge.knowledge.v1.GenerateReportRequest
-	1,  // 23: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:output_type -> sourcebridge.knowledge.v1.GenerateCliffNotesResponse
-	6,  // 24: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:output_type -> sourcebridge.knowledge.v1.GenerateLearningPathResponse
-	3,  // 25: sourcebridge.knowledge.v1.KnowledgeService.GenerateArchitectureDiagram:output_type -> sourcebridge.knowledge.v1.GenerateArchitectureDiagramResponse
-	8,  // 26: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:output_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse
-	11, // 27: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:output_type -> sourcebridge.knowledge.v1.ExplainSystemResponse
-	13, // 28: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:output_type -> sourcebridge.knowledge.v1.GenerateCodeTourResponse
-	18, // 29: sourcebridge.knowledge.v1.KnowledgeService.GenerateReport:output_type -> sourcebridge.knowledge.v1.GenerateReportResponse
-	23, // [23:30] is the sub-list for method output_type
-	16, // [16:23] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	16, // 5: sourcebridge.knowledge.v1.GenerateArchitectureDiagramResponse.detail_evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
+	9,  // 6: sourcebridge.knowledge.v1.GenerateLearningPathResponse.steps:type_name -> sourcebridge.knowledge.v1.LearningStep
+	20, // 7: sourcebridge.knowledge.v1.GenerateLearningPathResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	15, // 8: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.sections:type_name -> sourcebridge.knowledge.v1.KnowledgeSection
+	20, // 9: sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	16, // 10: sourcebridge.knowledge.v1.ExplainSystemResponse.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
+	20, // 11: sourcebridge.knowledge.v1.ExplainSystemResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	14, // 12: sourcebridge.knowledge.v1.GenerateCodeTourResponse.stops:type_name -> sourcebridge.knowledge.v1.CodeTourStop
+	20, // 13: sourcebridge.knowledge.v1.GenerateCodeTourResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	16, // 14: sourcebridge.knowledge.v1.KnowledgeSection.evidence:type_name -> sourcebridge.knowledge.v1.KnowledgeEvidence
+	19, // 15: sourcebridge.knowledge.v1.GenerateReportResponse.sections:type_name -> sourcebridge.knowledge.v1.ReportSectionResult
+	20, // 16: sourcebridge.knowledge.v1.GenerateReportResponse.usage:type_name -> sourcebridge.common.v1.LLMUsage
+	0,  // 17: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:input_type -> sourcebridge.knowledge.v1.GenerateCliffNotesRequest
+	5,  // 18: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:input_type -> sourcebridge.knowledge.v1.GenerateLearningPathRequest
+	2,  // 19: sourcebridge.knowledge.v1.KnowledgeService.GenerateArchitectureDiagram:input_type -> sourcebridge.knowledge.v1.GenerateArchitectureDiagramRequest
+	7,  // 20: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:input_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryRequest
+	10, // 21: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:input_type -> sourcebridge.knowledge.v1.ExplainSystemRequest
+	12, // 22: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:input_type -> sourcebridge.knowledge.v1.GenerateCodeTourRequest
+	17, // 23: sourcebridge.knowledge.v1.KnowledgeService.GenerateReport:input_type -> sourcebridge.knowledge.v1.GenerateReportRequest
+	1,  // 24: sourcebridge.knowledge.v1.KnowledgeService.GenerateCliffNotes:output_type -> sourcebridge.knowledge.v1.GenerateCliffNotesResponse
+	6,  // 25: sourcebridge.knowledge.v1.KnowledgeService.GenerateLearningPath:output_type -> sourcebridge.knowledge.v1.GenerateLearningPathResponse
+	3,  // 26: sourcebridge.knowledge.v1.KnowledgeService.GenerateArchitectureDiagram:output_type -> sourcebridge.knowledge.v1.GenerateArchitectureDiagramResponse
+	8,  // 27: sourcebridge.knowledge.v1.KnowledgeService.GenerateWorkflowStory:output_type -> sourcebridge.knowledge.v1.GenerateWorkflowStoryResponse
+	11, // 28: sourcebridge.knowledge.v1.KnowledgeService.ExplainSystem:output_type -> sourcebridge.knowledge.v1.ExplainSystemResponse
+	13, // 29: sourcebridge.knowledge.v1.KnowledgeService.GenerateCodeTour:output_type -> sourcebridge.knowledge.v1.GenerateCodeTourResponse
+	18, // 30: sourcebridge.knowledge.v1.KnowledgeService.GenerateReport:output_type -> sourcebridge.knowledge.v1.GenerateReportResponse
+	24, // [24:31] is the sub-list for method output_type
+	17, // [17:24] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_knowledge_v1_knowledge_proto_init() }

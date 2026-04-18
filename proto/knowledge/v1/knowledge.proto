@@ -67,6 +67,14 @@ message GenerateArchitectureDiagramResponse {
   repeated KnowledgeEvidence evidence = 6;
   repeated string inferred_edges = 7;
   sourcebridge.common.v1.LLMUsage usage = 8;
+  string detail_mermaid_source = 9;
+  string detail_raw_mermaid_source = 10;
+  string detail_validation_status = 11;
+  string detail_repair_summary = 12;
+  string detail_diagram_summary = 13;
+  string detail_subsystem_name = 14;
+  repeated string detail_candidate_subsystems = 15;
+  repeated KnowledgeEvidence detail_evidence = 16;
 }
 
 message CliffNotesDiagnostics {
@@ -124,6 +132,12 @@ message LearningStep {
   repeated string file_paths = 5;
   repeated string symbol_ids = 6;
   string estimated_time = 7;  // e.g. "15 minutes"
+  repeated int32 prerequisite_steps = 8;
+  string difficulty = 9;
+  repeated string exercises = 10;
+  string checkpoint = 11;
+  string confidence = 12;
+  string refinement_status = 13;
 }
 
 // ExplainSystemRequest carries the snapshot for transient whole-system explanation.
@@ -166,6 +180,10 @@ message CodeTourStop {
   string file_path = 4;
   int32 line_start = 5;
   int32 line_end = 6;
+  string trail = 7;
+  repeated string modification_hints = 8;
+  string confidence = 9;
+  string refinement_status = 10;
 }
 
 // KnowledgeSection is a structured section of a knowledge artifact.
@@ -176,6 +194,7 @@ message KnowledgeSection {
   string confidence = 4;       // "high", "medium", "low"
   bool inferred = 5;           // true if LLM-inferred rather than directly evidenced
   repeated KnowledgeEvidence evidence = 6;
+  string refinement_status = 7;
 }
 
 // KnowledgeEvidence links a knowledge section to a source artifact.

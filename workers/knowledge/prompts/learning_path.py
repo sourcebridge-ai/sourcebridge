@@ -34,7 +34,17 @@ _AUDIENCE_INSTRUCTIONS = {
 _DEPTH_INSTRUCTIONS = {
     "summary": "Create 3-5 high-level steps. Keep objectives brief.",
     "medium": "Create 5-8 steps with moderate detail in objectives and content.",
-    "deep": "Create 8-12 detailed steps. Include specific code references and exercises.",
+    "deep": """Create a 10-15 step onboarding curriculum.
+
+Per-step requirements:
+- content must reference at least 2 specific files from the snapshot
+- include 1-2 concrete exercises tied to named functions, tests, or patterns
+- set prerequisite_steps when a step depends on earlier context
+- include difficulty: beginner | intermediate | advanced
+- include a concrete checkpoint for verifying understanding
+
+GROUNDING RULE: never tell the reader to merely "explore the codebase" or "familiarize yourself".
+Every step must name specific files and what to inspect in them.""",
 }
 
 
@@ -53,6 +63,27 @@ def build_learning_path_prompt(
     if focus_area:
         focus_line = f"\n**Focus area:** {focus_area}\nPrioritize steps related to this area.\n"
 
+    pre_analysis_block = ""
+    try:
+        import json
+
+        snap_data = json.loads(snapshot_json) if snapshot_json else {}
+        pre_analysis = snap_data.get("_pre_analysis")
+        if isinstance(pre_analysis, list):
+            lines = []
+            for section in pre_analysis:
+                if isinstance(section, dict) and section.get("title") and section.get("content"):
+                    lines.append(f"### {section['title']}\n{section['content']}")
+            if lines:
+                pre_analysis_block = (
+                    "\n**Codebase Field Guide (use as primary context)**\n"
+                    "These sections come from the repository field guide. Use them directly when planning the path.\n\n"
+                    + "\n\n".join(lines)
+                    + "\n"
+                )
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pre_analysis_block = ""
+
     return f"""\
 Generate a learning path for the repository "{repository_name}".
 
@@ -62,6 +93,7 @@ Generate a learning path for the repository "{repository_name}".
 **Depth:** {depth}
 {depth_instruction}
 {focus_line}
+{pre_analysis_block}
 **Output format:** Return a JSON array of step objects, ordered from first to last. Each object must have:
 - "order": int (1-based step number)
 - "title": string (short step title)
@@ -70,6 +102,10 @@ Generate a learning path for the repository "{repository_name}".
 - "file_paths": array of strings (files to read in this step)
 - "symbol_ids": array of strings (symbol IDs from the snapshot relevant to this step)
 - "estimated_time": string (e.g. "10 minutes", "30 minutes")
+- "prerequisite_steps": array of ints
+- "difficulty": "beginner" | "intermediate" | "advanced"
+- "exercises": array of strings
+- "checkpoint": string
 
 **Repository snapshot:**
 ```json

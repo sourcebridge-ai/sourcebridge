@@ -124,7 +124,14 @@ class _ToyCorpus:
                             label=s,
                             parent_id=fid,
                             size_tokens=50,
-                            metadata={"file_path": fid, "language": "go"},
+                            metadata={
+                                "file_path": fid,
+                                "language": "go",
+                                "module_label": p,
+                                "symbol_name": s,
+                                "symbol_kind": "function",
+                                "deterministic_leaf": True,
+                            },
                         )
                     )
                     self.leaf_texts[sid] = f"func {s}() {{}}"
@@ -178,8 +185,9 @@ async def test_build_tree_calls_llm_once_per_node() -> None:
     )
     corpus = _ToyCorpus()
     await strategy.build_tree(corpus)
-    # One call per node: 8 leaves + 4 files + 2 packages + 1 root = 15
-    assert provider.counter == 15
+    # Leaves are now deterministic. The model is only used for
+    # 4 files + 2 packages + 1 root = 7 calls.
+    assert provider.counter == 7
 
 
 @pytest.mark.asyncio
@@ -204,10 +212,79 @@ async def test_root_summary_is_populated_and_child_ids_linked() -> None:
 
 
 @pytest.mark.asyncio
-async def test_leaf_failure_falls_back_without_aborting_build() -> None:
-    # Fail on the 3rd leaf call; expect a stub summary there but every
-    # other node should still be present.
-    provider = FakeLLMProvider(fail_on_call=3)
+async def test_leaf_nodes_are_built_deterministically() -> None:
+    provider = FakeLLMProvider()
+    strategy = HierarchicalStrategy(
+        provider,
+        HierarchicalConfig(repository_name="toy", leaf_concurrency=2),
+    )
+    corpus = _ToyCorpus()
+    tree = await strategy.build_tree(corpus)
+
+    leaves = tree.at_level(0)
+    assert len(leaves) == 8
+    assert all(node.model_used == "deterministic" for node in leaves)
+    assert any("Defines" in node.summary_text for node in leaves)
+    assert not any("Segment:" in prompt for prompt in provider.prompts)
+
+
+@pytest.mark.asyncio
+async def test_nonleaf_prompts_include_structured_facts() -> None:
+    provider = FakeLLMProvider()
+    strategy = HierarchicalStrategy(
+        provider,
+        HierarchicalConfig(repository_name="toy", leaf_concurrency=2),
+    )
+    corpus = _ToyCorpus()
+
+    await strategy.build_tree(corpus)
+
+    assert any("Structured file facts:" in prompt for prompt in provider.prompts)
+    assert any("Representative symbols:" in prompt for prompt in provider.prompts)
+    assert any("Structured package facts:" in prompt for prompt in provider.prompts)
+    assert any("Representative files:" in prompt for prompt in provider.prompts)
+    assert any("Structured repository facts:" in prompt for prompt in provider.prompts)
+
+
+@pytest.mark.asyncio
+async def test_nonleaf_nodes_carry_compact_fact_metadata() -> None:
+    provider = FakeLLMProvider()
+    strategy = HierarchicalStrategy(
+        provider,
+        HierarchicalConfig(repository_name="toy", leaf_concurrency=2),
+    )
+    corpus = _ToyCorpus()
+    tree = await strategy.build_tree(corpus)
+
+    file_node = tree.get("pkg1/a.go")
+    assert file_node is not None
+    assert file_node.metadata.get("fact_symbol_count") == 2
+    assert "Func1" in (file_node.metadata.get("fact_symbol_names") or [])
+    assert file_node.metadata.get("fact_symbol_kinds")
+    assert file_node.metadata.get("fact_path_signals") is not None
+    assert file_node.metadata.get("fact_entity_signals") is not None
+
+    package_node = tree.get("pkg1")
+    assert package_node is not None
+    assert package_node.metadata.get("fact_file_count") == 2
+    assert package_node.metadata.get("fact_total_symbols") == 4
+    assert "pkg1/a.go" in (package_node.metadata.get("fact_key_files") or [])
+    assert package_node.metadata.get("fact_package_signals") is not None
+    assert package_node.metadata.get("fact_package_entities") is not None
+
+    root = tree.root()
+    assert root is not None
+    assert root.metadata.get("fact_file_count") == 4
+    assert root.metadata.get("fact_segment_count") == 8
+    assert "pkg1" in (root.metadata.get("fact_package_labels") or [])
+    assert root.metadata.get("fact_root_signals") is not None
+    assert root.metadata.get("fact_root_entities") is not None
+
+
+@pytest.mark.asyncio
+async def test_file_failure_falls_back_without_aborting_build() -> None:
+    # Leaves are deterministic, so fail the first modeled stage.
+    provider = FakeLLMProvider(fail_on_call=1)
     strategy = HierarchicalStrategy(
         provider,
         HierarchicalConfig(repository_name="toy", leaf_concurrency=1),
@@ -216,9 +293,8 @@ async def test_leaf_failure_falls_back_without_aborting_build() -> None:
     tree = await strategy.build_tree(corpus)
 
     assert len(tree.nodes) == 15
-    # At least one leaf node should carry the fallback text.
-    fallback_leaves = [n for n in tree.at_level(0) if "Could not summarize this segment" in n.summary_text]
-    assert len(fallback_leaves) == 1
+    fallback_files = [n for n in tree.at_level(1) if "Could not summarize file" in n.summary_text]
+    assert len(fallback_files) == 1
 
 
 @pytest.mark.asyncio

@@ -51,6 +51,51 @@ INTEGRATION_PATH_MARKERS = (
     "sheets",
     "client",
 )
+PATH_SIGNAL_MARKERS: dict[str, tuple[str, ...]] = {
+    "api": ("/api/", "/graphql/", "/resolver", "/resolvers/", "/handler", "/handlers/", "/rest/"),
+    "web": ("/web/", "/ui/", "/page", "/pages/", ".tsx", ".jsx"),
+    "worker": ("/worker", "/workers/", "/job", "/jobs/", "/queue", "/queues/"),
+    "auth": ("/auth", "login", "logout", "token", "session", "tenant", "permission"),
+    "store": ("/store", "/db/", "/database", "/repo", "/repository", "surreal", "sql"),
+    "integration": INTEGRATION_PATH_MARKERS,
+    "config": ("/config", "settings", "feature_flag", "featureflag", ".yaml", ".yml", ".toml"),
+}
+ENTITY_SIGNAL_MARKERS: dict[str, tuple[str, ...]] = {
+    "repository": ("/repo", "/repository", "repository", "repositories"),
+    "knowledge_artifact": (
+        "/knowledge/",
+        "cliff note",
+        "cliff notes",
+        "learning path",
+        "code tour",
+        "workflow story",
+        "artifact",
+        "artifacts",
+    ),
+    "understanding": ("understanding", "snapshot", "summary tree", "hierarchical"),
+    "job": ("/job", "/jobs/", "job", "queue", "worker"),
+    "requirement": ("requirement", "requirements", "traceability", "coverage"),
+    "report": ("report", "baseline", "review"),
+    "diagram": ("diagram", "architecture diagram", "mermaid"),
+    "graph": ("/graph/", "graph", "node", "edge"),
+}
+EXTERNAL_DEPENDENCY_MARKERS = (
+    "openai",
+    "anthropic",
+    "openrouter",
+    "ollama",
+    "surreal",
+    "postgres",
+    "mysql",
+    "redis",
+    "kafka",
+    "sqs",
+    "grpc",
+    "graphql",
+    "cloudflare",
+    "docker",
+    "kubernetes",
+)
 
 
 @dataclass
@@ -119,6 +164,7 @@ class CodeCorpus:
         # by file path. We de-dupe on symbol id so a symbol appearing in
         # both "entry_points" and "public_api" still counts once.
         symbols_by_file: dict[str, list[dict[str, Any]]] = {}
+        symbol_roles_by_key: dict[tuple[str, str], set[str]] = {}
         seen_symbol_ids: set[str] = set()
         for group_key in (
             "entry_points",
@@ -138,6 +184,9 @@ class CodeCorpus:
                 if not file_path:
                     continue
                 symbols_by_file.setdefault(file_path, []).append(sym)
+                symbol_key = _symbol_identity_key(sym)
+                if symbol_key is not None:
+                    symbol_roles_by_key.setdefault(symbol_key, set()).add(group_key)
 
         # --- Module → files map --------------------------------------
         modules_raw = self.snapshot.get("modules") or []
@@ -228,6 +277,8 @@ class CodeCorpus:
                             metadata={
                                 "file_path": file_path,
                                 "language": language,
+                                "module_label": module_label,
+                                "deterministic_leaf": True,
                             },
                         )
                     )
@@ -249,6 +300,22 @@ class CodeCorpus:
                         start_line = int(sym.get("start_line") or 0)
                         end_line = int(sym.get("end_line") or 0)
                         body_lines = int(sym.get("line_count") or max(0, end_line - start_line))
+                        roles = sorted(symbol_roles_by_key.get(_symbol_identity_key(sym) or ("", ""), set()))
+                        path_signals = _infer_path_signals(
+                            file_path,
+                            name=name,
+                            signature=signature,
+                            doc=doc,
+                            kind=kind,
+                        )
+                        entity_signals = _infer_entity_signals(
+                            file_path,
+                            name=name,
+                            signature=signature,
+                            doc=doc,
+                            kind=kind,
+                        )
+                        external_signals = _infer_external_dependency_signals(signature, doc, file_path=file_path)
 
                         leaf_text = _render_leaf_text(
                             name=name,
@@ -271,11 +338,20 @@ class CodeCorpus:
                                 metadata={
                                     "file_path": file_path,
                                     "language": language,
+                                    "module_label": module_label,
                                     "symbol_id": sym_id_raw,
                                     "symbol_name": name,
                                     "symbol_kind": kind,
+                                    "symbol_roles": roles,
+                                    "path_signals": path_signals,
+                                    "entity_signals": entity_signals,
+                                    "external_dependency_signals": external_signals,
                                     "start_line": start_line,
                                     "end_line": end_line,
+                                    "fan_in": int(sym.get("fan_in") or 0),
+                                    "fan_out": int(sym.get("fan_out") or 0),
+                                    "has_doc_comment": bool(doc.strip()),
+                                    "deterministic_leaf": True,
                                 },
                             )
                         )
@@ -305,9 +381,55 @@ class CodeCorpus:
                             metadata={
                                 "file_path": file_path,
                                 "language": language,
+                                "module_label": module_label,
                                 "symbol_count": len(symbol_group),
                                 "symbol_names": [str(sym.get("name") or "") for sym in symbol_group],
+                                "symbol_roles": sorted(
+                                    {
+                                        role
+                                        for sym in symbol_group
+                                        for role in symbol_roles_by_key.get(_symbol_identity_key(sym) or ("", ""), set())
+                                    }
+                                ),
+                                "path_signals": sorted(
+                                    {
+                                        signal
+                                        for sym in symbol_group
+                                        for signal in _infer_path_signals(
+                                            file_path,
+                                            name=str(sym.get("name") or ""),
+                                            signature=str(sym.get("signature") or ""),
+                                            doc=str(sym.get("doc_comment") or ""),
+                                            kind=str(sym.get("kind") or "symbol"),
+                                        )
+                                    }
+                                ),
+                                "entity_signals": sorted(
+                                    {
+                                        signal
+                                        for sym in symbol_group
+                                        for signal in _infer_entity_signals(
+                                            file_path,
+                                            name=str(sym.get("name") or ""),
+                                            signature=str(sym.get("signature") or ""),
+                                            doc=str(sym.get("doc_comment") or ""),
+                                            kind=str(sym.get("kind") or "symbol"),
+                                        )
+                                    }
+                                ),
+                                "external_dependency_signals": sorted(
+                                    {
+                                        signal
+                                        for sym in symbol_group
+                                        for signal in _infer_external_dependency_signals(
+                                            str(sym.get("signature") or ""),
+                                            str(sym.get("doc_comment") or ""),
+                                            file_path=file_path,
+                                        )
+                                    }
+                                ),
                                 "chunked": True,
+                                "deterministic_leaf": True,
                             },
                         )
                     )
@@ -343,7 +465,7 @@ class CodeCorpus:
                         level=1,
                         label=_basename(file_path),
                         parent_id=package_id,
-                        metadata={"file_path": file_path, "language": language},
+                        metadata={"file_path": file_path, "language": language, "deterministic_leaf": True},
                     )
                 )
                 leaf_id = f"leaf:{file_path}"
@@ -354,7 +476,7 @@ class CodeCorpus:
                         level=0,
                         label=_basename(file_path),
                         parent_id=file_id,
-                        metadata={"file_path": file_path, "language": language},
+                        metadata={"file_path": file_path, "language": language, "deterministic_leaf": True},
                     )
                 )
                 self._leaf_texts[leaf_id] = (
@@ -412,6 +534,16 @@ def _basename(path: str) -> str:
     if idx < 0:
         return path
     return path[idx + 1 :]
+
+
+def _symbol_identity_key(sym: dict[str, Any]) -> tuple[str, str] | None:
+    file_path = str(sym.get("file_path") or "").strip()
+    if not file_path:
+        return None
+    symbol_id = str(sym.get("id") or sym.get("qualified_name") or sym.get("name") or "").strip()
+    if not symbol_id:
+        return None
+    return (file_path, symbol_id)
 
 
 def _render_leaf_text(
@@ -490,3 +622,44 @@ def _should_chunk_symbols(file_path: str, symbols: list[dict[str, Any]]) -> bool
         total_body_lines += int(sym.get("line_count") or max(0, end_line - start_line))
     avg_body_lines = total_body_lines / max(len(symbols), 1)
     return avg_body_lines <= 30
+
+
+def _infer_path_signals(
+    file_path: str,
+    *,
+    name: str = "",
+    signature: str = "",
+    doc: str = "",
+    kind: str = "",
+) -> list[str]:
+    haystack = " ".join(part.lower() for part in [file_path, name, signature, doc, kind] if part)
+    signals: list[str] = []
+    for label, markers in PATH_SIGNAL_MARKERS.items():
+        if any(marker.lower() in haystack for marker in markers):
+            signals.append(label)
+    if "http" in haystack or "route" in haystack or "routes" in haystack or "handler" in haystack:
+        signals.append("route")
+    return sorted(set(signals))
+
+
+def _infer_entity_signals(
+    file_path: str,
+    *,
+    name: str = "",
+    signature: str = "",
+    doc: str = "",
+    kind: str = "",
+) -> list[str]:
+    haystack = " ".join(part.lower() for part in [file_path, name, signature, doc, kind] if part)
+    return sorted(
+        {
+            label
+            for label, markers in ENTITY_SIGNAL_MARKERS.items()
+            if any(marker.lower() in haystack for marker in markers)
+        }
+    )
+
+
+def _infer_external_dependency_signals(signature: str, doc: str, *, file_path: str = "") -> list[str]:
+    haystack = " ".join(part.lower() for part in [signature, doc, file_path] if part)
+    return sorted({marker for marker in EXTERNAL_DEPENDENCY_MARKERS if marker in haystack})

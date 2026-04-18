@@ -30,12 +30,40 @@ def build_code_tour_prompt(
     depth_guidance = {
         "summary": "Create 3-5 stops covering the most important parts.",
         "medium": "Create 5-8 stops with moderate detail.",
-        "deep": "Create 8-12 stops with thorough explanations.",
+        "deep": """Create a 10-15 stop code tour organized into 3-5 themed trails.
+
+Per-stop requirements:
+- include trail: a concrete functional grouping
+- description must explain why the code is designed this way and name the specific file/symbol
+- include 1-2 concrete modification_hints
+- every stop must have valid file_path, line_start, and line_end from the snapshot
+""",
     }
 
     theme_line = ""
     if theme:
         theme_line = f"\n**Theme:** {theme}\nFocus the tour around this theme.\n"
+
+    pre_analysis_block = ""
+    try:
+        import json
+
+        snap_data = json.loads(snapshot_json) if snapshot_json else {}
+        pre_analysis = snap_data.get("_pre_analysis")
+        if isinstance(pre_analysis, list):
+            lines = []
+            for section in pre_analysis:
+                if isinstance(section, dict) and section.get("title") and section.get("content"):
+                    lines.append(f"### {section['title']}\n{section['content']}")
+            if lines:
+                pre_analysis_block = (
+                    "\n**Codebase Field Guide (use as primary context)**\n"
+                    "These sections come from the repository field guide. Use them directly when structuring trails.\n\n"
+                    + "\n\n".join(lines)
+                    + "\n"
+                )
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pre_analysis_block = ""
 
     return f"""\
 Generate a code tour for the repository "{repository_name}".
@@ -44,6 +72,7 @@ Generate a code tour for the repository "{repository_name}".
 **Depth:** {depth}
 {depth_guidance.get(depth, depth_guidance["medium"])}
 {theme_line}
+{pre_analysis_block}
 **Output format:** Return a JSON array of stop objects. Each object must have:
 - "order": int (1-based)
 - "title": string (short stop title)
@@ -51,6 +80,8 @@ Generate a code tour for the repository "{repository_name}".
 - "file_path": string (file from the snapshot)
 - "line_start": int (start line, 0 if unknown)
 - "line_end": int (end line, 0 if unknown)
+- "trail": string
+- "modification_hints": array of strings
 
 **Repository snapshot:**
 ```json

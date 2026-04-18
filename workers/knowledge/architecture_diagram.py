@@ -16,6 +16,8 @@ from workers.common.llm.provider import (
 from workers.common.mermaid.validator import validate_and_repair_mermaid
 from workers.knowledge.prompts.architecture_diagram import (
     ARCHITECTURE_DIAGRAM_SYSTEM,
+    build_architecture_component_detail_prompt,
+    build_architecture_component_detail_retry_prompt,
     build_architecture_diagram_prompt,
     build_architecture_diagram_retry_prompt,
 )
@@ -30,6 +32,19 @@ _GENERIC_EDGE_LABELS = {
     "data flow",
     "flow",
 }
+
+_DETAIL_PREFERRED_KEYWORDS = [
+    ("api", 5),
+    ("graphql", 5),
+    ("worker", 5),
+    ("auth", 5),
+    ("knowledge", 4),
+    ("db", 4),
+    ("store", 4),
+    ("repo", 3),
+    ("orchestr", 4),
+]
+_DETAIL_PENALTY_KEYWORDS = ["test", "benchmark", "fixture", "generated", "docs"]
 
 
 def _build_evidence(scaffold_json: str) -> list[EvidenceRef]:
@@ -55,6 +70,22 @@ def _build_evidence(scaffold_json: str) -> list[EvidenceRef]:
     return evidence
 
 
+def _detail_evidence_from_modules(modules: list[dict[str, object]]) -> list[EvidenceRef]:
+    evidence: list[EvidenceRef] = []
+    for module in modules[:8]:
+        file_paths = module.get("file_paths") or []
+        if not isinstance(file_paths, list) or not file_paths:
+            continue
+        evidence.append(
+            EvidenceRef(
+                source_type="file",
+                file_path=str(file_paths[0]),
+                rationale=f"Representative file for detail module {module.get('path', '')}",
+            )
+        )
+    return evidence
+
+
 def _deterministic_edges(scaffold_json: str) -> set[tuple[str, str]]:
     try:
         scaffold = json.loads(scaffold_json)
@@ -72,6 +103,55 @@ def _deterministic_edges(scaffold_json: str) -> set[tuple[str, str]]:
             if tgt:
                 edges.add((src, tgt))
     return edges
+
+
+def _load_scaffold_modules(scaffold_json: str) -> list[dict[str, object]]:
+    try:
+        scaffold = json.loads(scaffold_json)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return []
+    modules = scaffold.get("modules") or []
+    return [module for module in modules if isinstance(module, dict)]
+
+
+def _rank_detail_candidates(scaffold_json: str) -> list[str]:
+    scored: list[tuple[int, str]] = []
+    for module in _load_scaffold_modules(scaffold_json):
+        path = str(module.get("path", "")).strip()
+        if not path:
+            continue
+        lowered = path.lower()
+        score = len(module.get("outbound_paths") or [])
+        for keyword, weight in _DETAIL_PREFERRED_KEYWORDS:
+            if keyword in lowered:
+                score += weight
+        for keyword in _DETAIL_PENALTY_KEYWORDS:
+            if keyword in lowered:
+                score -= 6
+        scored.append((score, path))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [path for _, path in scored if _ > 0]
+
+
+def _module_id(path: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "_", path.strip("/"))
+    return normalized.strip("_") or "module"
+
+
+def _select_detail_modules(scaffold_json: str, subsystem_name: str) -> list[dict[str, object]]:
+    modules = _load_scaffold_modules(scaffold_json)
+    selected: list[dict[str, object]] = []
+    prefix = subsystem_name.rstrip("/")
+    for module in modules:
+        path = str(module.get("path", "")).strip()
+        if path == prefix or path.startswith(prefix + "/"):
+            selected.append(module)
+    if not selected:
+        for module in modules:
+            path = str(module.get("path", "")).strip()
+            if prefix in path:
+                selected.append(module)
+    return selected[:8]
 
 
 def _system_flow_edges(snapshot_json: str) -> set[tuple[str, str]]:
@@ -200,6 +280,13 @@ def _system_view_summary(repository_name: str, snapshot_json: str) -> str:
     return ", ".join(parts) + "."
 
 
+def _component_detail_summary(subsystem_name: str, modules: list[dict[str, object]]) -> str:
+    labels = [str(module.get("path", "")).strip() for module in modules[:4] if str(module.get("path", "")).strip()]
+    if labels:
+        return f'Detail view of "{subsystem_name}" covering ' + ", ".join(labels) + "."
+    return f'Detail view of "{subsystem_name}".'
+
+
 def _diagram_quality_issues(mermaid_source: str) -> list[str]:
     issues: list[str] = []
     validation = validate_and_repair_mermaid(mermaid_source)
@@ -234,6 +321,52 @@ def _diagram_quality_issues(mermaid_source: str) -> list[str]:
     if reciprocal_pairs:
         issues.append("contains reciprocal edge pairs")
     return issues
+
+
+def _detail_quality_issues(mermaid_source: str) -> list[str]:
+    issues = _diagram_quality_issues(mermaid_source)
+    validation = validate_and_repair_mermaid(mermaid_source)
+    node_count = len(validation.node_labels)
+    edge_count = len(validation.edge_pairs)
+    issues = [issue for issue in issues if "too many boxes" not in issue and "too many edges" not in issue]
+    if node_count > 8:
+        issues.append(f"too many boxes ({node_count} > 8)")
+    if edge_count > 12:
+        issues.append(f"too many edges ({edge_count} > 12)")
+    if node_count < 3:
+        issues.append("too few boxes for a meaningful detail view")
+    return issues
+
+
+def _component_detail_fallback_mermaid(subsystem_name: str, modules: list[dict[str, object]]) -> str | None:
+    if not modules:
+        return None
+    selected = modules[:8]
+    lines = ["flowchart LR"]
+    module_paths = {str(module.get("path", "")).strip() for module in selected}
+    for module in selected:
+        path = str(module.get("path", "")).strip()
+        if not path:
+            continue
+        label = path.split("/")[-1] or path
+        lines.append(f'    {_module_id(path)}["{label}"]')
+    seen_edges: set[tuple[str, str]] = set()
+    for module in selected:
+        src = str(module.get("path", "")).strip()
+        if not src:
+            continue
+        for target in module.get("outbound_paths") or []:
+            tgt = str(target).strip()
+            if tgt not in module_paths:
+                continue
+            edge = (src, tgt)
+            if edge in seen_edges:
+                continue
+            seen_edges.add(edge)
+            lines.append(f"    {_module_id(src)} --> {_module_id(tgt)}")
+    if len(lines) <= 2:
+        return None
+    return "\n".join(lines)
 
 
 def _graph_alignment(
@@ -426,6 +559,113 @@ async def generate_architecture_diagram(
     elif validation.validation_status == "repaired" and generation_strategy == "llm":
         generation_strategy = "repaired"
 
+    detail_mermaid_source = ""
+    detail_raw_mermaid_source = ""
+    detail_validation_status = ""
+    detail_repair_summary = ""
+    detail_diagram_summary = ""
+    detail_subsystem_name = ""
+    detail_candidate_subsystems: list[str] = []
+    detail_evidence: list[EvidenceRef] = []
+    if depth == "deep":
+        detail_candidate_subsystems = _rank_detail_candidates(deterministic_diagram_json)[:4]
+        if detail_candidate_subsystems:
+            detail_subsystem_name = detail_candidate_subsystems[0]
+            detail_modules = _select_detail_modules(deterministic_diagram_json, detail_subsystem_name)
+            detail_evidence = _detail_evidence_from_modules(detail_modules)
+            detail_context = json.dumps(
+                {
+                    "repository_name": repository_name,
+                    "subsystem_name": detail_subsystem_name,
+                    "modules": detail_modules,
+                }
+            )
+            detail_prompt = build_architecture_component_detail_prompt(
+                repository_name,
+                audience,
+                detail_subsystem_name,
+                detail_context,
+            )
+            check_prompt_budget(
+                detail_prompt,
+                system=ARCHITECTURE_DIAGRAM_SYSTEM,
+                context="architecture_diagram:repository_detail",
+            )
+            detail_response = require_nonempty(
+                await complete_with_optional_model(
+                    provider,
+                    detail_prompt,
+                    system=ARCHITECTURE_DIAGRAM_SYSTEM,
+                    temperature=0.0,
+                    max_tokens=3072,
+                    model=model_override,
+                ),
+                context="architecture_diagram:repository_detail",
+            )
+            usage = LLMUsageRecord(
+                provider=detail_response.provider_name or usage.provider,
+                model=detail_response.model or usage.model,
+                input_tokens=usage.input_tokens + detail_response.input_tokens,
+                output_tokens=usage.output_tokens + detail_response.output_tokens,
+                operation="architecture_diagram",
+                entity_name=repository_name,
+            )
+            try:
+                detail_validation = validate_and_repair_mermaid(detail_response.content)
+            except ValueError as exc:
+                retry_prompt = build_architecture_component_detail_retry_prompt(
+                    repository_name,
+                    audience,
+                    detail_subsystem_name,
+                    detail_context,
+                    detail_response.content,
+                )
+                retry_response = require_nonempty(
+                    await complete_with_optional_model(
+                        provider,
+                        retry_prompt,
+                        system=ARCHITECTURE_DIAGRAM_SYSTEM,
+                        temperature=0.0,
+                        max_tokens=3072,
+                        model=model_override,
+                    ),
+                    context="architecture_diagram:repository_detail_retry",
+                )
+                usage = LLMUsageRecord(
+                    provider=retry_response.provider_name or usage.provider,
+                    model=retry_response.model or usage.model,
+                    input_tokens=usage.input_tokens + retry_response.input_tokens,
+                    output_tokens=usage.output_tokens + retry_response.output_tokens,
+                    operation="architecture_diagram",
+                    entity_name=repository_name,
+                )
+                try:
+                    detail_validation = validate_and_repair_mermaid(retry_response.content)
+                    detail_validation.repair_summary = "; ".join(
+                        part for part in [detail_validation.repair_summary.strip(), f"retry regenerated invalid Mermaid: {exc}"] if part
+                    )
+                except ValueError as retry_exc:
+                    fallback = _component_detail_fallback_mermaid(detail_subsystem_name, detail_modules)
+                    if not fallback:
+                        raise retry_exc
+                    detail_validation = validate_and_repair_mermaid(fallback)
+                    detail_validation.repair_summary = "; ".join(
+                        part for part in [detail_validation.repair_summary.strip(), f"fell back to deterministic detail view: {retry_exc}"] if part
+                    )
+            detail_issues = _detail_quality_issues(detail_validation.mermaid_source)
+            if detail_issues:
+                fallback = _component_detail_fallback_mermaid(detail_subsystem_name, detail_modules)
+                if fallback:
+                    detail_validation = validate_and_repair_mermaid(fallback)
+                    detail_validation.repair_summary = "; ".join(
+                        part for part in [detail_validation.repair_summary.strip(), "fell back to deterministic detail view after quality gate"] if part
+                    )
+            detail_mermaid_source = detail_validation.mermaid_source
+            detail_raw_mermaid_source = detail_validation.raw_mermaid_source
+            detail_validation_status = detail_validation.validation_status
+            detail_repair_summary = detail_validation.repair_summary
+            detail_diagram_summary = _component_detail_summary(detail_subsystem_name, detail_modules)
+
     result = {
         "mermaid_source": validation.mermaid_source,
         "raw_mermaid_source": validation.raw_mermaid_source,
@@ -437,5 +677,13 @@ async def generate_architecture_diagram(
         "inferred_edges": inferred_edges,
         "contradictory_edges": contradictory_edges,
         "generation_strategy": generation_strategy,
+        "detail_mermaid_source": detail_mermaid_source,
+        "detail_raw_mermaid_source": detail_raw_mermaid_source,
+        "detail_validation_status": detail_validation_status,
+        "detail_repair_summary": detail_repair_summary,
+        "detail_diagram_summary": detail_diagram_summary,
+        "detail_subsystem_name": detail_subsystem_name,
+        "detail_candidate_subsystems": detail_candidate_subsystems,
+        "detail_evidence": detail_evidence,
     }
     return result, usage

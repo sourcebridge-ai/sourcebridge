@@ -1683,7 +1683,13 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 		stopProgress := r.startProgressTicker(rt, artifact.ID)
 		bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, artifact.ID, "cliff_notes")
 		if renderPlan.RenderOnly {
-			bgCtx = withCliffNotesRenderMetadata(bgCtx, true, renderPlan.SelectedSectionTitles)
+			bgCtx = withCliffNotesRenderMetadata(
+				bgCtx,
+				true,
+				renderPlan.SelectedSectionTitles,
+				renderPlan.UnderstandingDepth,
+				renderPlan.RelevanceProfile,
+			)
 		}
 		appendJobLog(r.Orchestrator, rt, llm.LogLevelInfo, "llm", "worker_dispatch", "Dispatching cliff notes request to worker", map[string]any{
 			"repository_id":   repo.ID,
@@ -1787,15 +1793,19 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 
 		sections := make([]knowledgepkg.Section, len(resp.Sections))
 		for i, sec := range resp.Sections {
+			refinementStatus := strings.TrimSpace(sec.RefinementStatus)
+			if refinementStatus == "" {
+				refinementStatus = "light"
+			}
 			sections[i] = knowledgepkg.Section{
 				Title:            sec.Title,
 				Content:          sec.Content,
 				Summary:          sec.Summary,
-				Metadata:         cliffNotesSectionMetadataJSON(knowledgepkg.ArtifactCliffNotes, understanding, "light", sec.Title, len(sec.Evidence) > 0),
+				Metadata:         cliffNotesSectionMetadataJSON(knowledgepkg.ArtifactCliffNotes, understanding, refinementStatus, sec.Title, len(sec.Evidence) > 0),
 				Confidence:       mapProtoConfidence(sec.Confidence),
 				Inferred:         sec.Inferred,
 				SectionKey:       knowledgepkg.SectionKeyForTitle(sec.Title),
-				RefinementStatus: "light",
+				RefinementStatus: refinementStatus,
 			}
 		}
 		if renderPlan.RenderOnly && len(renderPlan.SelectedSectionTitles) > 0 {
@@ -1839,7 +1849,13 @@ func (r *mutationResolver) GenerateCliffNotes(ctx context.Context, input Generat
 			slog.Error("failed to mark cliff notes ready", "artifact_id", artifact.ID, "error", err)
 		}
 		if artifactUsesUnderstanding(generationMode) && depth != string(knowledgepkg.DepthSummary) {
-			if targets := cliffNotesDeepeningTargets(r.KnowledgeStore, artifact); len(targets) > 0 {
+			targets := cliffNotesDeepeningTargets(r.KnowledgeStore, artifact)
+			slog.Info("cliff_notes_deepening_targets_evaluated",
+				"artifact_id", artifact.ID,
+				"target_count", len(targets),
+				"targets", targets,
+			)
+			if len(targets) > 0 {
 				if err := r.enqueueCliffNotesDeepening(repo, artifact, scope, snap.SourceRevision, enrichedCliffSnapJSON, targets); err != nil {
 					slog.Warn("failed to enqueue cliff notes deepening", "artifact_id", artifact.ID, "error", err)
 				}
@@ -2010,12 +2026,29 @@ func (r *mutationResolver) GenerateArchitectureDiagram(ctx context.Context, inpu
 			Inferred:         len(resp.InferredEdges) > 0,
 			RefinementStatus: "light",
 		}}
+		if strings.TrimSpace(resp.GetDetailMermaidSource()) != "" {
+			sections = append(sections, knowledgepkg.Section{
+				Title:            "AI Architecture Diagram Detail",
+				SectionKey:       "ai_architecture_diagram_detail",
+				Content:          resp.GetDetailMermaidSource(),
+				Summary:          resp.GetDetailDiagramSummary(),
+				Metadata:         architectureDiagramDetailMetadataJSON(resp),
+				Confidence:       knowledgepkg.ConfidenceMedium,
+				Inferred:         false,
+				RefinementStatus: "deep",
+			})
+		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
 			return err
 		}
 		storedSections := r.KnowledgeStore.GetKnowledgeSections(artifact.ID)
 		if len(storedSections) > 0 && len(resp.Evidence) > 0 {
 			if err := r.KnowledgeStore.StoreKnowledgeEvidence(storedSections[0].ID, mapProtoEvidence(resp.Evidence)); err != nil {
+				return err
+			}
+		}
+		if len(storedSections) > 1 && len(resp.DetailEvidence) > 0 {
+			if err := r.KnowledgeStore.StoreKnowledgeEvidence(storedSections[1].ID, mapProtoEvidence(resp.DetailEvidence)); err != nil {
 				return err
 			}
 		}
@@ -2166,11 +2199,19 @@ func (r *mutationResolver) GenerateLearningPath(ctx context.Context, input Gener
 
 		sections := make([]knowledgepkg.Section, len(resp.Steps))
 		for i, step := range resp.Steps {
+			metaRaw, _ := json.Marshal(map[string]any{
+				"prerequisite_steps": step.PrerequisiteSteps,
+				"difficulty":         step.Difficulty,
+				"exercises":          step.Exercises,
+				"checkpoint":         step.Checkpoint,
+			})
 			sections[i] = knowledgepkg.Section{
-				Title:      step.Title,
-				Content:    step.Content,
-				Summary:    step.Objective,
-				Confidence: knowledgepkg.ConfidenceMedium,
+				Title:            step.Title,
+				Content:          step.Content,
+				Summary:          step.Objective,
+				Metadata:         string(metaRaw),
+				Confidence:       mapProtoConfidence(step.Confidence),
+				RefinementStatus: step.RefinementStatus,
 			}
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
@@ -2354,11 +2395,17 @@ func (r *mutationResolver) GenerateCodeTour(ctx context.Context, input GenerateC
 			if len(summary) > 160 {
 				summary = summary[:160]
 			}
+			metaRaw, _ := json.Marshal(map[string]any{
+				"trail":              stop.Trail,
+				"modification_hints": stop.ModificationHints,
+			})
 			sections[i] = knowledgepkg.Section{
-				Title:      stop.Title,
-				Content:    stop.Description,
-				Summary:    summary,
-				Confidence: knowledgepkg.ConfidenceMedium,
+				Title:            stop.Title,
+				Content:          stop.Description,
+				Summary:          summary,
+				Metadata:         string(metaRaw),
+				Confidence:       mapProtoConfidence(stop.Confidence),
+				RefinementStatus: stop.RefinementStatus,
 			}
 		}
 		if err := r.KnowledgeStore.StoreKnowledgeSections(artifact.ID, sections); err != nil {
@@ -2797,7 +2844,13 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			}
 			bgCtx := r.withJobMetadata(runCtx, "knowledge", rt, repo.ID, existing.ID, "cliff_notes")
 			if renderPlan.RenderOnly {
-				bgCtx = withCliffNotesRenderMetadata(bgCtx, true, renderPlan.SelectedSectionTitles)
+				bgCtx = withCliffNotesRenderMetadata(
+					bgCtx,
+					true,
+					renderPlan.SelectedSectionTitles,
+					renderPlan.UnderstandingDepth,
+					renderPlan.RelevanceProfile,
+				)
 			}
 			resp, err := r.Worker.GenerateCliffNotes(bgCtx, &knowledgev1.GenerateCliffNotesRequest{
 				RepositoryId:   repo.ID,
@@ -2820,16 +2873,20 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			persistUsage(resp.Usage)
 			sections := make([]knowledgepkg.Section, len(resp.Sections))
 			for i, sec := range resp.Sections {
+				refinementStatus := strings.TrimSpace(sec.RefinementStatus)
+				if refinementStatus == "" {
+					refinementStatus = "light"
+				}
 				sections[i] = knowledgepkg.Section{
 					Title:            sec.Title,
 					Content:          sec.Content,
 					Summary:          sec.Summary,
-					Metadata:         cliffNotesSectionMetadataJSON(knowledgepkg.ArtifactCliffNotes, understanding, "light", sec.Title, len(sec.Evidence) > 0),
+					Metadata:         cliffNotesSectionMetadataJSON(knowledgepkg.ArtifactCliffNotes, understanding, refinementStatus, sec.Title, len(sec.Evidence) > 0),
 					Confidence:       mapProtoConfidence(sec.Confidence),
 					Inferred:         sec.Inferred,
 					Evidence:         mapProtoEvidence(sec.Evidence),
 					SectionKey:       knowledgepkg.SectionKeyForTitle(sec.Title),
-					RefinementStatus: "light",
+					RefinementStatus: refinementStatus,
 				}
 			}
 			if renderPlan.RenderOnly && len(renderPlan.SelectedSectionTitles) > 0 {
@@ -2844,7 +2901,13 @@ func (r *mutationResolver) RefreshKnowledgeArtifact(ctx context.Context, id stri
 			}
 			syncCliffNotesRefinementUnits(r.KnowledgeStore, existing, sections, understanding)
 			if existing.GenerationMode != knowledgepkg.GenerationModeClassic && existing.Depth != knowledgepkg.DepthSummary {
-				if targets := cliffNotesDeepeningTargets(r.KnowledgeStore, existing); len(targets) > 0 {
+				targets := cliffNotesDeepeningTargets(r.KnowledgeStore, existing)
+				slog.Info("cliff_notes_deepening_targets_evaluated",
+					"artifact_id", existing.ID,
+					"target_count", len(targets),
+					"targets", targets,
+				)
+				if len(targets) > 0 {
 					if err := r.enqueueCliffNotesDeepening(repo, existing, scope, snap.SourceRevision, snapJSON, targets); err != nil {
 						slog.Warn("failed to enqueue refreshed cliff notes deepening", "artifact_id", existing.ID, "error", err)
 					}
