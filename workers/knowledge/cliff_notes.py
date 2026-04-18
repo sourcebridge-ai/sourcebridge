@@ -176,6 +176,23 @@ def _parse_sections(raw: str) -> list[dict[str, object]]:
     return parsed  # type: ignore[no-any-return]
 
 
+def _coerce_int(value: object) -> int:
+    # LLMs sometimes emit null or strings for line numbers; the downstream
+    # evidence gate compares with `> 0` and crashes on NoneType.
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return 0
+    return 0
+
+
 def _parse_evidence(raw_evidence: list[dict]) -> list[EvidenceRef]:
     """Parse evidence entries from the LLM response."""
     result = []
@@ -190,8 +207,8 @@ def _parse_evidence(raw_evidence: list[dict]) -> list[EvidenceRef]:
                 source_type=ev.get("source_type", "file"),
                 source_id=ev.get("source_id", ""),
                 file_path=file_path,
-                line_start=ev.get("line_start", 0),
-                line_end=ev.get("line_end", 0),
+                line_start=_coerce_int(ev.get("line_start")),
+                line_end=_coerce_int(ev.get("line_end")),
                 rationale=ev.get("rationale", ""),
             )
         )

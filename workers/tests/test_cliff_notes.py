@@ -342,6 +342,24 @@ def test_parse_sections_handles_think_tags() -> None:
     assert result[0]["title"] == "Purpose"
 
 
+def test_parse_evidence_coerces_null_line_numbers() -> None:
+    """LLMs sometimes emit null for line_start/line_end; downstream code
+    compares `line_start > 0` and must not crash on NoneType."""
+    from workers.knowledge.cliff_notes import _parse_evidence
+
+    raw = [
+        {"source_type": "file", "source_id": "a", "file_path": "auth.go", "line_start": None, "line_end": None},
+        {"source_type": "file", "source_id": "b", "file_path": "router.go", "line_start": "12", "line_end": "20"},
+        {"source_type": "file", "source_id": "c", "file_path": "store.go", "line_start": 7.9, "line_end": 42.0},
+        {"source_type": "file", "source_id": "d", "file_path": "bad.go", "line_start": "not-a-number", "line_end": None},
+    ]
+    result = _parse_evidence(raw)
+    assert [r.line_start for r in result] == [0, 12, 7, 0]
+    assert [r.line_end for r in result] == [0, 20, 42, 0]
+    # All must be plain ints — any None here would re-trigger the original bug.
+    assert all(isinstance(r.line_start, int) and isinstance(r.line_end, int) for r in result)
+
+
 def test_parse_sections_handles_object_wrapper() -> None:
     """_parse_sections must extract array from object-wrapped responses."""
     from workers.knowledge.cliff_notes import _parse_sections
