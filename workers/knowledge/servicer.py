@@ -41,6 +41,7 @@ from workers.knowledge.code_tour import generate_code_tour
 from workers.knowledge.explain_system import explain_system
 from workers.knowledge.job_logs import JobLogMetadata, SurrealJobLogger
 from workers.knowledge.job_state import JobStateMetadata, SurrealJobStateUpdater
+from workers.knowledge.proto_enums import resolve_request_audience, resolve_request_depth
 from workers.knowledge.learning_path import generate_learning_path
 from workers.knowledge.retrieval import (
     build_overview_query,
@@ -886,11 +887,13 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> knowledge_pb2.GenerateCliffNotesResponse:
         """Generate cliff notes for a repository from its assembled snapshot."""
+        audience = resolve_request_audience(request)
+        depth = resolve_request_depth(request)
         log.info(
             "generate_cliff_notes",
             repository_id=request.repository_id,
-            audience=request.audience,
-            depth=request.depth,
+            audience=audience,
+            depth=depth,
             scope_type=request.scope_type or "repository",
             scope_path=request.scope_path,
         )
@@ -902,8 +905,6 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             )
             return  # type: ignore[return-value]  # abort raises but mypy doesn't know
 
-        audience = request.audience or "developer"
-        depth = request.depth or "medium"
         scope_type = request.scope_type or "repository"
         provider, model_override = self._resolve_request_provider(context)
         job_logger = self._resolve_job_logger(context)
@@ -1034,11 +1035,13 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> knowledge_pb2.GenerateLearningPathResponse:
         """Generate a learning path for a repository from its assembled snapshot."""
+        audience = resolve_request_audience(request)
+        depth = resolve_request_depth(request)
         log.info(
             "generate_learning_path",
             repository_id=request.repository_id,
-            audience=request.audience,
-            depth=request.depth,
+            audience=audience,
+            depth=depth,
         )
 
         if not request.snapshot_json:
@@ -1048,8 +1051,6 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             )
             return  # type: ignore[return-value]  # abort raises but mypy doesn't know
 
-        audience = request.audience or "developer"
-        depth = request.depth or "medium"
         query = build_overview_query(request.repository_name, "learning_path")
         if request.focus_area:
             query = f"{request.focus_area} {query}"
@@ -1129,11 +1130,13 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> knowledge_pb2.GenerateArchitectureDiagramResponse:
         """Generate an AI-authored Mermaid architecture diagram."""
+        audience = resolve_request_audience(request)
+        depth = resolve_request_depth(request)
         log.info(
             "generate_architecture_diagram",
             repository_id=request.repository_id,
-            audience=request.audience,
-            depth=request.depth,
+            audience=audience,
+            depth=depth,
         )
 
         if not request.snapshot_json:
@@ -1143,8 +1146,6 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             )
             return  # type: ignore[return-value]
 
-        audience = request.audience or "developer"
-        depth = request.depth or "medium"
         query = build_overview_query(request.repository_name, "architecture_diagram")
         snapshot = await self._prepare_snapshot(request.snapshot_json, query)
 
@@ -1240,11 +1241,13 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> knowledge_pb2.GenerateWorkflowStoryResponse:
         """Generate a grounded workflow story for a repository scope."""
+        audience = resolve_request_audience(request)
+        depth = resolve_request_depth(request)
         log.info(
             "generate_workflow_story",
             repository_id=request.repository_id,
-            audience=request.audience,
-            depth=request.depth,
+            audience=audience,
+            depth=depth,
             scope_type=request.scope_type or "repository",
             scope_path=request.scope_path,
         )
@@ -1256,8 +1259,6 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             )
             return  # type: ignore[return-value]  # abort raises but mypy doesn't know
 
-        audience = request.audience or "developer"
-        depth = request.depth or "medium"
         scope_type = request.scope_type or "repository"
         query = build_overview_query(request.repository_name, "workflow_story")
         if request.anchor_label:
@@ -1430,11 +1431,13 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
         context: grpc.aio.ServicerContext,
     ) -> knowledge_pb2.GenerateCodeTourResponse:
         """Generate a code tour for a repository from its assembled snapshot."""
+        audience = resolve_request_audience(request)
+        depth = resolve_request_depth(request)
         log.info(
             "generate_code_tour",
             repository_id=request.repository_id,
-            audience=request.audience,
-            depth=request.depth,
+            audience=audience,
+            depth=depth,
         )
 
         if not request.snapshot_json:
@@ -1444,8 +1447,6 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             )
             return  # type: ignore[return-value]  # abort raises but mypy doesn't know
 
-        audience = request.audience or "developer"
-        depth = request.depth or "medium"
         query = build_overview_query(request.repository_name, "code_tour")
         if request.theme:
             query = f"{request.theme} {query}"

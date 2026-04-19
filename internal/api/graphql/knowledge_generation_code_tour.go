@@ -123,7 +123,9 @@ func (s codeTourGenerationService) Generate(ctx context.Context) (*KnowledgeArti
 			RepositoryId:   repo.ID,
 			RepositoryName: repo.Name,
 			Audience:       audience,
+			AudienceEnum:   protoAudience(knowledgepkg.Audience(audience)),
 			Depth:          depth,
+			DepthEnum:      protoDepth(knowledgepkg.Depth(depth)),
 			SnapshotJson:   string(enrichedSnapJSON),
 			Theme:          theme,
 		})

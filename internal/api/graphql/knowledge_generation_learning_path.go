@@ -123,7 +123,9 @@ func (s learningPathGenerationService) Generate(ctx context.Context) (*Knowledge
 			RepositoryId:   repo.ID,
 			RepositoryName: repo.Name,
 			Audience:       audience,
+			AudienceEnum:   protoAudience(knowledgepkg.Audience(audience)),
 			Depth:          depth,
+			DepthEnum:      protoDepth(knowledgepkg.Depth(depth)),
 			SnapshotJson:   string(enrichedSnapJSON),
 			FocusArea:      focusArea,
 		})

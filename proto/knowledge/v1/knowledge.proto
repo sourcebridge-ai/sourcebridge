@@ -30,6 +30,19 @@ service KnowledgeService {
   rpc GenerateReport(GenerateReportRequest) returns (GenerateReportResponse);
 }
 
+enum Audience {
+  AUDIENCE_UNSPECIFIED = 0;
+  AUDIENCE_BEGINNER = 1;
+  AUDIENCE_DEVELOPER = 2;
+}
+
+enum Depth {
+  DEPTH_UNSPECIFIED = 0;
+  DEPTH_SUMMARY = 1;
+  DEPTH_MEDIUM = 2;
+  DEPTH_DEEP = 3;
+}
+
 // GenerateCliffNotesRequest carries the assembled repository snapshot for the
 // Python worker to synthesize into cliff notes. The Go API side assembles the
 // snapshot from the graph store and serializes it as JSON.
@@ -41,6 +54,8 @@ message GenerateCliffNotesRequest {
   string snapshot_json = 5;  // JSON-serialized KnowledgeSnapshot
   string scope_type = 6;     // "repository", "module", "file", "symbol"
   string scope_path = 7;     // canonical scope path
+  Audience audience_enum = 8;
+  Depth depth_enum = 9;
 }
 
 message GenerateCliffNotesResponse {
@@ -56,6 +71,8 @@ message GenerateArchitectureDiagramRequest {
   string depth = 4;
   string snapshot_json = 5;
   string deterministic_diagram_json = 6; // JSON-serialized deterministic diagram scaffold
+  Audience audience_enum = 7;
+  Depth depth_enum = 8;
 }
 
 message GenerateArchitectureDiagramResponse {
@@ -100,6 +117,8 @@ message GenerateLearningPathRequest {
   string depth = 4;
   string snapshot_json = 5;
   string focus_area = 6;     // optional area to focus the learning path on
+  Audience audience_enum = 7;
+  Depth depth_enum = 8;
 }
 
 message GenerateLearningPathResponse {
@@ -117,6 +136,8 @@ message GenerateWorkflowStoryRequest {
   string scope_path = 7;          // canonical scope path
   string anchor_label = 8;        // optional plain-language anchor for the story
   string execution_path_json = 9; // optional JSON-serialized execution steps
+  Audience audience_enum = 10;
+  Depth depth_enum = 11;
 }
 
 message GenerateWorkflowStoryResponse {
@@ -166,6 +187,8 @@ message GenerateCodeTourRequest {
   string depth = 4;
   string snapshot_json = 5;
   string theme = 6;            // optional theme/focus for the tour
+  Audience audience_enum = 7;
+  Depth depth_enum = 8;
 }
 
 message GenerateCodeTourResponse {
