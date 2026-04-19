@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-from workers.knowledge.thresholds import DEEP_MIN_EVIDENCE
-
 CLIFF_NOTES_SYSTEM = """\
 You are a senior software engineer writing codebase field-guide notes — a structured \
 report that helps someone quickly understand and safely work in a repository. You produce JSON \

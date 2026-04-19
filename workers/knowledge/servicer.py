@@ -41,8 +41,8 @@ from workers.knowledge.code_tour import generate_code_tour
 from workers.knowledge.explain_system import explain_system
 from workers.knowledge.job_logs import JobLogMetadata, SurrealJobLogger
 from workers.knowledge.job_state import JobStateMetadata, SurrealJobStateUpdater
-from workers.knowledge.proto_enums import resolve_request_audience, resolve_request_depth
 from workers.knowledge.learning_path import generate_learning_path
+from workers.knowledge.proto_enums import resolve_request_audience, resolve_request_depth
 from workers.knowledge.retrieval import (
     build_overview_query,
     retrieve_relevant_snapshot,

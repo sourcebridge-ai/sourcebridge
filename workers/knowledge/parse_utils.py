@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
-from typing import Any, Callable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 from workers.knowledge.evidence import is_valid_evidence_path
 from workers.knowledge.types import EvidenceRef

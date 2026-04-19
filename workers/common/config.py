@@ -58,6 +58,11 @@ class WorkerConfig(BaseSettings):
     grpc_auth_secret: str = ""
 
     def model_post_init(self, __context: object) -> None:
+        self.test_mode = self._fallback_bool_env(
+            current=self.test_mode,
+            primary_env="SOURCEBRIDGE_WORKER_TEST_MODE",
+            fallback_env="SOURCEBRIDGE_TEST_MODE",
+        )
         self.surreal_url = self._fallback_env(
             current=self.surreal_url,
             default_value="ws://localhost:8000/rpc",
@@ -99,4 +104,14 @@ class WorkerConfig(BaseSettings):
         fallback = os.getenv(fallback_env, "").strip()
         if fallback:
             return fallback
+        return current
+
+    @staticmethod
+    def _fallback_bool_env(current: bool, primary_env: str, fallback_env: str) -> bool:
+        primary = os.getenv(primary_env, "").strip()
+        if primary:
+            return primary.lower() in ("true", "1", "yes", "on")
+        fallback = os.getenv(fallback_env, "").strip()
+        if fallback:
+            return fallback.lower() in ("true", "1", "yes", "on")
         return current

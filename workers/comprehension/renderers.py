@@ -47,8 +47,8 @@ from workers.knowledge.parse_utils import coerce_section, parse_evidence, parse_
 from workers.knowledge.prompts.cliff_notes import (
     CLIFF_NOTES_SYSTEM,
     REQUIRED_SECTIONS,
-    REQUIRED_SECTIONS_DEEP_REPOSITORY,
     REQUIRED_SECTIONS_BY_SCOPE,
+    REQUIRED_SECTIONS_DEEP_REPOSITORY,
 )
 from workers.knowledge.thresholds import DEEP_MIN_EVIDENCE, TITLE_SUMMARY_MAX_CHARS
 from workers.knowledge.types import CliffNotesResult, CliffNotesSection

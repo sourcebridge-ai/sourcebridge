@@ -246,8 +246,16 @@ func (o *Orchestrator) reapStaleJobs() {
 			"status", job.Status,
 			"age", age.Round(time.Second).String(),
 			"threshold", threshold.String())
-		o.store.SetStatus(job.ID, llm.StatusFailed)
-		o.store.SetError(job.ID, "DEADLINE_EXCEEDED", "Job reaped: stuck in "+string(job.Status)+" for "+age.Round(time.Second).String())
+		if err := o.store.SetStatus(job.ID, llm.StatusFailed); err != nil {
+			slog.Warn("failed to mark stale job failed", "job_id", job.ID, "error", err)
+		}
+		if err := o.store.SetError(
+			job.ID,
+			"DEADLINE_EXCEEDED",
+			"Job reaped: stuck in "+string(job.Status)+" for "+age.Round(time.Second).String(),
+		); err != nil {
+			slog.Warn("failed to persist stale job error", "job_id", job.ID, "error", err)
+		}
 		o.inflight.release(job.TargetKey)
 		if o.cfg.OnStaleJob != nil {
 			o.cfg.OnStaleJob(job)

@@ -34,7 +34,6 @@ STOPWORDS = {
     "can",
     "generated",
     "generate",
-    "generated",
     "how",
     "in",
     "is",
@@ -50,7 +49,6 @@ STOPWORDS = {
     "which",
     "who",
     "why",
-    "the",
     "and",
     "for",
     "with",
@@ -734,7 +732,7 @@ async def _build_deep_context(
     requirements = _select_relevant_requirements(_extract_requirement_lines(repo_path), file_evidence, question)
 
     metadata_parts = [
-        f"Mode: deep",
+        "Mode: deep",
         f"Repository: {repo_path.name}",
         f"Question type: {_question_type(question)}",
         f"Repository lookup: {understanding.repo_lookup}",

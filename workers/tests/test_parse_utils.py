@@ -6,8 +6,8 @@
 from __future__ import annotations
 
 from workers.knowledge.parse_utils import (
-    coerce_section,
     coerce_int,
+    coerce_section,
     count_specific_identifiers,
     count_unique_file_paths,
     load_json_dict,

@@ -16,30 +16,27 @@ from workers.common.llm.provider import (
     complete_with_optional_model,
     require_nonempty,
 )
-from workers.knowledge.prompts.cliff_notes import (
-    CLIFF_NOTES_SYSTEM,
-    REQUIRED_SECTIONS,
-    REQUIRED_SECTIONS_DEEP_REPOSITORY,
-    REQUIRED_SECTIONS_BY_SCOPE,
-    build_cliff_notes_prompt,
-)
-from workers.knowledge.parse_utils import coerce_int as _coerce_int
-from workers.knowledge.parse_utils import (
-    coerce_section,
-    normalize_text,
-    parse_evidence,
-    parse_json_sections,
-)
 from workers.knowledge.evidence import (
     evaluate_evidence_gate,
     extract_section_evidence_refs,
     find_section_weakness_phrases,
-    is_valid_evidence_path,
     strip_forbidden_phrase_sentences,
     strip_unsupported_claim_sentences,
 )
+from workers.knowledge.parse_utils import (
+    coerce_section,
+    parse_evidence,
+    parse_json_sections,
+)
+from workers.knowledge.prompts.cliff_notes import (
+    CLIFF_NOTES_SYSTEM,
+    REQUIRED_SECTIONS,
+    REQUIRED_SECTIONS_BY_SCOPE,
+    REQUIRED_SECTIONS_DEEP_REPOSITORY,
+    build_cliff_notes_prompt,
+)
 from workers.knowledge.thresholds import DEEP_MIN_EVIDENCE, TITLE_SUMMARY_MAX_CHARS
-from workers.knowledge.types import CliffNotesResult, CliffNotesSection, EvidenceRef
+from workers.knowledge.types import CliffNotesResult, CliffNotesSection
 from workers.reasoning.types import LLMUsageRecord
 
 log = structlog.get_logger()
