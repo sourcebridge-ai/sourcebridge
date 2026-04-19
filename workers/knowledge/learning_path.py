@@ -60,6 +60,58 @@ def _parse_steps(raw: str) -> list[dict[str, object]]:
     return _parse_sections(raw)
 
 
+def _collect_snapshot_file_paths(snapshot_json: str) -> set[str]:
+    """Extract the set of real file paths present in the repository snapshot.
+
+    Learning-path DEEP runs were hallucinating file_paths — haiku would
+    invent plausible-looking paths like ``internal/worker/queue.go`` even
+    when no such file existed. The structured-fact prompt helps, but the
+    only defensible fix is filtering the LLM output against the paths
+    the snapshot actually contains. This extractor pulls paths from every
+    symbol list + module/file array the assembler emits.
+    """
+
+    try:
+        snap = json.loads(snapshot_json) if snapshot_json else {}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return set()
+    if not isinstance(snap, dict):
+        return set()
+
+    paths: set[str] = set()
+    for key in (
+        "entry_points",
+        "public_api",
+        "test_symbols",
+        "complex_symbols",
+        "high_fan_in_symbols",
+        "high_fan_out_symbols",
+    ):
+        for sym in snap.get(key) or []:
+            if isinstance(sym, dict):
+                p = (sym.get("file_path") or "").strip()
+                if p:
+                    paths.add(p)
+    for module in snap.get("modules") or []:
+        if not isinstance(module, dict):
+            continue
+        for f in module.get("files") or []:
+            if isinstance(f, dict):
+                p = (f.get("path") or f.get("file_path") or "").strip()
+                if p:
+                    paths.add(p)
+            elif isinstance(f, str) and f.strip():
+                paths.add(f.strip())
+    for f in snap.get("files") or []:
+        if isinstance(f, dict):
+            p = (f.get("path") or f.get("file_path") or "").strip()
+            if p:
+                paths.add(p)
+        elif isinstance(f, str) and f.strip():
+            paths.add(f.strip())
+    return paths
+
+
 async def generate_learning_path(
     provider: LLMProvider,
     repository_name: str,
@@ -133,6 +185,22 @@ async def generate_learning_path(
         )
 
     if depth == "deep":
+        known_paths = _collect_snapshot_file_paths(snapshot_json)
+        if known_paths:
+            for step in steps:
+                raw_paths = list(step.file_paths or [])
+                filtered = [p for p in raw_paths if p in known_paths]
+                dropped = [p for p in raw_paths if p not in known_paths]
+                if dropped:
+                    step.file_paths = filtered
+                    log.info(
+                        "learning_path_dropped_hallucinated_paths",
+                        step_title=step.title,
+                        dropped=dropped[:5],
+                        dropped_count=len(dropped),
+                        kept_count=len(filtered),
+                    )
+
         for step in steps:
             gate = evaluate_evidence_gate(
                 text=f"{step.objective}\n{step.content}\n" + "\n".join(step.exercises),
