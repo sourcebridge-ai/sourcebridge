@@ -68,6 +68,10 @@ def make_ollama_override(ollama_base_url: str):
 
     def _override(model: str, api_key: str, repo_mount: str):
         handle = tempfile.NamedTemporaryFile("w", delete=False, suffix=".yml")
+        # Thinking mode is disabled by default in _resolve_disable_thinking()
+        # but we set it explicitly so the benchmark config is self-documenting.
+        # Reasoning chains from Qwen3.x drastically slow generation and
+        # produce weaker final JSON; gemma4/llama ignore the flag harmlessly.
         handle.write(
             f"""
 services:
@@ -77,6 +81,7 @@ services:
       - SOURCEBRIDGE_WORKER_LLM_BASE_URL={ollama_base_url}
       - SOURCEBRIDGE_WORKER_LLM_MODEL={model}
       - SOURCEBRIDGE_WORKER_LLM_API_KEY=ollama
+      - SOURCEBRIDGE_WORKER_LLM_DISABLE_THINKING=true
       - SOURCEBRIDGE_WORKER_EMBEDDING_PROVIDER=ollama
       - SOURCEBRIDGE_WORKER_EMBEDDING_BASE_URL=http://host.docker.internal:11434
   sourcebridge:
@@ -88,6 +93,7 @@ services:
       - SOURCEBRIDGE_LLM_MODEL={model}
       - SOURCEBRIDGE_LLM_SUMMARY_MODEL={model}
       - SOURCEBRIDGE_LLM_API_KEY=ollama
+      - SOURCEBRIDGE_LLM_DISABLE_THINKING=true
 """
         )
         handle.flush()

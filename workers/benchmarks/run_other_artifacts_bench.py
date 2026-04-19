@@ -236,6 +236,7 @@ services:
       - SOURCEBRIDGE_WORKER_LLM_BASE_URL=https://openrouter.ai/api/v1
       - SOURCEBRIDGE_WORKER_LLM_MODEL={model}
       - SOURCEBRIDGE_WORKER_LLM_API_KEY={api_key}
+      - SOURCEBRIDGE_WORKER_LLM_DISABLE_THINKING=true
       - SOURCEBRIDGE_WORKER_EMBEDDING_PROVIDER=ollama
       - SOURCEBRIDGE_WORKER_EMBEDDING_BASE_URL=http://host.docker.internal:11434
   sourcebridge:
@@ -247,6 +248,7 @@ services:
       - SOURCEBRIDGE_LLM_MODEL={model}
       - SOURCEBRIDGE_LLM_SUMMARY_MODEL={model}
       - SOURCEBRIDGE_LLM_API_KEY={api_key}
+      - SOURCEBRIDGE_LLM_DISABLE_THINKING=true
 """
     )
     handle.flush()
