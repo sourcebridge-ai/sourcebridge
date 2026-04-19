@@ -132,21 +132,38 @@ def wait_artifact_ready_by_type(
     raise RuntimeError(f"timed out waiting for {artifact_type}")
 
 
-def index_real_files(repo_root: Path) -> tuple[set[str], set[str]]:
+def index_real_files(repo_root: Path) -> tuple[set[str], set[str], set[str]]:
+    """Walk the repo and collect (files, basenames, directories).
+
+    A cited directory path (``internal/graph``) is still grounded — it
+    points at a real part of the tree, just not at a single file.
+    Flagging it as a hallucination overstates the real halluc rate,
+    especially for learning paths where step-level references often
+    name a package rather than a single file.
+    """
+
     full_paths: set[str] = set()
     basenames: set[str] = set()
+    directories: set[str] = set()
     for p in repo_root.rglob("*"):
-        if not p.is_file():
-            continue
         rel = p.relative_to(repo_root).as_posix()
         if rel.startswith(".git/") or rel.startswith("node_modules/") or rel.startswith("benchmark-results/"):
             continue
+        if p.is_dir():
+            directories.add(rel)
+            continue
         full_paths.add(rel)
         basenames.add(p.name)
-    return full_paths, basenames
+    return full_paths, basenames, directories
 
 
-def score_artifact(artifact: dict, real_files: set[str], real_basenames: set[str]) -> dict:
+def score_artifact(
+    artifact: dict,
+    real_files: set[str],
+    real_basenames: set[str],
+    real_dirs: set[str] | None = None,
+) -> dict:
+    real_dirs = real_dirs or set()
     sections = artifact.get("sections") or []
     total_bytes = sum(len((s.get("content") or "")) for s in sections)
     confidences = [(s.get("confidence") or "").lower() for s in sections]
@@ -170,7 +187,7 @@ def score_artifact(artifact: dict, real_files: set[str], real_basenames: set[str
         for p in paths:
             if not p:
                 continue
-            if p in real_files or ("/" not in p and p in real_basenames):
+            if p in real_files or ("/" not in p and p in real_basenames) or p in real_dirs:
                 grounded += 1
             else:
                 hallucinated_paths.append(p)
@@ -255,7 +272,7 @@ def run_bench(
     override = make_override_openrouter(model, api_key, repo_mount)
     summary_rows: list[dict] = []
 
-    real_files, real_basenames = index_real_files(bench.REPO_ROOT)
+    real_files, real_basenames, real_dirs = index_real_files(bench.REPO_ROOT)
 
     log_path = results_dir / "worker.log"
     log_proc = None
@@ -314,7 +331,7 @@ done
                     api_url, token, repo_id, artifact_type, depth_filter=depth
                 )
                 render_seconds = int(time.time() - started)
-                metrics = score_artifact(artifact, real_files, real_basenames)
+                metrics = score_artifact(artifact, real_files, real_basenames, real_dirs)
                 row = {
                     "label": label,
                     "model": model,
