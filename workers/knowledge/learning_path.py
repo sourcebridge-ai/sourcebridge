@@ -19,7 +19,7 @@ from workers.common.llm.provider import (
 )
 from workers.knowledge.cliff_notes import _parse_sections
 from workers.knowledge.evidence import evaluate_evidence_gate, extract_step_file_symbol_evidence
-from workers.knowledge.parse_utils import coerce_int
+from workers.knowledge.parse_utils import coerce_int, meets_confidence_floor
 from workers.knowledge.prompts.learning_path import (
     LEARNING_PATH_SYSTEM,
     build_learning_path_prompt,
@@ -135,6 +135,23 @@ async def generate_learning_path(
             if gate.below_threshold or gate.forbidden_phrases or not step.exercises:
                 step.confidence = "low"
                 step.refinement_status = "needs_evidence"
+            else:
+                # Learning-path steps carry their grounding in
+                # ``file_paths`` (the files the learner should read)
+                # and their content body. If the step names at least
+                # two real files and two specific identifiers, it
+                # meets the "you can follow this on your own" bar and
+                # gets promoted to high confidence.
+                step_text = f"{step.objective}\n{step.content}\n" + "\n".join(step.exercises)
+                if meets_confidence_floor(
+                    current_confidence=step.confidence,
+                    unique_file_paths=set(step.file_paths or []),
+                    content=step_text,
+                    min_files=2,
+                    min_identifiers=2,
+                ):
+                    step.confidence = "high"
+                    step.refinement_status = ""
 
     usage = LLMUsageRecord(
         provider="llm",

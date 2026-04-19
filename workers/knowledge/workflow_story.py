@@ -25,7 +25,7 @@ from workers.knowledge.cliff_notes import (
     _parse_sections,
 )
 from workers.knowledge.evidence import evaluate_evidence_gate, extract_section_evidence_refs
-from workers.knowledge.parse_utils import coerce_int
+from workers.knowledge.parse_utils import coerce_int, meets_confidence_floor
 from workers.knowledge.prompts.workflow_story import (
     REQUIRED_WORKFLOW_STORY_SECTIONS,
     REQUIRED_WORKFLOW_STORY_SECTIONS_DEEP,
@@ -539,6 +539,21 @@ async def generate_workflow_story(
             if gate.below_threshold or gate.forbidden_phrases:
                 section.confidence = "low"
                 section.refinement_status = "needs_evidence"
+            else:
+                # Workflow-story sections, like cliff-notes sections, cite
+                # multiple evidence refs per section. Use the same 3-files
+                # / 2-identifiers mechanical floor that drove the cliff-
+                # notes HIGH-confidence upgrades in v13.
+                cited = {e.file_path for e in (section.evidence or []) if e.file_path}
+                if meets_confidence_floor(
+                    current_confidence=section.confidence,
+                    unique_file_paths=cited,
+                    content=f"{section.summary}\n{section.content}",
+                    min_files=3,
+                    min_identifiers=2,
+                ):
+                    section.confidence = "high"
+                    section.refinement_status = ""
 
     # --- Baseline quality instrumentation ---
     evidence_by_type: dict[str, int] = {}

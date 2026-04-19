@@ -19,7 +19,7 @@ from workers.common.llm.provider import (
 )
 from workers.knowledge.cliff_notes import _parse_sections
 from workers.knowledge.evidence import evaluate_evidence_gate, extract_code_tour_stop_evidence
-from workers.knowledge.parse_utils import coerce_int
+from workers.knowledge.parse_utils import coerce_int, meets_confidence_floor
 from workers.knowledge.prompts.code_tour import (
     CODE_TOUR_SYSTEM,
     build_code_tour_prompt,
@@ -128,6 +128,23 @@ async def generate_code_tour(
             if gate.below_threshold or gate.forbidden_phrases or not stop.trail:
                 stop.confidence = "low"
                 stop.refinement_status = "needs_evidence"
+            else:
+                # A code-tour stop only grounds one file path (the one the
+                # stop is anchored on), so the floor threshold on files
+                # drops to 1. Specific-identifier bar stays at 2 — a
+                # stop that can't name at least two concrete types or
+                # functions in its description isn't adding much over
+                # the file reference alone.
+                stop_text = f"{stop.description}\n" + "\n".join(stop.modification_hints)
+                if meets_confidence_floor(
+                    current_confidence=stop.confidence,
+                    unique_file_paths={stop.file_path} if stop.file_path else set(),
+                    content=stop_text,
+                    min_files=1,
+                    min_identifiers=2,
+                ):
+                    stop.confidence = "high"
+                    stop.refinement_status = ""
 
     usage = LLMUsageRecord(
         provider="llm",
