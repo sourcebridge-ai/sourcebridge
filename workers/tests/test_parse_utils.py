@@ -67,3 +67,38 @@ def test_meets_confidence_floor_requires_both_thresholds():
         unique_file_paths={"a.go"},
         content="`Foo` and `Bar` and `Baz`.",
     ) is False
+
+
+def test_fact_hints_block_surfaces_real_anchors():
+    """The block should extract key files, entry points, and deps so
+    prompts don't rely on the LLM scanning the full snapshot for
+    anchors."""
+    import json as _json
+
+    from workers.knowledge.prompts.fact_hints import build_fact_hints_block
+
+    snapshot = _json.dumps(
+        {
+            "top_files": [
+                {"file_path": "internal/foo.go"},
+                {"file_path": "workers/bar.py"},
+            ],
+            "entry_points": [
+                {"qualified_name": "FooService.Start", "file_path": "internal/foo.go"},
+            ],
+            "external_dependencies": ["grpc", "openai"],
+        }
+    )
+    block = build_fact_hints_block(snapshot)
+    assert "Representative files" in block
+    assert "internal/foo.go" in block
+    assert "FooService.Start" in block
+    assert "grpc" in block
+
+
+def test_fact_hints_block_returns_empty_when_snapshot_has_no_useful_data():
+    from workers.knowledge.prompts.fact_hints import build_fact_hints_block
+
+    assert build_fact_hints_block("") == ""
+    assert build_fact_hints_block("{}") == ""
+    assert build_fact_hints_block("not-json") == ""

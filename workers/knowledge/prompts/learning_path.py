@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from workers.knowledge.prompts.fact_hints import build_fact_hints_block
+
 LEARNING_PATH_SYSTEM = """\
 You are a senior developer creating a structured learning path for a codebase. \
 The path should guide a new contributor from zero context to productive work. \
@@ -84,6 +86,8 @@ def build_learning_path_prompt(
     except (json.JSONDecodeError, TypeError, ValueError):
         pre_analysis_block = ""
 
+    fact_hints = build_fact_hints_block(snapshot_json)
+
     return f"""\
 Generate a learning path for the repository "{repository_name}".
 
@@ -93,7 +97,7 @@ Generate a learning path for the repository "{repository_name}".
 **Depth:** {depth}
 {depth_instruction}
 {focus_line}
-{pre_analysis_block}
+{pre_analysis_block}{fact_hints}
 **Output format:** Return a JSON array of step objects, ordered from first to last. Each object must have:
 - "order": int (1-based step number)
 - "title": string (short step title)

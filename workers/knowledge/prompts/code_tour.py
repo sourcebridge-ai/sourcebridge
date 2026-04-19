@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from workers.knowledge.prompts.fact_hints import build_fact_hints_block
+
 CODE_TOUR_SYSTEM = """\
 You are a senior developer creating a guided code tour for a repository. \
 A code tour is a sequence of stops, each pointing to a specific file and line \
@@ -65,6 +67,8 @@ Per-stop requirements:
     except (json.JSONDecodeError, TypeError, ValueError):
         pre_analysis_block = ""
 
+    fact_hints = build_fact_hints_block(snapshot_json)
+
     return f"""\
 Generate a code tour for the repository "{repository_name}".
 
@@ -72,7 +76,7 @@ Generate a code tour for the repository "{repository_name}".
 **Depth:** {depth}
 {depth_guidance.get(depth, depth_guidance["medium"])}
 {theme_line}
-{pre_analysis_block}
+{pre_analysis_block}{fact_hints}
 **Output format:** Return a JSON array of stop objects. Each object must have:
 - "order": int (1-based)
 - "title": string (short stop title)
