@@ -296,6 +296,62 @@ artifacts):
 | code_tour | 15 | 9–14 / 0–6 / 0–1 | 0.0% | ✅ at target (run-to-run HIGH count variance) |
 | workflow_story | 9 | 6 / 2 / 1 | 0.0% | ✅ at target (67% HIGH) |
 
-A top-5 cross-model sweep — same five models as the cliff-notes
-leaderboard above — is in progress to confirm these numbers generalise.
-Results will be appended here when it completes.
+### Cross-model sweep results (2026-04-19)
+
+Running the same three DEEP artifacts against four of the cliff-notes
+top-5 models produced the following leaderboard. `qwen3:32b` dense is
+omitted — a single DEEP artifact took >30 min on the Mac Studio via
+Ollama, so it needs its own slower, non-sequential harness to finish;
+`qwen3.6` MoE is the local representative here because its 3B active
+parameters route fast enough to fit a sequential four-artifact bench.
+
+| Model | Venue | LP H/M/L | LP halluc | LP s | CT H/M/L | CT halluc | CT s | WS H/M/L | WS halluc | WS s |
+|---|---|---|---:|---:|---|---:|---:|---|---:|---:|
+| `qwen3.6:35b-a3b-moe` | local | 0 / 0 / 1 ⚠ | 0.0% | 2827 | **10 / 0 / 0** | 0.0% | 340 | 3 / 4 / 2 | 0.0% | 442 |
+| `claude-haiku-4.5` | cloud | 4 / 5 / 6 | 0.0% | 374 | 5 / 10 / 0 | 0.0% | 91 | 6 / 1 / 2 | 0.0% | 54 |
+| `claude-sonnet-4` | cloud | 4 / 1 / 10 | 0.0% | 576 | 8 / 7 / 0 | 0.0% | 135 | 5 / 1 / 3 | 0.0% | 66 |
+| `gemini-2.5-flash` | cloud | 5 / 7 / 0 | 21.4% ⚠ | 224 | 6 / 6 / 0 | 0.0% | 78 | **7 / 0 / 2** | 0.0% | 36 |
+
+LP s / CT s / WS s = per-artifact wall-clock in seconds (after index +
+understanding, which took ~360-725 s per model).
+
+### Per-artifact observations
+
+**Code tour** — `qwen3.6` MoE delivers **10/10 HIGH, 0% hallucination**,
+the first perfect artifact in either sweep. Sonnet is second at 8/15.
+All four models emit 0% hallucinated citations; the post-parse filter
+plus `2+ named symbols per stop` prompt rule is doing its job.
+
+**Workflow story** — Gemini Flash leads (7/9 HIGH). Haiku is second
+(6/9). Every cloud model hits 0% hallucination. The 16384-token bump
+matters: without it, haiku hits its Observability section and
+truncates; with it, every cloud model renders the whole story.
+
+**Learning path** — the hardest artifact, and the only one where no
+model hit the ≥10 HIGH first-class bar:
+
+- Gemini's 21.4% hallucination rate comes from citing directory paths
+  that don't exist (`web/src/components/architecture/`, etc.). It also
+  returned 12 sections instead of the requested 10-15 floor.
+- Sonnet hit 4 HIGH / 10 LOW — the "verbose prose with sparse
+  citations" pattern: long explanations but few tracked identifiers,
+  so the confidence floor fires LOW across most steps.
+- `qwen3.6` MoE emitted only **1 section** (parse fallback). The DEEP
+  learning-path JSON is large enough that the MoE routing plus 16 K
+  max-tokens plus deep-step schema complexity tips the model into
+  malformed output on this specific artifact.
+- Haiku at 4/5/6 is the most consistent but still short of the 10 HIGH
+  target. Learning path needs more tuning — more iterations beyond
+  this sweep's cut-off.
+
+### Takeaway
+
+**Code tour** hit first-class across the entire top-4: Qwen 3.6 MoE
+leads with a perfect artifact, and every cloud model clears the 5+
+HIGH / 0% hallucination bar. **Workflow story** is first-class on every
+cloud model and near-ceiling on Gemini specifically. **Learning path**
+is the stubbornest — the token ceiling, the large-schema JSON, and the
+"many files per step" requirement compound to push even the best
+models below the 10-HIGH bar. A follow-up iteration would likely
+tighten the prompt's citation vocabulary and lift the max_tokens
+further for LP in particular.

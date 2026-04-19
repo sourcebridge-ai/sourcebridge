@@ -99,4 +99,31 @@ untracked files in real directories.
 - `workflow_story` — investigate the haiku JSON truncation; the
   max_tokens ceiling may need the same 16384 bump that learning_path
   and code_tour got.
-- Top-5 sweep pending per task #51.
+- Top-5 sweep DONE per task #51 (2026-04-19). Scope trimmed to four
+  models after qwen3:32b dense timed out a 30-min bench poll on LP
+  alone; dense needs its own non-sequential harness to finish.
+
+## Iteration 8 (top-5 sweep — 2026-04-19)
+
+Sweep ran 3 DEEP artifacts × 4 models. Full leaderboard in ARTICLE
+addendum.
+
+| Model | LP H/M/L | LP halluc | CT H/M/L | CT halluc | WS H/M/L | WS halluc |
+|---|---|---:|---|---:|---|---:|
+| qwen3.6-35b-a3b-moe | 0/0/1 ⚠ | 0.0% | **10/0/0** ✅ | 0.0% | 3/4/2 | 0.0% |
+| claude-haiku-4.5 | 4/5/6 | 0.0% | 5/10/0 | 0.0% | 6/1/2 | 0.0% |
+| claude-sonnet-4 | 4/1/10 | 0.0% | 8/7/0 | 0.0% | 5/1/3 | 0.0% |
+| gemini-2.5-flash | 5/7/0 (12s) | 21.4% ⚠ | 6/6/0 (12s) | 0.0% | **7/0/2** ✅ | 0.0% |
+
+Highlights:
+- **First perfect artifact in either sweep**: qwen3.6 MoE at 10/10 HIGH
+  code_tour with 0% hallucination.
+- **Workflow story goes first-class across all cloud models** after the
+  token-ceiling bump — Gemini leads (7/9), haiku close (6/9), sonnet
+  slightly behind (5/9).
+- **Learning path is the one unsolved artifact**. No model hit the
+  10-HIGH bar across the sweep — haiku's verbosity produces low-HIGH
+  counts; sonnet's prose skips explicit file citations; gemini invents
+  directory paths (21.4% halluc); qwen3.6 MoE hit parse fallback
+  (1 section, LOW) on the DEEP LP schema. Next iteration should
+  tighten citation vocabulary and lift max_tokens further for LP.
