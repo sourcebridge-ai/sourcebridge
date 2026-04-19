@@ -170,6 +170,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	knowledgeProgressWriteErrors := graphql.KnowledgeProgressWriteErrorsTotal()
 	knowledgeJobLogWriteErrors := graphql.KnowledgeJobLogWriteErrorsTotal()
 	eventBusHandlerErrors := events.HandlerErrorsTotal()
+	deprecatedFieldReads := graphql.DeprecatedFieldReadsTotal()
 
 	up := 1
 	fmt.Fprintf(w, "# HELP sourcebridge_up Whether the service is up\n")
@@ -223,4 +224,10 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# HELP sourcebridge_event_bus_handler_errors_total Total event bus handler panics\n")
 	fmt.Fprintf(w, "# TYPE sourcebridge_event_bus_handler_errors_total counter\n")
 	fmt.Fprintf(w, "sourcebridge_event_bus_handler_errors_total %d\n", eventBusHandlerErrors)
+
+	fmt.Fprintf(w, "# HELP sourcebridge_deprecated_field_reads_total Total reads of deprecated GraphQL fields\n")
+	fmt.Fprintf(w, "# TYPE sourcebridge_deprecated_field_reads_total counter\n")
+	for field, total := range deprecatedFieldReads {
+		fmt.Fprintf(w, "sourcebridge_deprecated_field_reads_total{field=%q} %d\n", field, total)
+	}
 }

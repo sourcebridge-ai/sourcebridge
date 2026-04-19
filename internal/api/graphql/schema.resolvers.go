@@ -90,10 +90,21 @@ func (r *mutationResolver) AddRepository(ctx context.Context, input AddRepositor
 
 // RemoveRepository is the resolver for the removeRepository field.
 func (r *mutationResolver) RemoveRepository(ctx context.Context, id string) (bool, error) {
+	recordDeprecatedFieldRead("Mutation.removeRepository")
 	if r.getStore(ctx) == nil {
 		return false, fmt.Errorf("store not initialized")
 	}
 	return r.getStore(ctx).RemoveRepository(id), nil
+}
+
+// RemoveRepositoryResult is the resolver for the removeRepositoryResult field.
+func (r *mutationResolver) RemoveRepositoryResult(ctx context.Context, id string) (*MutationResult, error) {
+	ok, err := r.RemoveRepository(ctx, id)
+	if err != nil {
+		message := err.Error()
+		return &MutationResult{Success: false, Error: &message}, nil
+	}
+	return &MutationResult{Success: ok}, nil
 }
 
 // ReindexRepository is the resolver for the reindexRepository field.
@@ -1396,6 +1407,7 @@ func (r *mutationResolver) LinkRepos(ctx context.Context, sourceRepoID string, t
 
 // UnlinkRepos is the resolver for the unlinkRepos field.
 func (r *mutationResolver) UnlinkRepos(ctx context.Context, linkID string) (bool, error) {
+	recordDeprecatedFieldRead("Mutation.unlinkRepos")
 	store := r.getStore(ctx)
 	if store == nil {
 		return false, fmt.Errorf("store not initialized")
@@ -1407,8 +1419,19 @@ func (r *mutationResolver) UnlinkRepos(ctx context.Context, linkID string) (bool
 	return true, nil
 }
 
+// UnlinkReposResult is the resolver for the unlinkReposResult field.
+func (r *mutationResolver) UnlinkReposResult(ctx context.Context, linkID string) (*MutationResult, error) {
+	ok, err := r.UnlinkRepos(ctx, linkID)
+	if err != nil {
+		message := err.Error()
+		return &MutationResult{Success: false, Error: &message}, nil
+	}
+	return &MutationResult{Success: ok}, nil
+}
+
 // DetectContracts is the resolver for the detectContracts field.
 func (r *mutationResolver) DetectContracts(ctx context.Context, repoID string) (bool, error) {
+	recordDeprecatedFieldRead("Mutation.detectContracts")
 	if r.Worker == nil {
 		return false, fmt.Errorf("AI features are unavailable — worker not connected")
 	}
@@ -1492,6 +1515,16 @@ func (r *mutationResolver) DetectContracts(ctx context.Context, repoID string) (
 
 	slog.Info("contracts detected", "repo", repoID, "count", len(resp.GetContracts()))
 	return true, nil
+}
+
+// DetectContractsResult is the resolver for the detectContractsResult field.
+func (r *mutationResolver) DetectContractsResult(ctx context.Context, repoID string) (*MutationResult, error) {
+	ok, err := r.DetectContracts(ctx, repoID)
+	if err != nil {
+		message := err.Error()
+		return &MutationResult{Success: false, Error: &message}, nil
+	}
+	return &MutationResult{Success: ok}, nil
 }
 
 // GenerateCliffNotes is the resolver for the generateCliffNotes field.
@@ -2161,6 +2194,7 @@ func (r *mutationResolver) UpdateModelCapabilities(ctx context.Context, input Up
 
 // DeleteModelCapabilities is the resolver for the deleteModelCapabilities field.
 func (r *mutationResolver) DeleteModelCapabilities(ctx context.Context, modelID string) (bool, error) {
+	recordDeprecatedFieldRead("Mutation.deleteModelCapabilities")
 	if r.ComprehensionStore == nil {
 		return false, fmt.Errorf("comprehension settings not configured")
 	}
@@ -2168,6 +2202,16 @@ func (r *mutationResolver) DeleteModelCapabilities(ctx context.Context, modelID 
 		return false, err
 	}
 	return true, nil
+}
+
+// DeleteModelCapabilitiesResult is the resolver for the deleteModelCapabilitiesResult field.
+func (r *mutationResolver) DeleteModelCapabilitiesResult(ctx context.Context, modelID string) (*MutationResult, error) {
+	ok, err := r.DeleteModelCapabilities(ctx, modelID)
+	if err != nil {
+		message := err.Error()
+		return &MutationResult{Success: false, Error: &message}, nil
+	}
+	return &MutationResult{Success: ok}, nil
 }
 
 // Health is the resolver for the health field.
@@ -2510,6 +2554,7 @@ func (r *queryResolver) TraceabilityMatrix(ctx context.Context, repositoryID str
 
 // RequirementLinks is the resolver for the requirementLinks field.
 func (r *queryResolver) RequirementLinks(ctx context.Context, requirementID string, limit *int, offset *int) ([]*RequirementLink, error) {
+	recordDeprecatedFieldRead("Query.requirementLinks")
 	store := r.getStore(ctx)
 	if store == nil {
 		return nil, fmt.Errorf("store not initialized")
@@ -2548,6 +2593,24 @@ func (r *queryResolver) RequirementLinks(ctx context.Context, requirementID stri
 		result = append(result, rl)
 	}
 	return result, nil
+}
+
+// RequirementLinksConnection is the resolver for the requirementLinksConnection field.
+func (r *queryResolver) RequirementLinksConnection(ctx context.Context, requirementID string, limit *int, offset *int) (*RequirementLinkConnection, error) {
+	store := r.getStore(ctx)
+	if store == nil {
+		return nil, fmt.Errorf("store not initialized")
+	}
+
+	links, err := r.RequirementLinks(ctx, requirementID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	return &RequirementLinkConnection{
+		Nodes:      links,
+		TotalCount: len(store.GetLinksForRequirement(requirementID, false)),
+	}, nil
 }
 
 // RequirementToCode is the resolver for the requirementToCode field.
@@ -2940,6 +3003,7 @@ func (r *queryResolver) RepoLinks(ctx context.Context, repoID string) ([]*RepoLi
 
 // CrossRepoRefs is the resolver for the crossRepoRefs field.
 func (r *queryResolver) CrossRepoRefs(ctx context.Context, repoID string, refType *CrossRepoRefType, limit *int) ([]*CrossRepoRef, error) {
+	recordDeprecatedFieldRead("Query.crossRepoRefs")
 	store := r.getStore(ctx)
 	if store == nil {
 		return nil, fmt.Errorf("store not initialized")
@@ -2958,6 +3022,32 @@ func (r *queryResolver) CrossRepoRefs(ctx context.Context, repoID string, refTyp
 		return nil, err
 	}
 	return mapCrossRepoRefs(refs), nil
+}
+
+// CrossRepoRefsConnection is the resolver for the crossRepoRefsConnection field.
+func (r *queryResolver) CrossRepoRefsConnection(ctx context.Context, repoID string, refType *CrossRepoRefType, limit *int) (*CrossRepoRefConnection, error) {
+	store := r.getStore(ctx)
+	if store == nil {
+		return nil, fmt.Errorf("store not initialized")
+	}
+
+	var refTypeStr *string
+	if refType != nil {
+		s := string(*refType)
+		refTypeStr = &s
+	}
+	totalRefs, err := store.GetCrossRepoRefs(repoID, refTypeStr, 0)
+	if err != nil {
+		return nil, err
+	}
+	refs, err := r.CrossRepoRefs(ctx, repoID, refType, limit)
+	if err != nil {
+		return nil, err
+	}
+	return &CrossRepoRefConnection{
+		Nodes:      refs,
+		TotalCount: len(totalRefs),
+	}, nil
 }
 
 // SymbolCrossRepoRefs is the resolver for the symbolCrossRepoRefs field.
@@ -3061,6 +3151,7 @@ func (r *queryResolver) ComprehensionSettings(ctx context.Context, scopeType *st
 
 // ComprehensionSettingsList is the resolver for the comprehensionSettingsList field.
 func (r *queryResolver) ComprehensionSettingsList(ctx context.Context) ([]*ComprehensionSettings, error) {
+	recordDeprecatedFieldRead("Query.comprehensionSettingsList")
 	if r.ComprehensionStore == nil {
 		return nil, fmt.Errorf("comprehension settings not configured")
 	}
