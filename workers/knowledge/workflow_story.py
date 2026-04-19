@@ -25,6 +25,7 @@ from workers.knowledge.cliff_notes import (
     _parse_sections,
 )
 from workers.knowledge.evidence import evaluate_evidence_gate, extract_section_evidence_refs
+from workers.knowledge.parse_utils import coerce_int
 from workers.knowledge.prompts.workflow_story import (
     REQUIRED_WORKFLOW_STORY_SECTIONS,
     REQUIRED_WORKFLOW_STORY_SECTIONS_DEEP,
@@ -72,8 +73,6 @@ def _gather_execution_evidence(execution_path: dict[str, Any], limit: int = 4) -
         if not isinstance(step, dict):
             continue
         file_path = _normalize_text(step.get("filePath"))
-        line_start = step.get("lineStart") or 0
-        line_end = step.get("lineEnd") or 0
         label = _normalize_text(step.get("label"))
         reason = _normalize_text(step.get("reason"))
         evidence.append(
@@ -81,8 +80,8 @@ def _gather_execution_evidence(execution_path: dict[str, Any], limit: int = 4) -
                 source_type="symbol" if step.get("symbolId") else "file",
                 source_id=_normalize_text(step.get("symbolId")),
                 file_path=file_path,
-                line_start=int(line_start) if isinstance(line_start, int) else 0,
-                line_end=int(line_end) if isinstance(line_end, int) else 0,
+                line_start=coerce_int(step.get("lineStart"), 0),
+                line_end=coerce_int(step.get("lineEnd"), 0),
                 rationale=reason or f"Execution path step: {label}",
             )
         )
@@ -99,8 +98,8 @@ def _gather_scope_evidence(snapshot: dict[str, Any], limit: int = 4) -> list[Evi
                 source_type="symbol",
                 source_id=_normalize_text(target_symbol.get("id")),
                 file_path=_normalize_text(target_symbol.get("file_path")),
-                line_start=int(target_symbol.get("start_line") or 0),
-                line_end=int(target_symbol.get("end_line") or 0),
+                line_start=coerce_int(target_symbol.get("start_line"), 0),
+                line_end=coerce_int(target_symbol.get("end_line"), 0),
                 rationale="Focused symbol for this workflow story.",
             )
         )
@@ -122,8 +121,8 @@ def _gather_scope_evidence(snapshot: dict[str, Any], limit: int = 4) -> list[Evi
                     source_type="symbol",
                     source_id=_normalize_text(item.get("id")),
                     file_path=_normalize_text(item.get("file_path")),
-                    line_start=int(item.get("start_line") or 0),
-                    line_end=int(item.get("end_line") or 0),
+                    line_start=coerce_int(item.get("start_line"), 0),
+                    line_end=coerce_int(item.get("end_line"), 0),
                     rationale=f"Snapshot {group_name.replace('_', ' ')} reference.",
                 )
             )

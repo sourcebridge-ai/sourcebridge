@@ -19,6 +19,7 @@ from workers.common.llm.provider import (
 )
 from workers.knowledge.cliff_notes import _parse_sections
 from workers.knowledge.evidence import evaluate_evidence_gate, extract_code_tour_stop_evidence
+from workers.knowledge.parse_utils import coerce_int
 from workers.knowledge.prompts.code_tour import (
     CODE_TOUR_SYSTEM,
     build_code_tour_prompt,
@@ -106,12 +107,12 @@ async def generate_code_tour(
             raw = {"title": str(raw)[:160], "description": str(raw)}
         stops.append(
             TourStop(
-                order=raw.get("order", len(stops) + 1),
+                order=coerce_int(raw.get("order"), len(stops) + 1),
                 title=raw.get("title", "Untitled"),
                 description=raw.get("description", ""),
                 file_path=raw.get("file_path", ""),
-                line_start=raw.get("line_start", 0),
-                line_end=raw.get("line_end", 0),
+                line_start=coerce_int(raw.get("line_start"), 0),
+                line_end=coerce_int(raw.get("line_end"), 0),
                 trail=raw.get("trail", ""),
                 modification_hints=raw.get("modification_hints", []),
             )

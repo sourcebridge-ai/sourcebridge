@@ -24,6 +24,7 @@ from workers.knowledge.prompts.cliff_notes import (
     REQUIRED_SECTIONS_BY_SCOPE,
     build_cliff_notes_prompt,
 )
+from workers.knowledge.parse_utils import coerce_int as _coerce_int
 from workers.knowledge.evidence import (
     evaluate_evidence_gate,
     extract_section_evidence_refs,
@@ -174,23 +175,6 @@ def _parse_sections(raw: str) -> list[dict[str, object]]:
     if not isinstance(parsed, list):
         raise ValueError("expected a JSON array of sections")
     return parsed  # type: ignore[no-any-return]
-
-
-def _coerce_int(value: object) -> int:
-    # LLMs sometimes emit null or strings for line numbers; the downstream
-    # evidence gate compares with `> 0` and crashes on NoneType.
-    if isinstance(value, bool):
-        return 0
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(value.strip())
-        except ValueError:
-            return 0
-    return 0
 
 
 def _parse_evidence(raw_evidence: list[dict]) -> list[EvidenceRef]:

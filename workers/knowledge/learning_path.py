@@ -19,6 +19,7 @@ from workers.common.llm.provider import (
 )
 from workers.knowledge.cliff_notes import _parse_sections
 from workers.knowledge.evidence import evaluate_evidence_gate, extract_step_file_symbol_evidence
+from workers.knowledge.parse_utils import coerce_int
 from workers.knowledge.prompts.learning_path import (
     LEARNING_PATH_SYSTEM,
     build_learning_path_prompt,
@@ -110,14 +111,14 @@ async def generate_learning_path(
             raw = {"title": str(raw)[:160], "content": str(raw)}
         steps.append(
             LearningStep(
-                order=raw.get("order", len(steps) + 1),
+                order=coerce_int(raw.get("order"), len(steps) + 1),
                 title=raw.get("title", "Untitled"),
                 objective=raw.get("objective", ""),
                 content=raw.get("content", ""),
                 file_paths=raw.get("file_paths", []),
                 symbol_ids=raw.get("symbol_ids", []),
                 estimated_time=raw.get("estimated_time", ""),
-                prerequisite_steps=raw.get("prerequisite_steps", []),
+                prerequisite_steps=[coerce_int(x, 0) for x in (raw.get("prerequisite_steps") or [])],
                 difficulty=raw.get("difficulty", "intermediate") or "intermediate",
                 exercises=raw.get("exercises", []),
                 checkpoint=raw.get("checkpoint", ""),
