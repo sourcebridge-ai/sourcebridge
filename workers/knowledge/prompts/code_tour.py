@@ -36,9 +36,20 @@ def build_code_tour_prompt(
 
 Per-stop requirements:
 - include trail: a concrete functional grouping
-- description must explain why the code is designed this way and name the specific file/symbol
+- description must explain why the code is designed this way and
+  MUST name AT LEAST TWO specific symbols from the file using
+  backticks (e.g. `FunctionName`, `StructName`). These are the
+  downstream quality signal — a stop that references only the file
+  path without naming any types/functions gets treated as low-
+  confidence even if the prose is otherwise solid.
 - include 1-2 concrete modification_hints
 - every stop must have valid file_path, line_start, and line_end from the snapshot
+
+FILE-PATH DISCIPLINE (violations lower the stop's confidence):
+- file_path MUST be a real path visible in the snapshot or in the
+  "Representative files" / "Entry-point symbols" / "Public-API
+  symbols" anchors. Do not invent paths.
+- Every file_path MUST include a file extension (.go, .py, .ts, etc).
 """,
     }
 
