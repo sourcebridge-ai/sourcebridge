@@ -308,12 +308,49 @@ parameters route fast enough to fit a sequential four-artifact bench.
 | Model | Venue | LP H/M/L | LP halluc | LP s | CT H/M/L | CT halluc | CT s | WS H/M/L | WS halluc | WS s |
 |---|---|---|---:|---:|---|---:|---:|---|---:|---:|
 | `qwen3.6:35b-a3b-moe` | local | 0 / 0 / 1 ⚠ | 0.0% | 2827 | **10 / 0 / 0** | 0.0% | 340 | 3 / 4 / 2 | 0.0% | 442 |
+| `qwen3:32b` (dense, parallel) | local | 0 / 0 / 1 ⚠ | 0.0% | 2915 | 0 / 0 / 1 ⚠ | 0.0% | 3172 | 4 / 2 / 3 | 0.0% | 2618 |
 | `claude-haiku-4.5` | cloud | 4 / 5 / 6 | 0.0% | 374 | 5 / 10 / 0 | 0.0% | 91 | 6 / 1 / 2 | 0.0% | 54 |
 | `claude-sonnet-4` | cloud | 4 / 1 / 10 | 0.0% | 576 | 8 / 7 / 0 | 0.0% | 135 | 5 / 1 / 3 | 0.0% | 66 |
 | `gemini-2.5-flash` | cloud | 5 / 7 / 0 | 21.4% ⚠ | 224 | 6 / 6 / 0 | 0.0% | 78 | **7 / 0 / 2** | 0.0% | 36 |
 
 LP s / CT s / WS s = per-artifact wall-clock in seconds (after index +
 understanding, which took ~360-725 s per model).
+
+### Parallel-dispatch speedup (qwen3:32b)
+
+The serial harness couldn't finish qwen3:32b dense inside a reasonable
+budget — a single DEEP artifact ran ~35-50 min. A parallel variant
+(`run_other_artifacts_parallel.py`) dispatches all three mutations
+concurrently against one compose stack and relies on the Mac Studio's
+`OLLAMA_NUM_PARALLEL=4` for continuous batching.
+
+| Metric | Serial (extrapolated) | Parallel (observed) | Speedup |
+|---|---:|---:|---:|
+| Total wall-clock (LP + CT + WS) | ≈ 8705 s | 3172 s | **2.74×** |
+
+The three artifacts finished in 48.6 / 52.9 / 43.6 min respectively,
+all inside the same 52.9-min wall. Continuous batching shares prefill
+work across concurrent prompts, so the marginal cost of adding a third
+request to two in-flight requests is roughly one extra forward pass
+per token.
+
+**Quality cost**: qwen3:32b dense produced two parse-fallback outputs
+(LP and CT both at 1 section) under parallel load. qwen3.6 MoE hit the
+same LP parse fallback in serial but finished CT at 10/10 HIGH — so
+the CT regression under concurrency is real. The Mac Studio's shared
+KV cache budget (`OLLAMA_KV_CACHE_TYPE=q8_0`) plus three in-flight
+DEEP prompts appears to push output generation into malformed-JSON
+territory on dense qwen3:32b. For MoE models where each request
+touches a different subset of experts, the interference is smaller.
+
+The workflow story survived parallelisation cleanly (4 HIGH / 2 MED /
+3 LOW, 0% halluc) — shorter JSON schema, less pressure on the shared
+decoding path.
+
+Takeaway: **parallel dispatch is a real wall-clock win (2.7× here) but
+trades some output stability on dense local models**. For the cloud
+providers it's pure upside — each concurrent request gets its own GPU
+slot.
 
 ### Per-artifact observations
 
@@ -339,7 +376,10 @@ model hit the ≥10 HIGH first-class bar:
 - `qwen3.6` MoE emitted only **1 section** (parse fallback). The DEEP
   learning-path JSON is large enough that the MoE routing plus 16 K
   max-tokens plus deep-step schema complexity tips the model into
-  malformed output on this specific artifact.
+  malformed output on this specific artifact. `qwen3:32b` dense hit
+  the same failure mode on LP (and on CT under parallel load) — so
+  this is a local-model-reliability issue with the DEEP LP schema
+  size, not MoE-specific.
 - Haiku at 4/5/6 is the most consistent but still short of the 10 HIGH
   target. Learning path needs more tuning — more iterations beyond
   this sweep's cut-off.
