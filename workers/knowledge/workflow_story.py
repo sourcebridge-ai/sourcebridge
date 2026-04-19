@@ -461,7 +461,13 @@ async def generate_workflow_story(
                 prompt,
                 system=WORKFLOW_STORY_SYSTEM,
                 temperature=0.0,
-                max_tokens=8192,
+                # DEEP workflow stories emit 9 structured sections with
+                # long-form Main Steps + Behind-the-Scenes bodies. Haiku
+                # routinely hits >22k characters of JSON, which at the
+                # old 8192 cap was getting truncated mid-Observability
+                # and sending the parser into fallback. Match the 16384
+                # ceiling we already use for learning_path and code_tour.
+                max_tokens=16384,
                 model=model_override,
             ),
             context=f"workflow_story:{scope_type or 'repository'}",
