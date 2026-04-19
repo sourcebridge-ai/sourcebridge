@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from knowledge.v1 import knowledge_pb2 as knowledge_dot_v1_dot_knowledge__pb2
+from enterprise.v1 import report_pb2 as enterprise_dot_v1_dot_report__pb2
 
 GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__
@@ -27,8 +27,6 @@ if _version_not_supported:
 
 class EnterpriseReportServiceStub(object):
     """EnterpriseReportService hosts enterprise-only report generation RPCs.
-    Request and response messages remain shared with knowledge.v1 during the
-    migration so older knowledge.v1 callers can coexist with the new service.
     """
 
     def __init__(self, channel):
@@ -39,15 +37,13 @@ class EnterpriseReportServiceStub(object):
         """
         self.GenerateReport = channel.unary_unary(
                 '/sourcebridge.enterprise.v1.EnterpriseReportService/GenerateReport',
-                request_serializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateReportRequest.SerializeToString,
-                response_deserializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateReportResponse.FromString,
+                request_serializer=enterprise_dot_v1_dot_report__pb2.GenerateReportRequest.SerializeToString,
+                response_deserializer=enterprise_dot_v1_dot_report__pb2.GenerateReportResponse.FromString,
                 _registered_method=True)
 
 
 class EnterpriseReportServiceServicer(object):
     """EnterpriseReportService hosts enterprise-only report generation RPCs.
-    Request and response messages remain shared with knowledge.v1 during the
-    migration so older knowledge.v1 callers can coexist with the new service.
     """
 
     def GenerateReport(self, request, context):
@@ -61,8 +57,8 @@ def add_EnterpriseReportServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'GenerateReport': grpc.unary_unary_rpc_method_handler(
                     servicer.GenerateReport,
-                    request_deserializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateReportRequest.FromString,
-                    response_serializer=knowledge_dot_v1_dot_knowledge__pb2.GenerateReportResponse.SerializeToString,
+                    request_deserializer=enterprise_dot_v1_dot_report__pb2.GenerateReportRequest.FromString,
+                    response_serializer=enterprise_dot_v1_dot_report__pb2.GenerateReportResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -74,8 +70,6 @@ def add_EnterpriseReportServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class EnterpriseReportService(object):
     """EnterpriseReportService hosts enterprise-only report generation RPCs.
-    Request and response messages remain shared with knowledge.v1 during the
-    migration so older knowledge.v1 callers can coexist with the new service.
     """
 
     @staticmethod
@@ -93,8 +87,8 @@ class EnterpriseReportService(object):
             request,
             target,
             '/sourcebridge.enterprise.v1.EnterpriseReportService/GenerateReport',
-            knowledge_dot_v1_dot_knowledge__pb2.GenerateReportRequest.SerializeToString,
-            knowledge_dot_v1_dot_knowledge__pb2.GenerateReportResponse.FromString,
+            enterprise_dot_v1_dot_report__pb2.GenerateReportRequest.SerializeToString,
+            enterprise_dot_v1_dot_report__pb2.GenerateReportResponse.FromString,
             options,
             channel_credentials,
             insecure,

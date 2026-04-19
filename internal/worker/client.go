@@ -10,11 +10,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-	grpcstatus "google.golang.org/grpc/status"
 
 	contractsv1 "github.com/sourcebridge/sourcebridge/gen/go/contracts/v1"
 	enterprisev1 "github.com/sourcebridge/sourcebridge/gen/go/enterprise/v1"
@@ -348,17 +346,12 @@ func (c *Client) GenerateCodeTour(ctx context.Context, req *knowledgev1.Generate
 	return c.Knowledge.GenerateCodeTour(ctx, req)
 }
 
-// GenerateReport calls the knowledge worker to generate a professional report.
+// GenerateReport calls the enterprise report worker to generate a professional report.
 // Reports can take a long time (30+ sections × LLM calls) so the timeout is generous.
-func (c *Client) GenerateReport(ctx context.Context, req *knowledgev1.GenerateReportRequest) (*knowledgev1.GenerateReportResponse, error) {
+func (c *Client) GenerateReport(ctx context.Context, req *enterprisev1.GenerateReportRequest) (*enterprisev1.GenerateReportResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.repositoryKnowledgeTimeout())
 	defer cancel()
-	resp, err := c.EnterpriseReport.GenerateReport(ctx, req)
-	if grpcstatus.Code(err) != codes.Unimplemented {
-		return resp, err
-	}
-	slog.Info("enterprise report rpc unavailable, falling back to knowledge service")
-	return c.Knowledge.GenerateReport(ctx, req)
+	return c.EnterpriseReport.GenerateReport(ctx, req)
 }
 
 // DetectContracts calls the contracts worker to detect API contracts in files.

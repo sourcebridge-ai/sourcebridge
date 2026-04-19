@@ -1508,17 +1508,17 @@ class CliffNotesRenderer:
                 if len(selected) >= limit:
                     return selected
         for title in sections:
-            seeded = self._best_section_seed(
+            section_seed = self._best_section_seed(
                 title,
                 nodes=all_group_nodes,
                 kind="group",
                 relevance_profile=relevance_profile,
                 scope_path=scope_path,
             )
-            if seeded is None or seeded.unit_id in seen:
+            if section_seed is None or section_seed.unit_id in seen:
                 continue
-            selected.append(seeded)
-            seen.add(seeded.unit_id)
+            selected.append(section_seed)
+            seen.add(section_seed.unit_id)
             if len(selected) >= limit:
                 return selected
         for title in sections:
@@ -1573,33 +1573,33 @@ class CliffNotesRenderer:
                     return selected
         if system_slice:
             for area in SYSTEM_GROUP_PREFERRED_AREAS:
-                seeded = self._best_area_seed_for_sections(
+                area_seed = self._best_area_seed_for_sections(
                     area,
                     sections=sections,
                     nodes=all_file_nodes,
                     relevance_profile=relevance_profile,
                     scope_path=scope_path,
                 )
-                if seeded is None or seeded.unit_id in seen:
+                if area_seed is None or area_seed.unit_id in seen:
                     continue
-                selected.append(seeded)
-                seen.add(seeded.unit_id)
+                selected.append(area_seed)
+                seen.add(area_seed.unit_id)
                 seen_areas.add(area)
                 if len(selected) >= limit:
                     return selected
         if not system_slice:
             for title in sections:
-                seeded = self._best_section_seed(
+                section_seed = self._best_section_seed(
                     title,
                     nodes=all_file_nodes,
                     kind="file",
                     relevance_profile=relevance_profile,
                     scope_path=scope_path,
                 )
-                if seeded is None or seeded.unit_id in seen:
+                if section_seed is None or section_seed.unit_id in seen:
                     continue
-                selected.append(seeded)
-                seen.add(seeded.unit_id)
+                selected.append(section_seed)
+                seen.add(section_seed.unit_id)
                 if len(selected) >= limit:
                     return selected
         for title in sections:

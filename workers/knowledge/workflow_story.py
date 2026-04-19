@@ -453,8 +453,9 @@ async def generate_workflow_story(
     )
 
     sections: list[CliffNotesSection] = []
+    response: LLMResponse | None = None
     try:
-        response: LLMResponse = require_nonempty(
+        response = require_nonempty(
             await complete_with_optional_model(
                 provider,
                 prompt,

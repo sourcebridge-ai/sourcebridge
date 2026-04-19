@@ -8,7 +8,6 @@ package enterprisev1
 
 import (
 	context "context"
-	v1 "github.com/sourcebridge/sourcebridge/gen/go/knowledge/v1"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -28,10 +27,8 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // EnterpriseReportService hosts enterprise-only report generation RPCs.
-// Request and response messages remain shared with knowledge.v1 during the
-// migration so older knowledge.v1 callers can coexist with the new service.
 type EnterpriseReportServiceClient interface {
-	GenerateReport(ctx context.Context, in *v1.GenerateReportRequest, opts ...grpc.CallOption) (*v1.GenerateReportResponse, error)
+	GenerateReport(ctx context.Context, in *GenerateReportRequest, opts ...grpc.CallOption) (*GenerateReportResponse, error)
 }
 
 type enterpriseReportServiceClient struct {
@@ -42,9 +39,9 @@ func NewEnterpriseReportServiceClient(cc grpc.ClientConnInterface) EnterpriseRep
 	return &enterpriseReportServiceClient{cc}
 }
 
-func (c *enterpriseReportServiceClient) GenerateReport(ctx context.Context, in *v1.GenerateReportRequest, opts ...grpc.CallOption) (*v1.GenerateReportResponse, error) {
+func (c *enterpriseReportServiceClient) GenerateReport(ctx context.Context, in *GenerateReportRequest, opts ...grpc.CallOption) (*GenerateReportResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(v1.GenerateReportResponse)
+	out := new(GenerateReportResponse)
 	err := c.cc.Invoke(ctx, EnterpriseReportService_GenerateReport_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -57,10 +54,8 @@ func (c *enterpriseReportServiceClient) GenerateReport(ctx context.Context, in *
 // for forward compatibility.
 //
 // EnterpriseReportService hosts enterprise-only report generation RPCs.
-// Request and response messages remain shared with knowledge.v1 during the
-// migration so older knowledge.v1 callers can coexist with the new service.
 type EnterpriseReportServiceServer interface {
-	GenerateReport(context.Context, *v1.GenerateReportRequest) (*v1.GenerateReportResponse, error)
+	GenerateReport(context.Context, *GenerateReportRequest) (*GenerateReportResponse, error)
 	mustEmbedUnimplementedEnterpriseReportServiceServer()
 }
 
@@ -71,7 +66,7 @@ type EnterpriseReportServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedEnterpriseReportServiceServer struct{}
 
-func (UnimplementedEnterpriseReportServiceServer) GenerateReport(context.Context, *v1.GenerateReportRequest) (*v1.GenerateReportResponse, error) {
+func (UnimplementedEnterpriseReportServiceServer) GenerateReport(context.Context, *GenerateReportRequest) (*GenerateReportResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GenerateReport not implemented")
 }
 func (UnimplementedEnterpriseReportServiceServer) mustEmbedUnimplementedEnterpriseReportServiceServer() {
@@ -97,7 +92,7 @@ func RegisterEnterpriseReportServiceServer(s grpc.ServiceRegistrar, srv Enterpri
 }
 
 func _EnterpriseReportService_GenerateReport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(v1.GenerateReportRequest)
+	in := new(GenerateReportRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -109,7 +104,7 @@ func _EnterpriseReportService_GenerateReport_Handler(srv interface{}, ctx contex
 		FullMethod: EnterpriseReportService_GenerateReport_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EnterpriseReportServiceServer).GenerateReport(ctx, req.(*v1.GenerateReportRequest))
+		return srv.(EnterpriseReportServiceServer).GenerateReport(ctx, req.(*GenerateReportRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

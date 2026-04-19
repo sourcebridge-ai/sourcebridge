@@ -9,10 +9,12 @@ import contextlib
 import inspect
 import json
 import os
+from typing import Any
 
 import grpc
 import structlog
 from common.v1 import types_pb2
+from enterprise.v1 import report_pb2
 from knowledge.v1 import knowledge_pb2, knowledge_pb2_grpc
 
 from workers.common.config import WorkerConfig
@@ -42,6 +44,7 @@ from workers.knowledge.explain_system import explain_system
 from workers.knowledge.job_logs import JobLogMetadata, SurrealJobLogger
 from workers.knowledge.job_state import JobStateMetadata, SurrealJobStateUpdater
 from workers.knowledge.learning_path import generate_learning_path
+from workers.knowledge.parse_utils import coerce_int
 from workers.knowledge.proto_enums import resolve_request_audience, resolve_request_depth
 from workers.knowledge.retrieval import (
     build_overview_query,
@@ -591,26 +594,28 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                     "root_cache_hits": 0,
                 }
             )
-            checkpoint = _resume_checkpoint_payload(
+            checkpoint: dict[str, Any] = _resume_checkpoint_payload(
                 tree,
                 cached_nodes_loaded=cached_nodes_loaded,
-                leaf_cache_hits=int(current.get("leaf_cache_hits", 0)),
-                file_cache_hits=int(current.get("file_cache_hits", 0)),
-                package_cache_hits=int(current.get("package_cache_hits", 0)),
-                root_cache_hits=int(current.get("root_cache_hits", 0)),
+                leaf_cache_hits=coerce_int(current.get("leaf_cache_hits", 0)),
+                file_cache_hits=coerce_int(current.get("file_cache_hits", 0)),
+                package_cache_hits=coerce_int(current.get("package_cache_hits", 0)),
+                root_cache_hits=coerce_int(current.get("root_cache_hits", 0)),
             )
+            skipped_counts = checkpoint.get("skipped_counts")
+            skipped = skipped_counts if isinstance(skipped_counts, dict) else {}
             await job_state_updater.update_job_resume_state(
-                cached_nodes_loaded=int(checkpoint["cached_nodes_loaded"]),
-                total_nodes=int(checkpoint["total_nodes"]),
+                cached_nodes_loaded=coerce_int(checkpoint.get("cached_nodes_loaded")),
+                total_nodes=coerce_int(checkpoint.get("total_nodes")),
                 resume_stage=str(checkpoint["resume_stage"]),
-                skipped_leaf_units=int(checkpoint["skipped_counts"]["leaves"]),
-                skipped_file_units=int(checkpoint["skipped_counts"]["files"]),
-                skipped_package_units=int(checkpoint["skipped_counts"]["packages"]),
-                skipped_root_units=int(checkpoint["skipped_counts"]["root"]),
-                leaf_cache_hits=int(checkpoint["skipped_counts"]["leaves"]),
-                file_cache_hits=int(checkpoint["skipped_counts"]["files"]),
-                package_cache_hits=int(checkpoint["skipped_counts"]["packages"]),
-                root_cache_hits=int(checkpoint["skipped_counts"]["root"]),
+                skipped_leaf_units=coerce_int(skipped.get("leaves")),
+                skipped_file_units=coerce_int(skipped.get("files")),
+                skipped_package_units=coerce_int(skipped.get("packages")),
+                skipped_root_units=coerce_int(skipped.get("root")),
+                leaf_cache_hits=coerce_int(skipped.get("leaves")),
+                file_cache_hits=coerce_int(skipped.get("files")),
+                package_cache_hits=coerce_int(skipped.get("packages")),
+                root_cache_hits=coerce_int(skipped.get("root")),
             )
             await job_state_updater.update_understanding_checkpoint(
                 corpus_id=str(checkpoint["corpus_id"]),
@@ -618,8 +623,8 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 strategy=str(checkpoint["strategy"]),
                 stage="ready" if str(checkpoint["tree_status"]) == "complete" else "building_tree",
                 tree_status=str(checkpoint["tree_status"]),
-                cached_nodes=int(checkpoint["cached_nodes"]),
-                total_nodes=int(checkpoint["total_nodes"]),
+                cached_nodes=coerce_int(checkpoint.get("cached_nodes")),
+                total_nodes=coerce_int(checkpoint.get("total_nodes")),
                 model_used=model_override or "",
                 checkpoint=checkpoint,
             )
@@ -743,7 +748,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                         "rebuild understanding before rendering"
                     )
                 tree = cached_tree
-                diagnostics = {
+                diagnostics: dict[str, Any] = {
                     "fallback_count": 0,
                     "provider_compute_errors": 0,
                     "root_fallback": False,
@@ -1517,11 +1522,11 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             await job_logger.close()
         return response
 
-    async def GenerateReport(  # noqa: N802
+    async def _generate_report(
         self,
-        request: knowledge_pb2.GenerateReportRequest,
+        request: Any,
         context: grpc.aio.ServicerContext,
-    ) -> knowledge_pb2.GenerateReportResponse:
+    ) -> Any:
         """Generate a professional multi-section report."""
         log.info(
             "generate_report",
@@ -1593,7 +1598,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             section_results = []
             for sec in result.sections:
                 section_results.append(
-                    knowledge_pb2.ReportSectionResult(
+                    report_pb2.ReportSectionResult(
                         key=sec.key,
                         title=sec.title,
                         category=sec.category,
@@ -1614,7 +1619,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
                 evidence=result.evidence_count,
             )
 
-            return knowledge_pb2.GenerateReportResponse(
+            return report_pb2.GenerateReportResponse(
                 markdown=result.markdown,
                 section_count=result.section_count,
                 word_count=result.word_count,
