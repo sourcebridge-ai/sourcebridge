@@ -24,7 +24,7 @@ import (
 // Timeout presets for different operation classes.
 const (
 	TimeoutHealth     = 3 * time.Second
-	TimeoutEmbedding  = 10 * time.Second
+	TimeoutEmbedding  = 60 * time.Second // cold-start local Ollama needs a few seconds per batch; 10s cut off real users
 	TimeoutAnalysis   = 120 * time.Second
 	TimeoutDiscussion = 120 * time.Second
 	TimeoutReview     = 120 * time.Second
@@ -36,7 +36,7 @@ const (
 	TimeoutSimulation = 30 * time.Second
 	// TimeoutKnowledge is the uniform legacy timeout for knowledge-generation
 	// RPCs. Prefer timeoutForKnowledgeScope for callers that know the scope.
-	TimeoutKnowledge = 1800 * time.Second
+	TimeoutKnowledge = 3600 * time.Second
 	TimeoutContracts = 120 * time.Second
 )
 
@@ -45,11 +45,17 @@ const (
 // need more than a couple of minutes, and a stuck call shouldn't hold the
 // worker's attention past that.
 const (
-	TimeoutKnowledgeRepository = 1800 * time.Second // 30min — thinking models (Qwen 3.x) need ~70s/leaf × 39 leaves at concurrency 4
-	TimeoutKnowledgeModule     = 300 * time.Second
-	TimeoutKnowledgeFile       = 120 * time.Second
-	TimeoutKnowledgeSymbol     = 120 * time.Second
-	TimeoutKnowledgeDefault    = 300 * time.Second
+	// Repo-level DEEP cliff notes on large codebases with local models can
+	// take 45-60+ minutes (measured: qwen3:32b at 48 min, qwen3.5:35b-a3b at
+	// 55 min, qwen3.6:35b-a3b at 42 min). The previous 30-minute ceiling was
+	// killing real completions on Mac Studio hardware. 60 minutes lets every
+	// dense model up through 70B finish while still catching runaway 100B+
+	// MoE loads that are operationally too slow anyway.
+	TimeoutKnowledgeRepository = 3600 * time.Second
+	TimeoutKnowledgeModule     = 600 * time.Second
+	TimeoutKnowledgeFile       = 300 * time.Second
+	TimeoutKnowledgeSymbol     = 300 * time.Second
+	TimeoutKnowledgeDefault    = 600 * time.Second
 )
 
 // timeoutForKnowledgeScope returns an appropriate worker timeout for a given

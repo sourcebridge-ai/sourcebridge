@@ -158,6 +158,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             api_key=override.api_key,
             model=override.model,
             draft_model=override.draft_model,
+            timeout_seconds=override.timeout_seconds,
         )
         return provider, model or None
 
@@ -178,6 +179,7 @@ class KnowledgeServicer(knowledge_pb2_grpc.KnowledgeServiceServicer):
             api_key=override.api_key,
             model=override.model,
             draft_model=override.draft_model,
+            timeout_seconds=override.timeout_seconds,
         )
         return provider, model or None
 

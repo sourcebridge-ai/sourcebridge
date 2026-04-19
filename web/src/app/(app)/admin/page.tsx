@@ -156,7 +156,7 @@ export default function AdminPage() {
   const [llmKnowledgeModel, setLlmKnowledgeModel] = useState("");
   const [llmArchitectureDiagramModel, setLlmArchitectureDiagramModel] = useState("");
   const [llmReportModel, setLlmReportModel] = useState("");
-  const [llmTimeoutSecs, setLlmTimeoutSecs] = useState(30);
+  const [llmTimeoutSecs, setLlmTimeoutSecs] = useState(900);
   const [llmAdvancedMode, setLlmAdvancedMode] = useState(false);
   const [llmDraftModel, setLlmDraftModel] = useState("");
   const [llmSaving, setLlmSaving] = useState(false);
@@ -233,7 +233,7 @@ export default function AdminPage() {
       setLlmKnowledgeModel(llmConfig.knowledge_model || "");
       setLlmArchitectureDiagramModel(llmConfig.architecture_diagram_model || "");
       setLlmReportModel(llmConfig.report_model || "");
-      setLlmTimeoutSecs(llmConfig.timeout_secs || 30);
+      setLlmTimeoutSecs(llmConfig.timeout_secs || 900);
       setLlmAdvancedMode(llmConfig.advanced_mode || false);
       setLlmDraftModel(llmConfig.draft_model || "");
       initialLoadDone.current = true;
@@ -801,9 +801,9 @@ export default function AdminPage() {
                 <input
                   type="number"
                   value={llmTimeoutSecs}
-                  onChange={(e) => setLlmTimeoutSecs(parseInt(e.target.value) || 30)}
+                  onChange={(e) => setLlmTimeoutSecs(parseInt(e.target.value) || 900)}
                   min={5}
-                  max={300}
+                  max={3600}
                   className="h-11 w-32 rounded-[var(--control-radius)] border border-[var(--border-default)] bg-[var(--bg-base)] px-3 text-sm text-[var(--text-primary)]"
                 />
               </div>
