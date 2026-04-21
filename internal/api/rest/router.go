@@ -323,6 +323,12 @@ func (s *Server) setupRouter() {
 
 		// SSE events
 		r.Get("/api/v1/events", s.handleSSE)
+
+		// Server-Sent Events stream of a discuss_code answer. The web
+		// UI uses this for the "Ask" panel so users see tokens as the
+		// model generates them. GraphQL's `discussCode` mutation is
+		// still the unary fallback for clients that can't consume SSE.
+		r.With(aiConcurrencyMiddleware).Post("/api/v1/discuss/stream", s.handleDiscussStream)
 	})
 
 	// Admin API routes (requires auth, accepts both JWT and API tokens)

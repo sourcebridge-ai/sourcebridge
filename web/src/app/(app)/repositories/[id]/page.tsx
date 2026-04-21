@@ -1140,10 +1140,37 @@ export default function RepositoryDetailPage() {
     if (!discussQuestion.trim()) return;
     trackEvent({ event: "discuss_code_used", repositoryId: repoId, metadata: { questionLength: discussQuestion.trim().length } });
     setAiLoading(true);
-    setDiscussResult(null);
+    setDiscussResult({ answer: "" });
     try {
-      const res = await discussCode({ input: { repositoryId: repoId, question: discussQuestion } });
-      if (res.data?.discussCode) setDiscussResult(res.data.discussCode);
+      // Use the SSE streaming endpoint so the user sees tokens as
+      // they're generated. On error we fall back to the legacy
+      // GraphQL mutation so older servers (where /discuss/stream
+      // isn't mounted) still work.
+      const { askStream } = await import("@/lib/askStream");
+      let accumulated = "";
+      let streamErrored = false;
+      await askStream(
+        { repositoryId: repoId, question: discussQuestion.trim() },
+        {
+          onToken: (delta) => {
+            accumulated += delta;
+            setDiscussResult({ answer: accumulated });
+          },
+          onDone: (result) => {
+            // Server's final answer is authoritative — prefer it
+            // when non-empty (it may have been post-processed) and
+            // otherwise keep whatever we streamed.
+            setDiscussResult({ answer: result.answer || accumulated });
+          },
+          onError: () => {
+            streamErrored = true;
+          },
+        },
+      );
+      if (streamErrored) {
+        const res = await discussCode({ input: { repositoryId: repoId, question: discussQuestion } });
+        if (res.data?.discussCode) setDiscussResult(res.data.discussCode);
+      }
     } finally {
       setAiLoading(false);
     }

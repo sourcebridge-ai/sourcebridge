@@ -148,6 +148,14 @@ func (h *mcpHandler) handleStreamingToolCall(
 	ctx, cancel := context.WithTimeout(r.Context(), toolCallDeadline)
 	defer cancel()
 
+	// A content emitter lets tools (specifically explain_code today)
+	// push per-token deltas up to this goroutine for real-time SSE
+	// streaming. Tools that don't use it are unaffected — the channel
+	// simply stays empty and the select falls through to the heartbeat
+	// ticker like before.
+	emitter := newContentEmitter()
+	ctx = WithContentEmitter(ctx, emitter)
+
 	// Run the dispatch in a goroutine; the main goroutine owns the HTTP
 	// response and ticks progress messages.
 	type dispatchResult struct {
@@ -155,7 +163,7 @@ func (h *mcpHandler) handleStreamingToolCall(
 	}
 	resultCh := make(chan dispatchResult, 1)
 	go func() {
-		resultCh <- dispatchResult{resp: h.safeDispatch(sess, msg)}
+		resultCh <- dispatchResult{resp: h.safeDispatchCtx(ctx, sess, msg)}
 	}()
 
 	ticker := time.NewTicker(progressHeartbeat)
@@ -174,8 +182,16 @@ func (h *mcpHandler) handleStreamingToolCall(
 			slog.Warn("mcp streaming tool call cancelled", "session_id", sess.id, "elapsed", time.Since(start))
 			return
 
+		case delta := <-emitter.Chan():
+			// A tool pushed a content chunk. Only forward it when the
+			// client opted into progress notifications; otherwise drop
+			// (the final response still contains the full content).
+			if progressToken != nil {
+				writeSSEContentDelta(w, flusher, progressToken, time.Since(start), delta)
+			}
+
 		case <-ticker.C:
-			// Only send progress if the client opted in (spec requires a token).
+			// Only send a "still working" heartbeat if the client opted in.
 			if progressToken != nil {
 				writeSSEProgress(w, flusher, progressToken, time.Since(start))
 			} else {
@@ -186,6 +202,18 @@ func (h *mcpHandler) handleStreamingToolCall(
 			}
 
 		case res := <-resultCh:
+			// Drain any remaining deltas the tool pushed just before
+			// returning so the client doesn't miss the last few tokens.
+			for drained := true; drained; {
+				select {
+				case delta := <-emitter.Chan():
+					if progressToken != nil {
+						writeSSEContentDelta(w, flusher, progressToken, time.Since(start), delta)
+					}
+				default:
+					drained = false
+				}
+			}
 			writeSSEMessage(w, flusher, res.resp)
 			return
 		}
@@ -222,4 +250,91 @@ func writeSSEProgress(w http.ResponseWriter, flusher http.Flusher, progressToken
 	}
 	_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
 	flusher.Flush()
+}
+
+// writeSSEContentDelta frames a progress notification that carries a
+// chunk of visible tool output. The standard `message` field is kept
+// for human-readable clients; the `delta` field is a non-standard
+// extension our VS Code plugin treats as the answer-text fragment to
+// append to the running exchange. Clients that don't understand it
+// simply ignore the unknown field (MCP leaves extension fields open).
+func writeSSEContentDelta(
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	progressToken json.RawMessage,
+	elapsed time.Duration,
+	delta string,
+) {
+	notif := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "notifications/progress",
+		"params": map[string]interface{}{
+			"progressToken": json.RawMessage(progressToken),
+			"progress":      int(elapsed.Seconds()),
+			"message":       "generating",
+			"delta":         delta,
+		},
+	}
+	data, err := json.Marshal(notif)
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+	flusher.Flush()
+}
+
+// contextKey is a private type for context values added by this
+// package so it never collides with other packages' keys.
+type contextKey int
+
+const contentEmitterKey contextKey = iota
+
+// ContentEmitter lets a tool push visible-content deltas back up to
+// the HTTP layer for streaming. Tools that don't care ignore it.
+// Buffered channel keeps the producer (tool goroutine) from stalling
+// if the consumer (HTTP goroutine) is briefly busy flushing a frame.
+type ContentEmitter struct {
+	ch chan string
+}
+
+func newContentEmitter() *ContentEmitter {
+	return &ContentEmitter{ch: make(chan string, 64)}
+}
+
+// Emit pushes a delta. Non-blocking with a modest buffer — if the
+// consumer falls far behind, older deltas are dropped rather than
+// blocking the LLM stream. The final resolved answer in the terminal
+// response still contains the full text, so dropped deltas only
+// affect the live-stream UX.
+func (e *ContentEmitter) Emit(delta string) {
+	if e == nil || delta == "" {
+		return
+	}
+	select {
+	case e.ch <- delta:
+	default:
+	}
+}
+
+// Chan returns the read side. Used by the streaming handler's event
+// loop; tools should not touch it.
+func (e *ContentEmitter) Chan() <-chan string {
+	if e == nil {
+		return nil
+	}
+	return e.ch
+}
+
+// WithContentEmitter attaches an emitter to ctx so tools can pull it
+// out. Tools call `ContentEmitterFromContext(ctx)` and emit on it
+// when they have streaming output.
+func WithContentEmitter(ctx context.Context, e *ContentEmitter) context.Context {
+	return context.WithValue(ctx, contentEmitterKey, e)
+}
+
+// ContentEmitterFromContext returns the emitter or nil if none was
+// installed (unary dispatch path).
+func ContentEmitterFromContext(ctx context.Context) *ContentEmitter {
+	v, _ := ctx.Value(contentEmitterKey).(*ContentEmitter)
+	return v
 }

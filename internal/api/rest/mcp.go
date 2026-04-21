@@ -126,8 +126,73 @@ type mcpWorkerCaller interface {
 	AnswerQuestion(ctx context.Context, req *reasoningv1.AnswerQuestionRequest) (*reasoningv1.AnswerQuestionResponse, error)
 }
 
-// Verify that *worker.Client satisfies mcpWorkerCaller at compile time.
+// workerStreamingCaller is the optional streaming extension. The MCP
+// explain_code tool uses it when the caller opted into progress
+// notifications; otherwise it falls back to the unary call. Kept
+// separate from mcpWorkerCaller so existing test mocks that only
+// implement the unary path don't have to change.
+type workerStreamingCaller interface {
+	mcpWorkerCaller
+	AnswerQuestionStream(
+		ctx context.Context,
+		req *reasoningv1.AnswerQuestionRequest,
+	) (reasoningv1.ReasoningService_AnswerQuestionStreamClient, context.CancelFunc, error)
+}
+
+// Verify that *worker.Client satisfies both interfaces at compile time.
 var _ mcpWorkerCaller = (*worker.Client)(nil)
+var _ workerStreamingCaller = (*worker.Client)(nil)
+
+// streamDiscussion runs the server-streaming AnswerQuestionStream RPC
+// and forwards each AnswerDelta's content fragment to the given
+// ContentEmitter. Returns a synthetic AnswerQuestionResponse whose
+// `answer` field is the concatenation of all emitted deltas, so the
+// caller's final MCP tool result has the same shape the unary path
+// returns. The function blocks until the server sends a terminal
+// frame (finished=true), io.EOF, or an error.
+func streamDiscussion(
+	ctx context.Context,
+	caller workerStreamingCaller,
+	req *reasoningv1.AnswerQuestionRequest,
+	emitter *ContentEmitter,
+) (*reasoningv1.AnswerQuestionResponse, error) {
+	stream, cancel, err := caller.AnswerQuestionStream(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+
+	var (
+		buf     strings.Builder
+		final   *reasoningv1.AnswerDelta
+	)
+	for {
+		delta, recvErr := stream.Recv()
+		if recvErr == io.EOF {
+			break
+		}
+		if recvErr != nil {
+			return nil, recvErr
+		}
+		if delta.GetFinished() {
+			final = delta
+			break
+		}
+		if chunk := delta.GetContentDelta(); chunk != "" {
+			buf.WriteString(chunk)
+			emitter.Emit(chunk)
+		}
+	}
+
+	resp := &reasoningv1.AnswerQuestionResponse{
+		Answer: buf.String(),
+	}
+	if final != nil {
+		resp.ReferencedSymbols = final.GetReferencedSymbols()
+		resp.Usage = final.GetUsage()
+	}
+	return resp, nil
+}
 
 // ---------------------------------------------------------------------------
 // Session
@@ -537,13 +602,21 @@ func (h *mcpHandler) terminateSession(sess *mcpSession) {
 // ---------------------------------------------------------------------------
 
 func (h *mcpHandler) safeDispatch(session *mcpSession, msg jsonRPCRequest) (resp jsonRPCResponse) {
+	return h.safeDispatchCtx(context.Background(), session, msg)
+}
+
+// safeDispatchCtx is the context-carrying flavor of safeDispatch used
+// by the streaming path. The context threads the ContentEmitter (see
+// mcp_progress.go) down to tools that want to push token-level
+// progress to the HTTP layer.
+func (h *mcpHandler) safeDispatchCtx(ctx context.Context, session *mcpSession, msg jsonRPCRequest) (resp jsonRPCResponse) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("mcp handler panic", "method", msg.Method, "error", r)
 			resp = errorResponse(msg.ID, -32603, "Internal error")
 		}
 	}()
-	return h.dispatch(session, msg)
+	return h.dispatchCtx(ctx, session, msg)
 }
 
 // ---------------------------------------------------------------------------
@@ -551,6 +624,13 @@ func (h *mcpHandler) safeDispatch(session *mcpSession, msg jsonRPCRequest) (resp
 // ---------------------------------------------------------------------------
 
 func (h *mcpHandler) dispatch(session *mcpSession, msg jsonRPCRequest) jsonRPCResponse {
+	return h.dispatchCtx(context.Background(), session, msg)
+}
+
+// dispatchCtx is the context-carrying flavor used by the streaming
+// handler. Only tool calls currently consume the context; other
+// methods ignore it for backwards compatibility.
+func (h *mcpHandler) dispatchCtx(ctx context.Context, session *mcpSession, msg jsonRPCRequest) jsonRPCResponse {
 	// initialize is always allowed (it's how you start)
 	if msg.Method == "initialize" {
 		return h.handleInitialize(session, msg)
@@ -571,7 +651,7 @@ func (h *mcpHandler) dispatch(session *mcpSession, msg jsonRPCRequest) jsonRPCRe
 	case "tools/list":
 		return h.handleToolsList(session, msg)
 	case "tools/call":
-		return h.handleToolsCall(session, msg)
+		return h.handleToolsCallCtx(ctx, session, msg)
 	case "resources/list":
 		return h.handleResourcesList(session, msg)
 	case "resources/read":
@@ -724,6 +804,14 @@ func (h *mcpHandler) baseTools() []mcpToolDefinition {
 // ---------------------------------------------------------------------------
 
 func (h *mcpHandler) handleToolsCall(session *mcpSession, msg jsonRPCRequest) jsonRPCResponse {
+	return h.handleToolsCallCtx(context.Background(), session, msg)
+}
+
+// handleToolsCallCtx is the context-aware variant. The context
+// carries the ContentEmitter from the streaming HTTP handler so
+// slow tools (explain_code today, get_cliff_notes next) can push
+// token-level deltas back up to the SSE response.
+func (h *mcpHandler) handleToolsCallCtx(ctx context.Context, session *mcpSession, msg jsonRPCRequest) jsonRPCResponse {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -742,7 +830,7 @@ func (h *mcpHandler) handleToolsCall(session *mcpSession, msg jsonRPCRequest) js
 	case "search_symbols":
 		result, toolErr = h.callSearchSymbols(session, params.Arguments)
 	case "explain_code":
-		result, toolErr = h.callExplainCode(session, params.Arguments)
+		result, toolErr = h.callExplainCodeCtx(ctx, session, params.Arguments)
 	case "get_requirements":
 		result, toolErr = h.callGetRequirements(session, params.Arguments)
 	case "get_impact_report":
@@ -752,7 +840,7 @@ func (h *mcpHandler) handleToolsCall(session *mcpSession, msg jsonRPCRequest) js
 	default:
 		// Try enterprise tool extender
 		if h.toolExtender != nil {
-			result, toolErr = h.toolExtender.CallTool(context.Background(), session, params.Name, params.Arguments)
+			result, toolErr = h.toolExtender.CallTool(ctx, session, params.Name, params.Arguments)
 		} else {
 			return errorResponse(msg.ID, -32601, fmt.Sprintf("Unknown tool: %s", params.Name))
 		}
@@ -894,6 +982,17 @@ func (h *mcpHandler) callSearchSymbols(session *mcpSession, args json.RawMessage
 // ---------------------------------------------------------------------------
 
 func (h *mcpHandler) callExplainCode(session *mcpSession, args json.RawMessage) (interface{}, error) {
+	return h.callExplainCodeCtx(context.Background(), session, args)
+}
+
+// callExplainCodeCtx is the streaming-capable variant. When a
+// ContentEmitter is present on the context (i.e. the request came in
+// through handleStreamingToolCall with a progressToken), we open the
+// worker's AnswerQuestionStream RPC and forward each delta up to the
+// HTTP layer. When no emitter is present, we fall back to the unary
+// AnswerQuestion call so non-streaming callers still get exactly the
+// same final payload.
+func (h *mcpHandler) callExplainCodeCtx(ctx context.Context, session *mcpSession, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		RepositoryID string `json:"repository_id"`
 		Code         string `json:"code"`
@@ -953,13 +1052,30 @@ func (h *mcpHandler) callExplainCode(session *mcpSession, args json.RawMessage) 
 	// Build the question with the code context
 	fullQuestion := fmt.Sprintf("%s\n\n```\n%s\n```", question, code)
 
-	ctx, cancel := context.WithTimeout(context.Background(), worker.TimeoutDiscussion)
-	defer cancel()
-
-	resp, err := h.worker.AnswerQuestion(ctx, &reasoningv1.AnswerQuestionRequest{
+	emitter := ContentEmitterFromContext(ctx)
+	req := &reasoningv1.AnswerQuestionRequest{
 		Question:     fullQuestion,
 		RepositoryId: params.RepositoryID,
-	})
+	}
+
+	// Prefer the streaming path when the caller is listening for
+	// deltas (progress token present in the MCP request). Otherwise
+	// fall back to the unary RPC so non-streaming callers get the
+	// exact same payload they would have before.
+	streamingClient, ok := h.worker.(workerStreamingCaller)
+	if emitter == nil || !ok {
+		unaryCtx, cancel := context.WithTimeout(context.Background(), worker.TimeoutDiscussion)
+		defer cancel()
+		resp, err := h.worker.AnswerQuestion(unaryCtx, req)
+		if err != nil {
+			return nil, fmt.Errorf("AI worker timed out or failed: %v", err)
+		}
+		return map[string]interface{}{
+			"explanation": resp.GetAnswer(),
+		}, nil
+	}
+
+	resp, err := streamDiscussion(ctx, streamingClient, req, emitter)
 	if err != nil {
 		return nil, fmt.Errorf("AI worker timed out or failed: %v", err)
 	}
