@@ -51,7 +51,7 @@ Most tools help you search code. **SourceBridge helps you understand systems.**
 - **Code Discussion** -- Conversational exploration with full codebase context
 - **Architecture Diagrams** -- Auto-generated Mermaid diagrams from code structure
 - **Impact Analysis** -- Simulate changes and see affected requirements and code paths
-- **MCP Server** -- Model Context Protocol support for AI agent integration
+- **MCP Server** -- Model Context Protocol support for AI agent integration ([setup guide](docs/user/mcp-clients.md))
 - **Multi-Provider LLM** -- Works with cloud APIs (Anthropic, OpenAI, Gemini, OpenRouter) or fully local inference (Ollama, vLLM, llama.cpp, SGLang, LM Studio)
 - **GraphQL API** -- Full programmatic access to all platform capabilities
 - **CLI** -- Complete command-line interface for scripting and automation

@@ -101,8 +101,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		slog.Info("using in-memory store (embedded mode)")
 	}
 
-	// Initialize cache
-	_ = db.NewCache(cfg.Storage)
+	// Initialize shared cache (memory by default, Redis when configured).
+	// Consumed by the MCP session store for HA across replicas.
+	cache := db.NewCache(cfg.Storage)
 
 	knowledgeTimeoutProvider := func() time.Duration {
 		// TimeoutSecs is for individual LLM completions (default 30s).
@@ -223,6 +224,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		rest.WithDesktopAuthStore(desktopAuthStore),
 		rest.WithComprehensionStore(comprehensionStore),
 		rest.WithSummaryNodeStore(summaryNodeStore),
+		rest.WithCache(cache),
 	)
 
 	// Initialize OIDC if configured

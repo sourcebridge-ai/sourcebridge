@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sourcebridge/sourcebridge/internal/auth"
+	"github.com/sourcebridge/sourcebridge/internal/db"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
@@ -132,6 +133,11 @@ var _ mcpWorkerCaller = (*worker.Client)(nil)
 // Session
 // ---------------------------------------------------------------------------
 
+// mcpSession is the per-request view of an MCP session. Fields mirror
+// mcpSessionState (which is what the shared store persists) plus an optional
+// pod-local chans pointer for SSE delivery. Dispatch handlers read and mutate
+// these fields freely; mcpHandler persists changes back via sessionStore.Save
+// after dispatch returns.
 type mcpSession struct {
 	id          string
 	claims      *auth.Claims
@@ -142,8 +148,46 @@ type mcpSession struct {
 	}
 	createdAt time.Time
 	lastUsed  time.Time
-	eventCh   chan []byte // SSE events sent back to the client
-	done      chan struct{}
+
+	// chans is non-nil iff this session has an SSE connection anchored on
+	// the current replica. Streamable-HTTP sessions always see chans == nil.
+	chans *mcpLocalChans
+}
+
+// toState serializes the session for the shared store. Channels are pod-local
+// and intentionally not persisted.
+func (s *mcpSession) toState() *mcpSessionState {
+	st := &mcpSessionState{
+		ID:            s.id,
+		Initialized:   s.initialized,
+		ClientName:    s.clientInfo.Name,
+		ClientVersion: s.clientInfo.Version,
+		CreatedAt:     s.createdAt,
+		LastUsed:      s.lastUsed,
+	}
+	if s.claims != nil {
+		st.UserID = s.claims.UserID
+		st.OrgID = s.claims.OrgID
+		st.Email = s.claims.Email
+		st.Role = s.claims.Role
+	}
+	return st
+}
+
+// sessionFromState reconstructs a working session from persisted state,
+// attaching pod-local channels if present.
+func sessionFromState(st *mcpSessionState, chans *mcpLocalChans) *mcpSession {
+	sess := &mcpSession{
+		id:          st.ID,
+		claims:      &auth.Claims{UserID: st.UserID, OrgID: st.OrgID, Email: st.Email, Role: st.Role},
+		initialized: st.Initialized,
+		createdAt:   st.CreatedAt,
+		lastUsed:    st.LastUsed,
+		chans:       chans,
+	}
+	sess.clientInfo.Name = st.ClientName
+	sess.clientInfo.Version = st.ClientVersion
+	return sess
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +203,18 @@ type mcpHandler struct {
 	keepalive      time.Duration
 	maxSessions    int
 
-	sessions sync.Map // map[string]*mcpSession
+	// sessionStore persists session state (claims, initialized flag, client
+	// info, timestamps). With Redis-backed storage, any replica can serve any
+	// streamable-HTTP request against any session. With memory-backed storage
+	// it behaves like the original single-pod map.
+	sessionStore mcpSessionStore
+
+	// localChans holds pod-local event and shutdown channels for sessions
+	// that have an SSE connection anchored on this replica. SSE delivery
+	// can't cross pods (it owns a TCP connection), so these channels are
+	// intentionally pod-scoped. Streamable-HTTP sessions never populate
+	// this map — they look state up from sessionStore on every request.
+	localChans sync.Map // map[string]*mcpLocalChans
 
 	// Enterprise extension points (nil in OSS)
 	permChecker  MCPPermissionChecker
@@ -167,7 +222,29 @@ type mcpHandler struct {
 	toolExtender MCPToolExtender
 }
 
-func newMCPHandler(store graphstore.GraphStore, ks knowledge.KnowledgeStore, w mcpWorkerCaller, repos string, sessionTTL, keepalive time.Duration, maxSessions int) *mcpHandler {
+// mcpLocalChans holds the per-pod delivery channels for an SSE session.
+type mcpLocalChans struct {
+	eventCh  chan []byte
+	done     chan struct{}
+	doneOnce sync.Once
+}
+
+func (c *mcpLocalChans) closeDone() {
+	c.doneOnce.Do(func() { close(c.done) })
+}
+
+func newMCPHandler(store graphstore.GraphStore, ks knowledge.KnowledgeStore, w mcpWorkerCaller, repos string, sessionTTL, keepalive time.Duration, maxSessions int, cache db.Cache) *mcpHandler {
+	// Choose the session store based on what the caller provided. A non-nil
+	// Redis-capable cache gives us HA out of the box; anything else falls
+	// back to an in-process map.
+	var ss mcpSessionStore
+	if _, isRedis := cache.(*db.RedisCache); isRedis {
+		ss = newRedisSessionStore(cache)
+		slog.Info("mcp using Redis-backed session store (HA-safe)")
+	} else {
+		ss = newMemorySessionStore()
+		slog.Info("mcp using in-memory session store (single-pod only — set storage.redis_mode=external for HA)")
+	}
 	h := &mcpHandler{
 		store:          store,
 		knowledgeStore: ks,
@@ -175,6 +252,7 @@ func newMCPHandler(store graphstore.GraphStore, ks knowledge.KnowledgeStore, w m
 		sessionTTL:     sessionTTL,
 		keepalive:      keepalive,
 		maxSessions:    maxSessions,
+		sessionStore:   ss,
 	}
 	if repos != "" {
 		h.allowedRepos = make(map[string]bool)
@@ -191,33 +269,43 @@ func newMCPHandler(store graphstore.GraphStore, ks knowledge.KnowledgeStore, w m
 			}
 		}
 	}
-	// Start session reaper
-	go h.reapSessions()
+	// Start pod-local chans reaper — TTL cleanup of session state itself is
+	// handled by sessionStore (Redis TTL, or the memory store's own reaper).
+	// This loop just closes channels for SSE sessions whose persistent state
+	// has expired, so the handleSSE goroutine returns.
+	go h.reapLocalChans()
 	return h
 }
 
-// sessionCount returns the number of active sessions.
+// sessionCount returns the number of active sessions known to the store.
+// Redis-backed stores may return 0 (counting is best-effort); memory stores
+// return an exact count. Callers use this for maxSessions enforcement only.
 func (h *mcpHandler) sessionCount() int {
-	count := 0
-	h.sessions.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
-	return count
+	n, err := h.sessionStore.Count(context.Background())
+	if err != nil {
+		slog.Warn("mcp session count failed", "error", err)
+		return 0
+	}
+	return n
 }
 
-// reapSessions periodically removes expired sessions.
-func (h *mcpHandler) reapSessions() {
+// reapLocalChans closes the delivery channels for any SSE session whose
+// persistent state has expired in the store. Without this, an SSE handler
+// would block on a stale eventCh forever while the session was already gone
+// from the shared store.
+func (h *mcpHandler) reapLocalChans() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
+	ctx := context.Background()
 	for range ticker.C {
-		now := time.Now()
-		h.sessions.Range(func(key, value interface{}) bool {
-			sess := value.(*mcpSession)
-			if now.Sub(sess.lastUsed) > h.sessionTTL {
-				slog.Info("mcp session expired", "session_id", sess.id, "duration_seconds", int(now.Sub(sess.createdAt).Seconds()))
-				h.sessions.Delete(key)
-				close(sess.done)
+		h.localChans.Range(func(key, value interface{}) bool {
+			id := key.(string)
+			state, err := h.sessionStore.Get(ctx, id)
+			if err != nil || state == nil {
+				chans := value.(*mcpLocalChans)
+				chans.closeDone()
+				h.localChans.Delete(id)
+				slog.Info("mcp session expired", "session_id", id)
 			}
 			return true
 		})
@@ -248,15 +336,26 @@ func (h *mcpHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	chans := &mcpLocalChans{
+		eventCh: make(chan []byte, 64),
+		done:    make(chan struct{}),
+	}
 	sess := &mcpSession{
 		id:        uuid.New().String(),
 		claims:    claims,
 		createdAt: time.Now(),
 		lastUsed:  time.Now(),
-		eventCh:   make(chan []byte, 64),
-		done:      make(chan struct{}),
+		chans:     chans,
 	}
-	h.sessions.Store(sess.id, sess)
+	// Persist state and register pod-local delivery channels. SSE /message
+	// POSTs must land on this pod to hit these channels; multi-replica
+	// deployments need sticky routing for the SSE transport.
+	if err := h.sessionStore.Save(r.Context(), sess.toState(), h.sessionTTL); err != nil {
+		slog.Error("mcp session save failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "session store unavailable"})
+		return
+	}
+	h.localChans.Store(sess.id, chans)
 
 	slog.Info("mcp session created", "session_id", sess.id, "user_id", claims.UserID)
 
@@ -276,7 +375,10 @@ func (h *mcpHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	defer func() {
-		h.sessions.Delete(sess.id)
+		h.localChans.Delete(sess.id)
+		if err := h.sessionStore.Delete(context.Background(), sess.id); err != nil {
+			slog.Warn("mcp session delete failed", "session_id", sess.id, "error", err)
+		}
 		slog.Info("mcp session closed", "session_id", sess.id, "duration_seconds", int(time.Since(sess.createdAt).Seconds()))
 	}()
 
@@ -284,9 +386,9 @@ func (h *mcpHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-sess.done:
+		case <-chans.done:
 			return
-		case data := <-sess.eventCh:
+		case data := <-chans.eventCh:
 			fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
 			flusher.Flush()
 		case <-keepaliveTicker.C:
@@ -308,12 +410,28 @@ func (h *mcpHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	val, ok := h.sessions.Load(sessionID)
-	if !ok {
+	state, err := h.sessionStore.Get(r.Context(), sessionID)
+	if err != nil {
+		slog.Warn("mcp session load failed", "session_id", sessionID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "session store unavailable"})
+		return
+	}
+	if state == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid session"})
 		return
 	}
-	sess := val.(*mcpSession)
+	// Pod-local channels must exist for SSE delivery. If this pod doesn't
+	// hold the SSE connection (sticky routing misconfigured for multi-replica
+	// deployments), we can't push the response back to the client.
+	val, ok := h.localChans.Load(sessionID)
+	if !ok {
+		writeJSON(w, http.StatusMisdirectedRequest, map[string]string{
+			"error": "session is anchored to a different replica — ensure sticky routing on the SSE endpoint",
+		})
+		return
+	}
+	chans := val.(*mcpLocalChans)
+	sess := sessionFromState(state, chans)
 	sess.lastUsed = time.Now()
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, mcpMaxBodySize+1))
@@ -341,26 +459,76 @@ func (h *mcpHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Notifications (no ID) don't get responses
 	if msg.ID == nil || string(msg.ID) == "" || string(msg.ID) == "null" {
-		// Just acknowledge; notifications like "notifications/initialized" are no-ops
+		// Persist lastUsed anyway so the session doesn't time out.
+		_ = h.sessionStore.Save(r.Context(), sess.toState(), h.sessionTTL)
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 
 	resp := h.safeDispatch(sess, msg)
+	// Persist any state changes (initialized flag, lastUsed) back to the store.
+	if err := h.sessionStore.Save(r.Context(), sess.toState(), h.sessionTTL); err != nil {
+		slog.Warn("mcp session save failed", "session_id", sess.id, "error", err)
+	}
 	h.sendResponse(sess, resp)
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// sendResponseTimeout bounds how long we will block waiting for a slow SSE
+// client before giving up on a single response. The SSE reader is a tight
+// for/select that only waits on the network write; a slow client here means
+// the TCP send buffer is saturated. Dropping after this window keeps a stuck
+// client from pinning server memory indefinitely, but is long enough to
+// absorb normal TCP backpressure (initial window growth, transient RTT
+// spikes). See sendResponse below.
+const sendResponseTimeout = 5 * time.Second
+
+// sendResponse is a no-op for streamable-HTTP sessions (sess.chans == nil) —
+// those responses flow directly in the HTTP response body from the dispatch
+// caller. For SSE sessions it pushes the serialized JSON-RPC response onto
+// the pod-local eventCh, blocking briefly under backpressure and terminating
+// the session if the client is truly stuck.
 func (h *mcpHandler) sendResponse(sess *mcpSession, resp jsonRPCResponse) {
+	if sess.chans == nil {
+		return
+	}
 	data, err := json.Marshal(resp)
 	if err != nil {
 		slog.Error("mcp failed to marshal response", "error", err)
 		return
 	}
+	// Try non-blocking first: the common case is a responsive client and an
+	// empty-or-nearly-empty buffer, so we avoid the timer allocation.
 	select {
-	case sess.eventCh <- data:
+	case sess.chans.eventCh <- data:
+		return
+	case <-sess.chans.done:
+		return
 	default:
-		slog.Warn("mcp session event buffer full, dropping response", "session_id", sess.id)
+	}
+	// Buffer was full. Block with a bounded timeout so a stuck client can't
+	// silently swallow a tool response. If the timer fires, the session is
+	// already in a bad state — terminate it so the client reconnects instead
+	// of hanging forever waiting for a reply it will never receive.
+	timer := time.NewTimer(sendResponseTimeout)
+	defer timer.Stop()
+	select {
+	case sess.chans.eventCh <- data:
+	case <-sess.chans.done:
+	case <-timer.C:
+		slog.Error("mcp session stalled, terminating", "session_id", sess.id, "timeout", sendResponseTimeout)
+		h.terminateSession(sess)
+	}
+}
+
+// terminateSession removes a session from both the shared store and the
+// pod-local chans map. Safe to call from any goroutine.
+func (h *mcpHandler) terminateSession(sess *mcpSession) {
+	if val, loaded := h.localChans.LoadAndDelete(sess.id); loaded {
+		val.(*mcpLocalChans).closeDone()
+	}
+	if err := h.sessionStore.Delete(context.Background(), sess.id); err != nil {
+		slog.Warn("mcp session delete failed", "session_id", sess.id, "error", err)
 	}
 }
 
@@ -1245,13 +1413,18 @@ func (h *mcpHandler) handleStreamableHTTP(w http.ResponseWriter, r *http.Request
 			claims:    claims,
 			createdAt: time.Now(),
 			lastUsed:  time.Now(),
-			eventCh:   make(chan []byte, 64),
-			done:      make(chan struct{}),
+			// chans intentionally nil — streamable HTTP is synchronous
+			// request/response with no pod-local delivery channel.
 		}
-		h.sessions.Store(sess.id, sess)
+		resp := h.safeDispatch(sess, msg)
+		// Persist initialized state + client info that dispatch just set.
+		if err := h.sessionStore.Save(r.Context(), sess.toState(), h.sessionTTL); err != nil {
+			slog.Error("mcp streamable session save failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "session store unavailable"})
+			return
+		}
 		slog.Info("mcp streamable session created", "session_id", sess.id, "user_id", claims.UserID)
 
-		resp := h.safeDispatch(sess, msg)
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Mcp-Session-Id", sess.id)
 		w.WriteHeader(http.StatusOK)
@@ -1263,8 +1436,9 @@ func (h *mcpHandler) handleStreamableHTTP(w http.ResponseWriter, r *http.Request
 	if msg.ID == nil || string(msg.ID) == "" || string(msg.ID) == "null" {
 		// Look up session to update lastUsed if present
 		if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
-			if val, ok := h.sessions.Load(sid); ok {
-				val.(*mcpSession).lastUsed = time.Now()
+			if state, err := h.sessionStore.Get(r.Context(), sid); err == nil && state != nil {
+				state.LastUsed = time.Now()
+				_ = h.sessionStore.Save(r.Context(), state, h.sessionTTL)
 			}
 		}
 		w.WriteHeader(http.StatusAccepted)
@@ -1279,17 +1453,37 @@ func (h *mcpHandler) handleStreamableHTTP(w http.ResponseWriter, r *http.Request
 		json.NewEncoder(w).Encode(errorResponse(msg.ID, -32600, "Missing Mcp-Session-Id header. Send 'initialize' first."))
 		return
 	}
-	val, ok := h.sessions.Load(sessionID)
-	if !ok {
+	state, err := h.sessionStore.Get(r.Context(), sessionID)
+	if err != nil {
+		slog.Warn("mcp session load failed", "session_id", sessionID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "session store unavailable"})
+		return
+	}
+	if state == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(errorResponse(msg.ID, -32600, "Invalid or expired session. Re-initialize."))
 		return
 	}
-	sess := val.(*mcpSession)
+	sess := sessionFromState(state, nil)
 	sess.lastUsed = time.Now()
 
+	// Slow tool calls on clients that accept SSE take the streaming path so
+	// we can emit progress notifications while the worker runs. Everything
+	// else gets a synchronous JSON response.
+	if toolCallShouldStream(r, msg) {
+		h.handleStreamingToolCall(w, r, sess, msg, sess.id)
+		// Persist lastUsed even when streaming; initialized can't change
+		// on a tools/call so we don't need the full save dance.
+		state.LastUsed = time.Now()
+		_ = h.sessionStore.Save(context.Background(), state, h.sessionTTL)
+		return
+	}
+
 	resp := h.safeDispatch(sess, msg)
+	if err := h.sessionStore.Save(r.Context(), sess.toState(), h.sessionTTL); err != nil {
+		slog.Warn("mcp session save failed", "session_id", sess.id, "error", err)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Mcp-Session-Id", sess.id)
 	w.WriteHeader(http.StatusOK)
@@ -1303,11 +1497,13 @@ func (h *mcpHandler) handleStreamableHTTPDelete(w http.ResponseWriter, r *http.R
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if val, ok := h.sessions.LoadAndDelete(sessionID); ok {
-		sess := val.(*mcpSession)
-		close(sess.done)
-		slog.Info("mcp streamable session terminated", "session_id", sess.id)
+	if val, ok := h.localChans.LoadAndDelete(sessionID); ok {
+		val.(*mcpLocalChans).closeDone()
 	}
+	if err := h.sessionStore.Delete(r.Context(), sessionID); err != nil {
+		slog.Warn("mcp session delete failed", "session_id", sessionID, "error", err)
+	}
+	slog.Info("mcp streamable session terminated", "session_id", sessionID)
 	w.WriteHeader(http.StatusOK)
 }
 

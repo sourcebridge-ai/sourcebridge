@@ -20,6 +20,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/api/middleware"
 	"github.com/sourcebridge/sourcebridge/internal/auth"
 	"github.com/sourcebridge/sourcebridge/internal/config"
+	"github.com/sourcebridge/sourcebridge/internal/db"
 	"github.com/sourcebridge/sourcebridge/internal/events"
 	"github.com/sourcebridge/sourcebridge/internal/featureflags"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
@@ -110,6 +111,13 @@ func WithSummaryNodeStore(sns comprehension.SummaryNodeStore) ServerOption {
 	return func(s *Server) { s.summaryNodeStore = sns }
 }
 
+// WithCache injects a shared KV cache (memory or Redis). The MCP session
+// store uses this to persist streamable-HTTP session state across replicas
+// when a Redis-backed cache is provided.
+func WithCache(c db.Cache) ServerOption {
+	return func(s *Server) { s.cache = c }
+}
+
 // Server is the HTTP API server.
 type Server struct {
 	cfg                *config.Config
@@ -137,7 +145,7 @@ type Server struct {
 	mcpToolExtender    MCPToolExtender                // deferred to mcp handler at setup
 	comprehensionStore comprehension.Store            // comprehension settings + model capabilities
 	summaryNodeStore   comprehension.SummaryNodeStore // cached summary tree nodes
-
+	cache              db.Cache                       // shared KV cache (memory or Redis); nil = MCP session store falls back to in-memory
 }
 
 // getStore returns a tenant-filtered store when RepoAccessMiddleware has
@@ -388,7 +396,7 @@ func (s *Server) setupRouter() {
 	if s.cfg.MCP.Enabled {
 		sessionTTL := time.Duration(s.cfg.MCP.SessionTTL) * time.Second
 		keepalive := time.Duration(s.cfg.MCP.Keepalive) * time.Second
-		s.mcp = newMCPHandler(s.store, s.knowledgeStore, s.worker, s.cfg.MCP.Repos, sessionTTL, keepalive, s.cfg.MCP.MaxSessions)
+		s.mcp = newMCPHandler(s.store, s.knowledgeStore, s.worker, s.cfg.MCP.Repos, sessionTTL, keepalive, s.cfg.MCP.MaxSessions, s.cache)
 		// Wire enterprise extensions if provided via server options
 		if s.mcpPermChecker != nil {
 			s.mcp.permChecker = s.mcpPermChecker
