@@ -56,6 +56,7 @@ import { ImpactReportPanel } from "@/components/impact-report";
 import { ChangeSimulationPanel } from "@/components/change-simulation";
 import { ArchitectureDiagram } from "@/components/architecture/ArchitectureDiagram";
 import { RelatedReposPanel } from "@/components/federation/RelatedReposPanel";
+import { CreateRequirementDialog } from "@/components/requirements/CreateRequirementDialog";
 import { SymbolTree } from "@/components/source/SymbolTree";
 import { SymbolList } from "@/components/source/SymbolList";
 import { kindBadgeClass, kindLabel, SYMBOL_KINDS } from "@/components/source/symbol-kind";
@@ -739,6 +740,7 @@ export default function RepositoryDetailPage() {
   const [importContent, setImportContent] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [linkResult, setLinkResult] = useState<string | null>(null);
+  const [createRequirementOpen, setCreateRequirementOpen] = useState(false);
   const [symbolChatQuestion, setSymbolChatQuestion] = useState("");
   const [symbolChatByScope, setSymbolChatByScope] = useState<Record<string, SymbolChatMessage[]>>({});
   const [specExtracting, setSpecExtracting] = useState(false);
@@ -758,7 +760,7 @@ export default function RepositoryDetailPage() {
     variables: { repositoryId: repoId, query: symbolQuery || undefined, kind: symbolKindFilter || undefined, limit: 200 },
     pause: tab !== "symbols" && tab !== "analysis",
   });
-  const [reqsResult] = useQuery({
+  const [reqsResult, reexecuteRequirements] = useQuery({
     query: REQUIREMENTS_QUERY,
     variables: { repositoryId: repoId, limit: 50 },
     pause: tab !== "requirements",
@@ -2137,7 +2139,10 @@ export default function RepositoryDetailPage() {
       {/* Requirements Tab */}
       {tab === "requirements" && (
         <div>
-          <div className="mb-4 flex gap-4">
+          <div className="mb-4 flex flex-wrap gap-3">
+            <Button onClick={() => setCreateRequirementOpen(true)}>
+              + New requirement
+            </Button>
             <Button variant="secondary" onClick={handleAutoLink} disabled={aiLoading}>
               {aiLoading ? "Linking..." : "Auto-Link Specs to Code"}
             </Button>
@@ -2196,6 +2201,15 @@ export default function RepositoryDetailPage() {
               </div>
             )}
           </Panel>
+          <CreateRequirementDialog
+            open={createRequirementOpen}
+            repositoryId={repoId}
+            onClose={() => setCreateRequirementOpen(false)}
+            onCreated={() => {
+              // Refresh the list so the new row appears immediately.
+              reexecuteRequirements({ requestPolicy: "network-only" });
+            }}
+          />
         </div>
       )}
 
