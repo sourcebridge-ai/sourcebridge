@@ -102,3 +102,8 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+          # SemVer prerelease tags contain a `-` (e.g. v0.8.0-rc.1,
+          # v0.8.0-beta.2, v1.0.0-alpha). softprops/action-gh-release
+          # doesn't auto-detect from the tag name, so we flag
+          # prerelease explicitly when the ref has a hyphen.
+          prerelease: ${{ contains(github.ref_name, '-') }}
