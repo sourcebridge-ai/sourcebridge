@@ -1,0 +1,372 @@
+# Changelog
+
+All notable changes to SourceBridge are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.8.0-rc.1] — 2026-04-21
+
+Release candidate for 0.8.0. Theme: **token streaming end-to-end**, first-class
+requirement CRUD, and the VS Code extension relocated into this repository
+so the full stack lives in one place.
+
+### Added
+
+- **Streaming discussion answers** via a new `AnswerQuestionStream` gRPC
+  alongside the existing unary `AnswerQuestion`. The worker yields LLM
+  content deltas as they're generated; the API relays them through
+  **two delivery surfaces**:
+  - **MCP**: `explain_code` progress notifications carry a `delta` field
+    that the VS Code plugin appends to the running answer in real time.
+  - **REST SSE**: new `POST /api/v1/discuss/stream` endpoint emits
+    `event: token` / `event: done` / `event: error` frames. The web UI's
+    Discuss page consumes them through `src/lib/askStream.ts`.
+  No more 30–90 s of "Thinking…" on a local model — users see tokens as
+  they land.
+- **Requirement CRUD** mutations on GraphQL: `createRequirement` (with
+  auto-generated `REQ-<uuid>` external IDs and uniqueness enforcement) and
+  `updateRequirementFields` (partial patch semantics — explicit nulls
+  clear fields, omitted fields preserve them). Matching web flows:
+  CreateRequirementDialog, inline EditRequirementCard, RemoveRequirementDialog.
+  `acceptanceCriteria` round-trips through the full stack.
+- **VS Code extension (0.3.0)** now lives in `plugins/vscode/`. Packaged via
+  `make package-vscode` / `make install-vscode`. Features: code-action
+  lightbulbs, `Cmd+I` streaming chat, `Cmd+K N` field guides, `Cmd+Shift+;`
+  scoped palette, Change Risk sidebar tree, inline requirement CRUD,
+  opt-in telemetry, ARIA labels throughout. Status-bar connection indicator
+  with auto-reconnect.
+- **Namespace-local Redis** support for MCP session storage (HA across
+  replicas). Enterprise deployment now ships its own Redis manifest so
+  MCP sessions don't collide with OSS.
+
+### Fixed
+
+- **Qwen thinking-disable on Ollama**. The previous implementation only
+  sent the llama.cpp-specific `chat_template_kwargs={"enable_thinking":
+  False}`, which Ollama ignores — Qwen 3.5 MoE burned its entire
+  `max_tokens` budget inside an unemitted thinking block and returned
+  empty content with `stop_reason=length`. Now also sends the `/no_think`
+  directive in the user message for Qwen-family models; both backends work
+  without runtime detection.
+- **Orchestrator stale-inflight claim release**. An API pod that failed a
+  job in-memory during a worker-pod startup race kept the dead job's ID
+  in its inflight registry, so every identical request deduped to that
+  failed job forever until the pod restarted. `Enqueue` now detects
+  terminal states on claim collisions and retries with a fresh job.
+- **arm64 release binaries** now build on a native `ubuntu-24.04-arm`
+  runner. Cross-compiling from amd64 with `CGO_ENABLED=1` was failing on
+  tree-sitter's arm64 assembly.
+- **Release packaging** skips the `*.dockerbuild` provenance artifact so
+  the release job doesn't retry 5× on a flaky artifact download.
+- **SemVer prerelease tags** (hyphenated suffixes like `-rc.1`, `-beta.2`,
+  `-alpha`) are now auto-flagged as prerelease on GitHub.
+
+### Changed
+
+- **Trash retention worker** matured into Phase 1 complete — telemetry,
+  lint clean, SurrealDB round-trip fixed (dropped the unsupported COMMIT
+  wrap; fixed the SCHEMAFULL NONE-field backfill trap in migration 030).
+- **Knowledge artifact regeneration** is now delta-driven: a shadow
+  pipeline computes which scopes' evidence actually changed on reindex
+  and only those are flagged stale. Replaces the scorched-earth
+  full-rebuild behavior.
+- **Selective knowledge-artifact invalidation** on reindex — unchanged
+  scopes stay READY.
+- **GraphQL extension timeouts** raised to 180 s for LLM operations
+  (`DiscussCode`, `ReviewCode`, `ExplainSystem`, `GenerateCliffNotes`,
+  `GenerateLearningPath`, `GenerateCodeTour`). Previous 10 s ceiling was
+  cutting off the server mid-response.
+
+### Infrastructure
+
+- Enterprise Dockerfiles live in-tree so Tekton builds them alongside
+  OSS images without a parallel repo.
+- Web, worker, and Go CI pipelines now all pass cleanly on the same push.
+
+---
+
+## [0.7.0] — 2026-04-19
+
+**Runtime reconfiguration and API cleanup.**
+
+### Added
+
+- **Runtime orchestrator reconfiguration** — change `MaxConcurrency` on a
+  live instance without a restart. The Admin Monitor page surfaces a
+  provider-aware recommended value based on the model size + hosting
+  mode, and `handleUseRecommended` wires the chosen value into the orchestrator.
+- **Provider-aware concurrency recommendations** — `MaxConcurrency`
+  suggestion per provider × model class (small local, large local MoE,
+  cloud API), calibrated against the bench harness.
+- **Enterprise report RPC shim** — reserves the wire surface for the
+  commercial report-generation feature without the OSS build carrying
+  any of the enterprise logic.
+- **Knowledge proto dual-field enums** — additive, deprecation-friendly
+  replacements for the legacy string-encoded enum fields. GraphQL
+  deprecations flag the old names.
+- **Article addendum infrastructure** for benchmark write-ups, including
+  a top-5 sweep across `learning_path` / `code_tour` / `workflow_story`
+  and a parallel other-artifacts harness for slow local models.
+
+### Fixed
+
+- **Worker CI and release pipeline** — mypy debt cleared, Go data races
+  fixed, Python lint clean, unused code removed.
+- **Hallucination scorer** — no more trailing-slash false positives on
+  path citations.
+- **Workflow story generation** — raised `max_tokens` to match DEEP
+  artifacts elsewhere so long walks don't truncate.
+- **Path filter** accepts known-directory citations (previously rejected
+  directory-only paths as hallucinations).
+- **Shared knowledge parsing helpers** promoted to a reusable module so
+  each generator doesn't reinvent the same regex dance.
+
+### Changed
+
+- **Frontend auth fetch paths consolidated** — all API calls now go
+  through one helper with consistent header handling and error
+  classification.
+- **Error handling and shutdown paths tightened** — graceful drains,
+  fewer leaked goroutines, cleaner logs.
+
+---
+
+## [0.6.0] — 2026-04-16
+
+**Telemetry, Docker Hub, and community infrastructure.**
+
+### Added
+
+- **Anonymous install telemetry** from the Go API to
+  `https://telemetry.sourcebridge.ai/v1/ping`. Opt-out respected; provider
+  kind and version reported. Minimal dashboard for the maintainers to
+  understand deployment spread.
+- **Docker Hub distribution** — `docker compose up -d` with the official
+  `sourcebridge/sourcebridge-api` image is now the recommended quickstart.
+- **Community files** — `CODE_OF_CONDUCT.md` (Contributor Covenant),
+  `SECURITY.md`, CI lint fixes, standardized issue templates.
+- **Fast / Deep repo QA modes** — the CLI and REPL `ask` command now
+  exposes two grounding profiles so casual queries don't pay for full
+  repo context unnecessarily.
+
+### Fixed
+
+- CLI `ask` grounding quality — better evidence selection, fewer
+  hallucinations, clearer error surfaces.
+- Local compose and CLI AI paths — several configuration mismatches
+  between `dev` and `compose` environments.
+- Telemetry version reporting previously stamped "dev" even on tagged
+  builds.
+
+### Changed
+
+- Removed the hosted telemetry service from the OSS repo (it lives in
+  its own collector repo now, so this repo has no server code it
+  shouldn't).
+- Benchmark and demo seed data excluded from the OSS distribution to
+  keep the repo lean.
+
+---
+
+## [0.5.0] — 2026-04-14
+
+**First-run demo experience.**
+
+### Added
+
+- **`./demo.sh`** — one command that starts SourceBridge, indexes a
+  44-file sample `acme-api` TypeScript project, and generates cliff
+  notes, code tours, and architecture diagrams. Drops new users directly
+  into a fully-populated workspace without a long cold index.
+- **Going-to-production guide** in `docs/` with backup / restore,
+  capacity planning, and hardening checklists.
+- **Screenshots in README** — overview, cliff notes, search, generation
+  queue — so people can see what SourceBridge does before installing.
+
+### Fixed
+
+- **OSS worker logging** — job lifecycle events now emit correctly with
+  the expected structure.
+- **Worker Surreal fallback** — handles the "DB not reachable at startup"
+  case without panic.
+- **Viewport layout** — page-level scroll removed when the shell grid is
+  active; the sidebar and main column now scroll independently. No more
+  double scrollbars.
+
+---
+
+## [0.4.2] — 2026-04-13
+
+Minor follow-up to 0.4.1 with a handful of persistence fixes.
+
+### Added
+
+- **Saved generation-mode overrides** per scope, so a repo set to DEEP
+  for cliff notes doesn't forget across restarts.
+- **Repeatable generation-mode benchmark harness** for regression
+  testing model swaps.
+
+### Fixed
+
+- Generation-mode persistence race on rapid scope switches.
+- Benchmark hardening: flake-free sampling, consistent seeding, fair
+  provider comparisons.
+
+---
+
+## [0.4.1] — 2026-04-13
+
+**Knowledge generation reliability + queue visibility.**
+
+### Added
+
+- **Prioritized refinement and generation-mode controls** — the queue
+  now favors interactive work over maintenance sweeps; repo-level
+  reindex no longer starves user-triggered cliff notes.
+- **Monitor rollup for reused summaries** — aggregate cache-reuse stats
+  surface on the Admin Monitor page so operators see how much work is
+  served from the summary cache vs. regenerated.
+- **Cache-reuse stats as first-class job fields** (leafHits, fileHits,
+  packageHits, rootHits). Previously buried in message strings; now
+  queryable via GraphQL and visible on every job card.
+- **Knowledge timeouts driven by app config** — operators can tune the
+  per-scope ceilings without recompiling.
+
+### Fixed
+
+- **Summary-node cache writes** — race between writers caused the cache
+  to silently drop hot entries under load.
+- **Queued knowledge jobs heartbeat** behind slot gates so the reaper
+  doesn't mark legitimately-waiting jobs as stale.
+- **Noisy repo segmentation** — the monitor's health signals got
+  confused when a single repo had hundreds of sibling scopes. Segmented
+  so each repo gets its own bucket.
+
+### Changed
+
+- **Understanding-first artifact rendering** — the field guide view
+  now leads with the repository-understanding score and derived
+  recommendations rather than a flat list of generated artifacts.
+- **Vector-based logo** across all assets (dashboard, README, docs).
+
+---
+
+## [0.4.0-pre-report-pipeline] — 2026-04-10
+
+Preview checkpoint for the reports feature-flag work. Not a normal release.
+
+### Added
+
+- Reports feature plan committed to `thoughts/` — professional
+  multi-repo report generation, audience targeting, evidence system,
+  appendices, level-of-effort estimation, PDF rendering. No runtime
+  behavior yet; this tag marks the start of the implementation arc.
+
+---
+
+## [0.3.1] — 2026-04-10
+
+### Changed
+
+- **Reports feature moved to enterprise-only.** OSS ships without the
+  report-generation path; the enterprise build re-injects it via the
+  `MCPToolExtender` / enterprise-routes hook.
+
+---
+
+## [0.3.0] — 2026-04-10
+
+**Comprehension engine polish and confidence honesty.**
+
+### Added
+
+- **Deep-mode cliff notes** use repo-level analysis when generating a
+  scoped (file or symbol) cliff note — scoped output now has access to
+  the full repo understanding, not just local evidence.
+- **Deep-mode workflow stories** also inherit cliff-notes analysis, so
+  walk-throughs cite the same evidence the summary cited.
+- **Bulk repository import** — paste a list of URLs to import many
+  repos in one go.
+
+### Fixed
+
+- **Test coverage 100% bug** — the understanding-score calc clamped
+  coverage to 100% even when fewer tests existed than symbols.
+- **Confidence rules for cliff notes** — summaries ARE direct evidence
+  (they were being treated as derivative, inflating the confidence
+  badge on citation-light repos).
+- **Progress-bar advancement** during generation for every artifact
+  type (several types had been stuck at 0% until completion).
+- **Workflow story richness** — higher base confidence, fuller content
+  blocks, fewer null-field crashes (`entry_points` null-safety, full
+  tracebacks in error logs).
+- **Render prompt rewrite** — richer output, fewer in-flight flickers
+  when a job is mid-generation and another poll arrives.
+- **Refresh buttons** for code tour / learning path actually call
+  `refreshArtifact` (they were previously no-ops on the UI side).
+- **Stale job reaper** also marks linked artifacts as failed, so a
+  stuck job doesn't leave a zombie artifact that looks READY in the UI.
+- **Null-safety** across artifact dict lookups (`.get(key, []) or []`
+  pattern applied consistently).
+
+### Changed
+
+- **Understanding-score horizontal layout** — fits better on narrow
+  repo-detail cards and reads left-to-right.
+
+---
+
+## [0.2.0] — 2026-04-10
+
+**Comprehension Engine + production hardening.**
+
+This release absorbed two months of comprehension-engine work, the
+multi-phase summary-tree rollout, and the initial production-grade
+hardening pass (53 commits over the 0.1.0-alpha baseline).
+
+### Added
+
+- **Hierarchical summary tree** — leaf / file / package / root
+  comprehension layers with per-level max-token budgets and evidence
+  propagation.
+- **Scoped field-guide generation** — cliff notes / learning paths /
+  code tours / workflow stories at any scope (repo / file / symbol /
+  requirement).
+- **Generation mode picker** — Fast vs. Medium vs. Deep, per scope,
+  with live token and latency estimates.
+- **Admin Monitor page** with the LLM job queue, live generation
+  progress, reuse stats, and a breaker for runaway providers.
+- **Semantic search** against the repository graph, grounded in the
+  indexed symbol vectors.
+
+### Fixed
+
+- Initial production-grade reliability pass: retries, context-cancel
+  plumbing, bounded goroutines, graceful shutdown, breaker on
+  consecutive compute failures.
+- Null-safety, type-narrowing, and traceback surfacing across the
+  worker's generation codepaths.
+
+---
+
+## [0.1.0-alpha] — 2026-04-03
+
+**First public release.**
+
+Initial alpha: repository indexing via tree-sitter, a gRPC worker with
+Ollama / OpenAI / Anthropic LLM providers, a GraphQL API, a Next.js
+web UI, and the bones of the cliff-notes generation pipeline. Enough
+to demo; rough at the edges, with production hardening explicitly
+deferred to 0.2.0.
+
+[0.8.0-rc.1]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.8.0-rc.1
+[0.7.0]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.7.0
+[0.6.0]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.6.0
+[0.5.0]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.5.0
+[0.4.2]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.4.2
+[0.4.1]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.4.1
+[0.4.0-pre-report-pipeline]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.4.0-pre-report-pipeline
+[0.3.1]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.3.1
+[0.3.0]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.3.0
+[0.2.0]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.2.0
+[0.1.0-alpha]: https://github.com/sourcebridge-ai/sourcebridge/releases/tag/v0.1.0-alpha
