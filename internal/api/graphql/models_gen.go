@@ -109,6 +109,19 @@ type CreateManualLinkInput struct {
 	Rationale     *string `json:"rationale,omitempty"`
 }
 
+// Create a single requirement. `externalId` auto-generates when blank.
+// Server validates uniqueness of (repositoryId, externalId) among
+// non-trashed rows.
+type CreateRequirementInput struct {
+	RepositoryID string   `json:"repositoryId"`
+	ExternalID   *string  `json:"externalId,omitempty"`
+	Title        string   `json:"title"`
+	Description  *string  `json:"description,omitempty"`
+	Priority     *string  `json:"priority,omitempty"`
+	Source       *string  `json:"source,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
+}
+
 type CrossRepoRef struct {
 	ID             string           `json:"id"`
 	SourceSymbolID string           `json:"sourceSymbolId"`
@@ -908,6 +921,20 @@ type UpdateModelCapabilitiesInput struct {
 type UpdateRepositoryKnowledgeSettingsInput struct {
 	RepositoryID          string                  `json:"repositoryId"`
 	GenerationModeDefault KnowledgeGenerationMode `json:"generationModeDefault"`
+}
+
+// Patch an existing requirement. Every non-null field replaces the
+// stored value; null fields preserve it. `externalId` uniqueness is
+// enforced against active (non-trashed) rows in the same repository.
+type UpdateRequirementFieldsInput struct {
+	ID                 string   `json:"id"`
+	ExternalID         *string  `json:"externalId,omitempty"`
+	Title              *string  `json:"title,omitempty"`
+	Description        *string  `json:"description,omitempty"`
+	Priority           *string  `json:"priority,omitempty"`
+	Source             *string  `json:"source,omitempty"`
+	Tags               []string `json:"tags,omitempty"`
+	AcceptanceCriteria []string `json:"acceptanceCriteria,omitempty"`
 }
 
 type VersionInfo struct {

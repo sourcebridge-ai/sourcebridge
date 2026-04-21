@@ -106,6 +106,9 @@ type Mutation {
 
   # Phase 3: Requirement import (stubs in Phase 1)
   importRequirements(input: ImportRequirementsInput!): ImportResult!
+  # Requirement CRUD (added alongside VSCode extension 0.3.0).
+  createRequirement(input: CreateRequirementInput!): Requirement!
+  updateRequirementFields(input: UpdateRequirementFieldsInput!): Requirement!
 
   # Phase 4: Link management
   verifyLink(linkId: ID!, verified: Boolean!): RequirementLink!
@@ -453,6 +456,37 @@ input ImportRequirementsInput {
   content: String!
   format: RequirementFormat!
   sourcePath: String
+}
+
+"""
+Create a single requirement. `externalId` auto-generates when blank.
+Server validates uniqueness of (repositoryId, externalId) among
+non-trashed rows.
+"""
+input CreateRequirementInput {
+  repositoryId: ID!
+  externalId: String
+  title: String!
+  description: String
+  priority: String
+  source: String
+  tags: [String!]
+}
+
+"""
+Patch an existing requirement. Every non-null field replaces the
+stored value; null fields preserve it. `externalId` uniqueness is
+enforced against active (non-trashed) rows in the same repository.
+"""
+input UpdateRequirementFieldsInput {
+  id: ID!
+  externalId: String
+  title: String
+  description: String
+  priority: String
+  source: String
+  tags: [String!]
+  acceptanceCriteria: [String!]
 }
 
 input CreateManualLinkInput {

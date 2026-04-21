@@ -1726,6 +1726,81 @@ func (s *SurrealStore) UpdateRequirement(id string, priority string, tags []stri
 	return rows[0].toStoredRequirement()
 }
 
+// UpdateRequirementFields applies a partial update, preserving any
+// field the caller leaves nil. Enforces externalId uniqueness per-repo
+// via a pre-check against non-trashed rows.
+func (s *SurrealStore) UpdateRequirementFields(id string, fields graph.RequirementUpdate) *graph.StoredRequirement {
+	db := s.client.DB()
+	if db == nil {
+		return nil
+	}
+	// Load current row to preserve non-modified fields and to scope the
+	// uniqueness check to the same repo. GetRequirement already filters
+	// trashed rows.
+	current := s.GetRequirement(id)
+	if current == nil {
+		return nil
+	}
+	if fields.ExternalID != nil && *fields.ExternalID != "" && *fields.ExternalID != current.ExternalID {
+		// Soft-delete aware uniqueness — see plan §1.4 on read-path filters.
+		existing, err := queryOne[int](ctx(), db,
+			"RETURN array::len((SELECT id FROM ca_requirement WHERE repo_id = $repo AND external_id = $eid AND deleted_at IS NONE));",
+			map[string]any{"repo": current.RepoID, "eid": *fields.ExternalID})
+		if err == nil && existing > 0 {
+			return nil
+		}
+	}
+
+	// Build a SET clause from the non-nil fields.
+	sets := []string{"updated_at = time::now()"}
+	vars := map[string]any{"id": id}
+	addString := func(col string, val *string) {
+		if val == nil {
+			return
+		}
+		sets = append(sets, col+" = $"+col)
+		vars[col] = *val
+	}
+	addStrings := func(col string, val *[]string) {
+		if val == nil {
+			return
+		}
+		sets = append(sets, col+" = $"+col)
+		vars[col] = *val
+	}
+	addString("external_id", fields.ExternalID)
+	addString("title", fields.Title)
+	addString("description", fields.Description)
+	addString("priority", fields.Priority)
+	addString("source", fields.Source)
+	addStrings("tags", fields.Tags)
+	addStrings("acceptance_criteria", fields.AcceptanceCriteria)
+
+	if len(sets) == 1 {
+		// Nothing substantive changed — return the current row.
+		return current
+	}
+
+	stmt := "UPDATE type::thing('ca_requirement', $id) SET " + joinComma(sets) + " WHERE deleted_at IS NONE RETURN AFTER"
+	rows, err := queryOne[[]surrealRequirement](ctx(), db, stmt, vars)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	return rows[0].toStoredRequirement()
+}
+
+// joinComma is a tiny local join to avoid importing strings just here.
+func joinComma(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += ", "
+		}
+		out += p
+	}
+	return out
+}
+
 // ---------------------------------------------------------------------------
 // LLM Usage tracking
 // ---------------------------------------------------------------------------

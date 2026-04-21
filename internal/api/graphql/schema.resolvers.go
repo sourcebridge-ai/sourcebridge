@@ -557,6 +557,16 @@ func (r *mutationResolver) ImportRequirements(ctx context.Context, input ImportR
 	}, nil
 }
 
+// CreateRequirement is the resolver for the createRequirement field.
+func (r *mutationResolver) CreateRequirement(ctx context.Context, input CreateRequirementInput) (*Requirement, error) {
+	return r.Resolver.createRequirementImpl(ctx, input)
+}
+
+// UpdateRequirementFields is the resolver for the updateRequirementFields field.
+func (r *mutationResolver) UpdateRequirementFields(ctx context.Context, input UpdateRequirementFieldsInput) (*Requirement, error) {
+	return r.Resolver.updateRequirementFieldsImpl(ctx, input)
+}
+
 // VerifyLink is the resolver for the verifyLink field.
 func (r *mutationResolver) VerifyLink(ctx context.Context, linkID string, verified bool) (*RequirementLink, error) {
 	if r.getStore(ctx) == nil {

@@ -506,6 +506,7 @@ type ComplexityRoot struct {
 		AutoLinkRequirements              func(childComplexity int, repositoryID string, minConfidence *float64) int
 		BuildRepositoryUnderstanding      func(childComplexity int, input BuildRepositoryUnderstandingInput) int
 		CreateManualLink                  func(childComplexity int, input CreateManualLinkInput) int
+		CreateRequirement                 func(childComplexity int, input CreateRequirementInput) int
 		DeleteModelCapabilities           func(childComplexity int, modelID string) int
 		DeleteModelCapabilitiesResult     func(childComplexity int, modelID string) int
 		DetectContracts                   func(childComplexity int, repoID string) int
@@ -540,6 +541,7 @@ type ComplexityRoot struct {
 		UpdateComprehensionSettings       func(childComplexity int, input UpdateComprehensionSettingsInput) int
 		UpdateModelCapabilities           func(childComplexity int, input UpdateModelCapabilitiesInput) int
 		UpdateRepositoryKnowledgeSettings func(childComplexity int, input UpdateRepositoryKnowledgeSettingsInput) int
+		UpdateRequirementFields           func(childComplexity int, input UpdateRequirementFieldsInput) int
 		VerifyLink                        func(childComplexity int, linkID string, verified bool) int
 	}
 
@@ -882,6 +884,8 @@ type MutationResolver interface {
 	BuildRepositoryUnderstanding(ctx context.Context, input BuildRepositoryUnderstandingInput) (*RepositoryUnderstanding, error)
 	UpdateRepositoryKnowledgeSettings(ctx context.Context, input UpdateRepositoryKnowledgeSettingsInput) (*Repository, error)
 	ImportRequirements(ctx context.Context, input ImportRequirementsInput) (*ImportResult, error)
+	CreateRequirement(ctx context.Context, input CreateRequirementInput) (*Requirement, error)
+	UpdateRequirementFields(ctx context.Context, input UpdateRequirementFieldsInput) (*Requirement, error)
 	VerifyLink(ctx context.Context, linkID string, verified bool) (*RequirementLink, error)
 	CreateManualLink(ctx context.Context, input CreateManualLinkInput) (*RequirementLink, error)
 	AnalyzeSymbol(ctx context.Context, repositoryID string, symbolID string) (*AnalysisResult, error)
@@ -3371,6 +3375,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Mutation.CreateManualLink(childComplexity, args["input"].(CreateManualLinkInput)), true
 
+	case "Mutation.createRequirement":
+		if e.complexity.Mutation.CreateRequirement == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createRequirement_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.CreateRequirement(childComplexity, args["input"].(CreateRequirementInput)), true
+
 	case "Mutation.deleteModelCapabilities":
 		if e.complexity.Mutation.DeleteModelCapabilities == nil {
 			break
@@ -3778,6 +3794,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.UpdateRepositoryKnowledgeSettings(childComplexity, args["input"].(UpdateRepositoryKnowledgeSettingsInput)), true
+
+	case "Mutation.updateRequirementFields":
+		if e.complexity.Mutation.UpdateRequirementFields == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateRequirementFields_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.UpdateRequirementFields(childComplexity, args["input"].(UpdateRequirementFieldsInput)), true
 
 	case "Mutation.verifyLink":
 		if e.complexity.Mutation.VerifyLink == nil {
@@ -5599,6 +5627,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputAddRepositoryInput,
 		ec.unmarshalInputBuildRepositoryUnderstandingInput,
 		ec.unmarshalInputCreateManualLinkInput,
+		ec.unmarshalInputCreateRequirementInput,
 		ec.unmarshalInputDiscussCodeInput,
 		ec.unmarshalInputExecutionPathInput,
 		ec.unmarshalInputExplainSystemInput,
@@ -5614,6 +5643,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputUpdateComprehensionSettingsInput,
 		ec.unmarshalInputUpdateModelCapabilitiesInput,
 		ec.unmarshalInputUpdateRepositoryKnowledgeSettingsInput,
+		ec.unmarshalInputUpdateRequirementFieldsInput,
 	)
 	first := true
 
@@ -5913,6 +5943,34 @@ func (ec *executionContext) field_Mutation_createManualLink_argsInput(
 	}
 
 	var zeroVal CreateManualLinkInput
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_createRequirement_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_createRequirement_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_createRequirement_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (CreateRequirementInput, error) {
+	if _, ok := rawArgs["input"]; !ok {
+		var zeroVal CreateRequirementInput
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNCreateRequirementInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐCreateRequirementInput(ctx, tmp)
+	}
+
+	var zeroVal CreateRequirementInput
 	return zeroVal, nil
 }
 
@@ -7164,6 +7222,34 @@ func (ec *executionContext) field_Mutation_updateRepositoryKnowledgeSettings_arg
 	}
 
 	var zeroVal UpdateRepositoryKnowledgeSettingsInput
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateRequirementFields_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_updateRequirementFields_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_updateRequirementFields_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (UpdateRequirementFieldsInput, error) {
+	if _, ok := rawArgs["input"]; !ok {
+		var zeroVal UpdateRequirementFieldsInput
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNUpdateRequirementFieldsInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpdateRequirementFieldsInput(ctx, tmp)
+	}
+
+	var zeroVal UpdateRequirementFieldsInput
 	return zeroVal, nil
 }
 
@@ -24832,6 +24918,160 @@ func (ec *executionContext) fieldContext_Mutation_importRequirements(ctx context
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_createRequirement(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_createRequirement(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().CreateRequirement(rctx, fc.Args["input"].(CreateRequirementInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*Requirement)
+	fc.Result = res
+	return ec.marshalNRequirement2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRequirement(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_createRequirement(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Requirement_id(ctx, field)
+			case "externalId":
+				return ec.fieldContext_Requirement_externalId(ctx, field)
+			case "title":
+				return ec.fieldContext_Requirement_title(ctx, field)
+			case "description":
+				return ec.fieldContext_Requirement_description(ctx, field)
+			case "source":
+				return ec.fieldContext_Requirement_source(ctx, field)
+			case "priority":
+				return ec.fieldContext_Requirement_priority(ctx, field)
+			case "tags":
+				return ec.fieldContext_Requirement_tags(ctx, field)
+			case "links":
+				return ec.fieldContext_Requirement_links(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Requirement_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Requirement_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Requirement", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createRequirement_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateRequirementFields(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_updateRequirementFields(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().UpdateRequirementFields(rctx, fc.Args["input"].(UpdateRequirementFieldsInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*Requirement)
+	fc.Result = res
+	return ec.marshalNRequirement2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRequirement(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_updateRequirementFields(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Requirement_id(ctx, field)
+			case "externalId":
+				return ec.fieldContext_Requirement_externalId(ctx, field)
+			case "title":
+				return ec.fieldContext_Requirement_title(ctx, field)
+			case "description":
+				return ec.fieldContext_Requirement_description(ctx, field)
+			case "source":
+				return ec.fieldContext_Requirement_source(ctx, field)
+			case "priority":
+				return ec.fieldContext_Requirement_priority(ctx, field)
+			case "tags":
+				return ec.fieldContext_Requirement_tags(ctx, field)
+			case "links":
+				return ec.fieldContext_Requirement_links(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Requirement_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Requirement_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Requirement", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateRequirementFields_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_verifyLink(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Mutation_verifyLink(ctx, field)
 	if err != nil {
@@ -41263,6 +41503,75 @@ func (ec *executionContext) unmarshalInputCreateManualLinkInput(ctx context.Cont
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputCreateRequirementInput(ctx context.Context, obj any) (CreateRequirementInput, error) {
+	var it CreateRequirementInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"repositoryId", "externalId", "title", "description", "priority", "source", "tags"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "repositoryId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("repositoryId"))
+			data, err := ec.unmarshalNID2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RepositoryID = data
+		case "externalId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("externalId"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExternalID = data
+		case "title":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("title"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Title = data
+		case "description":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("description"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Description = data
+		case "priority":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("priority"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Priority = data
+		case "source":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("source"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Source = data
+		case "tags":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("tags"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Tags = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputDiscussCodeInput(ctx context.Context, obj any) (DiscussCodeInput, error) {
 	var it DiscussCodeInput
 	asMap := map[string]any{}
@@ -42180,6 +42489,82 @@ func (ec *executionContext) unmarshalInputUpdateRepositoryKnowledgeSettingsInput
 				return it, err
 			}
 			it.GenerationModeDefault = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputUpdateRequirementFieldsInput(ctx context.Context, obj any) (UpdateRequirementFieldsInput, error) {
+	var it UpdateRequirementFieldsInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"id", "externalId", "title", "description", "priority", "source", "tags", "acceptanceCriteria"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalNID2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "externalId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("externalId"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExternalID = data
+		case "title":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("title"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Title = data
+		case "description":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("description"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Description = data
+		case "priority":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("priority"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Priority = data
+		case "source":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("source"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Source = data
+		case "tags":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("tags"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Tags = data
+		case "acceptanceCriteria":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("acceptanceCriteria"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AcceptanceCriteria = data
 		}
 	}
 
@@ -45032,6 +45417,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "importRequirements":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_importRequirements(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createRequirement":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createRequirement(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateRequirementFields":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateRequirementFields(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -48841,6 +49240,11 @@ func (ec *executionContext) unmarshalNCreateManualLinkInput2githubᚗcomᚋsourc
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNCreateRequirementInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐCreateRequirementInput(ctx context.Context, v any) (CreateRequirementInput, error) {
+	res, err := ec.unmarshalInputCreateRequirementInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNCrossRepoRef2ᚕᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐCrossRepoRefᚄ(ctx context.Context, sel ast.SelectionSet, v []*CrossRepoRef) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
@@ -51269,6 +51673,11 @@ func (ec *executionContext) unmarshalNUpdateModelCapabilitiesInput2githubᚗcom�
 
 func (ec *executionContext) unmarshalNUpdateRepositoryKnowledgeSettingsInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpdateRepositoryKnowledgeSettingsInput(ctx context.Context, v any) (UpdateRepositoryKnowledgeSettingsInput, error) {
 	res, err := ec.unmarshalInputUpdateRepositoryKnowledgeSettingsInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNUpdateRequirementFieldsInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpdateRequirementFieldsInput(ctx context.Context, v any) (UpdateRequirementFieldsInput, error) {
+	res, err := ec.unmarshalInputUpdateRequirementFieldsInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
