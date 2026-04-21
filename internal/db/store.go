@@ -1610,11 +1610,12 @@ func (s *SurrealStore) VerifyLink(linkID string, verified bool, verifiedBy strin
 		return nil
 	}
 
+	// Guard against updating a trashed link. deleted_at IS NONE.
 	var sql string
 	if verified {
-		sql = `UPDATE type::thing('ca_link', $id) SET verified = true, rejected = false, confidence = 1.0, verified_by = $by`
+		sql = `UPDATE type::thing('ca_link', $id) SET verified = true, rejected = false, confidence = 1.0, verified_by = $by WHERE deleted_at IS NONE`
 	} else {
-		sql = `UPDATE type::thing('ca_link', $id) SET rejected = true, verified = false, verified_by = $by`
+		sql = `UPDATE type::thing('ca_link', $id) SET rejected = true, verified = false, verified_by = $by WHERE deleted_at IS NONE`
 	}
 
 	_, err := surrealdb.Query[interface{}](ctx(), db, sql,

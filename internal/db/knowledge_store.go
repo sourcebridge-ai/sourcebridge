@@ -497,11 +497,12 @@ func (s *SurrealStore) UpdateKnowledgeArtifactStatus(id string, status knowledge
 		return fmt.Errorf("database not connected")
 	}
 
-	sql := `UPDATE type::thing('ca_knowledge_artifact', $id) SET status = $status, error_code = '', error_message = '', updated_at = time::now()`
+	// Guard against mutating trashed artifacts. deleted_at IS NONE.
+	sql := `UPDATE type::thing('ca_knowledge_artifact', $id) SET status = $status, error_code = '', error_message = '', updated_at = time::now() WHERE deleted_at IS NONE`
 	vars := map[string]any{"id": id, "status": string(status)}
 
 	if status == knowledge.StatusReady {
-		sql = `UPDATE type::thing('ca_knowledge_artifact', $id) SET status = $status, progress = 1.0, error_code = '', error_message = '', generated_at = time::now(), updated_at = time::now()`
+		sql = `UPDATE type::thing('ca_knowledge_artifact', $id) SET status = $status, progress = 1.0, error_code = '', error_message = '', generated_at = time::now(), updated_at = time::now() WHERE deleted_at IS NONE`
 	}
 
 	_, err := queryOne[interface{}](ctx(), db, sql, vars)
@@ -522,7 +523,8 @@ func (s *SurrealStore) SetArtifactFailed(id string, code string, message string)
 		     progress_message = '',
 		     error_code = $error_code,
 		     error_message = $error_message,
-		     updated_at = time::now()`,
+		     updated_at = time::now()
+		 WHERE deleted_at IS NONE`,
 		map[string]any{
 			"id":            id,
 			"status":        string(knowledge.StatusFailed),
@@ -553,6 +555,8 @@ func (s *SurrealStore) UpdateKnowledgeArtifactProgressWithPhase(id string, progr
 		sql += `, progress_message = $message`
 		vars["message"] = message
 	}
+	// deleted_at IS NONE — don't update trashed artifacts.
+	sql += ` WHERE deleted_at IS NONE`
 	_, err := queryOne[interface{}](ctx(), db, sql, vars)
 	return err
 }
@@ -566,7 +570,8 @@ func (s *SurrealStore) MarkKnowledgeArtifactStale(id string, stale bool) error {
 	if stale {
 		_, err := queryOne[interface{}](ctx(), db,
 			`UPDATE type::thing('ca_knowledge_artifact', $id)
-			 SET stale = $stale, updated_at = time::now()`,
+			 SET stale = $stale, updated_at = time::now()
+			 WHERE deleted_at IS NONE`,
 			map[string]any{"id": id, "stale": stale})
 		return err
 	}
@@ -577,7 +582,8 @@ func (s *SurrealStore) MarkKnowledgeArtifactStale(id string, stale bool) error {
 		 SET stale = false,
 		     stale_reason_json = '',
 		     stale_report_id = '',
-		     updated_at = time::now()`,
+		     updated_at = time::now()
+		 WHERE deleted_at IS NONE`,
 		map[string]any{"id": id})
 	return err
 }
@@ -593,7 +599,8 @@ func (s *SurrealStore) MarkKnowledgeArtifactStaleWithReason(id string, reasonJSO
 		 SET stale = true,
 		     stale_reason_json = $reason_json,
 		     stale_report_id = $report_id,
-		     updated_at = time::now()`,
+		     updated_at = time::now()
+		 WHERE deleted_at IS NONE`,
 		map[string]any{
 			"id":          id,
 			"reason_json": reasonJSON,
@@ -1242,7 +1249,8 @@ func (s *SurrealStore) AttachArtifactUnderstanding(artifactID, understandingID, 
 		`UPDATE type::thing('ca_knowledge_artifact', $id)
 		 SET understanding_id = $understanding_id,
 		     understanding_revision_fp = $understanding_revision_fp,
-		     updated_at = time::now()`,
+		     updated_at = time::now()
+		 WHERE deleted_at IS NONE`,
 		map[string]any{
 			"id":                        artifactID,
 			"understanding_id":          understandingID,

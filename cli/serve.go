@@ -115,6 +115,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 		slog.Info("trash (recycle bin) enabled",
 			"retention_days", cfg.Trash.RetentionDays,
 			"sweep_interval_sec", cfg.Trash.SweepIntervalSec)
+
+		// Retention worker runs in the background for the lifetime of
+		// the server process. Leader election via Redis ensures only
+		// one replica sweeps per tick when the cache is Redis-backed.
+		worker := trash.NewWorker(trashStore, cache, trash.WorkerConfig{
+			RetentionDays: cfg.Trash.RetentionDays,
+			SweepInterval: time.Duration(cfg.Trash.SweepIntervalSec) * time.Second,
+			MaxBatchSize:  cfg.Trash.MaxBatchSize,
+		})
+		go func() {
+			if err := worker.Run(context.Background()); err != nil {
+				slog.Error("trash retention worker exited", "error", err)
+			}
+		}()
 	} else if cfg.Trash.Enabled {
 		slog.Warn("trash is enabled in config but requires external SurrealDB; feature disabled",
 			"storage.surreal_mode", cfg.Storage.SurrealMode)
@@ -479,6 +493,13 @@ func (p *telemetryCountProvider) TelemetryCounts() (repos, users int, features [
 	counts = map[string]int{
 		"total_files":   totalFiles,
 		"total_symbols": totalSymbols,
+	}
+
+	// Merge in trash (recycle bin) counters. These are process-start
+	// cumulative; safe to read even when the feature is disabled
+	// (atomics default to zero).
+	for k, v := range trash.Counters() {
+		counts[k] = v
 	}
 
 	return repos, 0, nil, counts

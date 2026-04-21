@@ -200,6 +200,7 @@ func (r *Resolver) moveToTrash(ctx context.Context, t TrashableType, id string, 
 	if err != nil {
 		return nil, err
 	}
+	trash.MovesTotal.Add(1)
 	r.publishEvent(events.EventTrashChanged, map[string]interface{}{
 		"action":         "moved",
 		"type":           string(mapped),
@@ -237,7 +238,15 @@ func (r *Resolver) restoreFromTrash(
 
 	result, err := r.TrashStore.RestoreFromTrash(ctx, mapped, id, opts)
 	if err != nil {
+		var conflict *trash.ConflictError
+		if errors.As(err, &conflict) {
+			trash.ConflictsTotal.Add(1)
+		}
 		return nil, err
+	}
+	trash.RestoresTotal.Add(1)
+	if result.Renamed {
+		trash.ConflictsTotal.Add(1) // RENAME implies a conflict was resolved
 	}
 	r.publishEvent(events.EventTrashChanged, map[string]interface{}{
 		"action": "restored",
@@ -281,6 +290,7 @@ func (r *Resolver) permanentlyDelete(ctx context.Context, t TrashableType, id st
 	if err := r.TrashStore.PermanentlyDelete(ctx, mapped, id); err != nil {
 		return false, err
 	}
+	trash.PermanentDeletesTotal.Add(1)
 	r.publishEvent(events.EventTrashChanged, map[string]interface{}{
 		"action": "purged",
 		"type":   string(mapped),
