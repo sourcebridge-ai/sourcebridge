@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	knowledgev1 "github.com/sourcebridge/sourcebridge/gen/go/knowledge/v1"
@@ -1330,6 +1331,41 @@ func knowledgePrewarmOnIndexEnabled() bool {
 	default:
 		return true
 	}
+}
+
+// selectiveInvalidationEnabled toggles Phase 1 selective knowledge artifact
+// invalidation on reindex. When true, only artifacts whose evidence references
+// a changed symbol or file are marked stale. When false, the legacy blanket
+// MarkAllStale behavior is preserved as a safe fallback.
+//
+// Defaults to true. Override with SOURCEBRIDGE_SELECTIVE_INVALIDATION=false.
+func selectiveInvalidationEnabled() bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv("SOURCEBRIDGE_SELECTIVE_INVALIDATION")))
+	switch raw {
+	case "0", "false", "off", "no":
+		return false
+	default:
+		return true
+	}
+}
+
+// selectiveInvalidationMaxChanges caps the total number of changed
+// (symbols + files) entries fed into selective invalidation. Beyond this
+// threshold we fall back to blanket invalidation, because the selective query
+// becomes a large IN clause and the result would be near-universal-stale
+// anyway.
+//
+// Defaults to 200. Override with SOURCEBRIDGE_SELECTIVE_INVALIDATION_MAX_CHANGES.
+func selectiveInvalidationMaxChanges() int {
+	raw := strings.TrimSpace(os.Getenv("SOURCEBRIDGE_SELECTIVE_INVALIDATION_MAX_CHANGES"))
+	if raw == "" {
+		return 200
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 200
+	}
+	return n
 }
 
 func enrichSnapshotWithCliffNotesAnalysis(

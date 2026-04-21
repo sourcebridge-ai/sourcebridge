@@ -118,6 +118,15 @@ func (m *mockKnowledgeStore) UpdateKnowledgeArtifactProgressWithPhase(id string,
 func (m *mockKnowledgeStore) MarkKnowledgeArtifactStale(id string, stale bool) error {
 	return nil
 }
+func (m *mockKnowledgeStore) MarkKnowledgeArtifactStaleWithReason(id string, reasonJSON string, reportID string) error {
+	return nil
+}
+func (m *mockKnowledgeStore) GetArtifactsForSources(repoID string, sources []knowledge.SourceRef) []*knowledge.Artifact {
+	return nil
+}
+func (m *mockKnowledgeStore) GetArtifactsForFiles(repoID string, filePaths []string) []*knowledge.Artifact {
+	return nil
+}
 func (m *mockKnowledgeStore) DeleteKnowledgeArtifact(id string) error { return nil }
 func (m *mockKnowledgeStore) SupersedeArtifact(id string, sections []knowledge.Section) error {
 	return nil

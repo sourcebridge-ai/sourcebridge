@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -2106,6 +2107,15 @@ func (s *SurrealStore) StoreImpactReport(repoID string, report *graph.ImpactRepo
 	if db == nil {
 		return
 	}
+	// stale_artifact_reasons is an additive, rollback-safe JSON mirror of the
+	// rich StaleArtifactReasons slice. Old binaries that don't know about the
+	// column still read the legacy stale_artifacts []string column unchanged.
+	var reasonsJSON string
+	if len(report.StaleArtifactReasons) > 0 {
+		if b, err := json.Marshal(report.StaleArtifactReasons); err == nil {
+			reasonsJSON = string(b)
+		}
+	}
 	if _, err := surrealdb.Query[interface{}](ctx(), db,
 		`CREATE ca_impact_report SET
 			report_id = $report_id, repo_id = $repo_id,
@@ -2113,17 +2123,79 @@ func (s *SurrealStore) StoreImpactReport(repoID string, report *graph.ImpactRepo
 			files_changed = $files, symbols_added = $sym_added,
 			symbols_modified = $sym_modified, symbols_removed = $sym_removed,
 			affected_links = $aff_links, affected_requirements = $aff_reqs,
-			stale_artifacts = $stale, computed_at = time::now()`,
+			stale_artifacts = $stale, stale_artifact_reasons = $reasons,
+			computed_at = time::now()`,
 		map[string]any{
 			"report_id": report.ID, "repo_id": repoID,
 			"old_sha": report.OldCommitSHA, "new_sha": report.NewCommitSHA,
 			"files": report.FilesChanged, "sym_added": report.SymbolsAdded,
 			"sym_modified": report.SymbolsModified, "sym_removed": report.SymbolsRemoved,
 			"aff_links": report.AffectedLinks, "aff_reqs": report.AffectedRequirements,
-			"stale": report.StaleArtifacts,
+			"stale":   report.StaleArtifacts,
+			"reasons": reasonsJSON,
 		}); err != nil {
 		return
 	}
+}
+
+// impactReportRow is the shared row shape used by the impact-report read
+// paths. stale_artifact_reasons is a JSON string column (additive in
+// migration 030); old reports leave it empty.
+type impactReportRow struct {
+	ReportID             string                      `json:"report_id"`
+	RepoID               string                      `json:"repo_id"`
+	OldCommitSHA         string                      `json:"old_commit_sha"`
+	NewCommitSHA         string                      `json:"new_commit_sha"`
+	FilesChanged         []graph.ImpactFileDiff      `json:"files_changed"`
+	SymbolsAdded         []graph.ImpactSymbolChange  `json:"symbols_added"`
+	SymbolsModified      []graph.ImpactSymbolChange  `json:"symbols_modified"`
+	SymbolsRemoved       []graph.ImpactSymbolChange  `json:"symbols_removed"`
+	AffectedLinks        []graph.AffectedLink        `json:"affected_links"`
+	AffectedRequirements []graph.AffectedRequirement `json:"affected_requirements"`
+	StaleArtifacts       []string                    `json:"stale_artifacts"`
+	StaleArtifactReasons string                      `json:"stale_artifact_reasons"`
+	ComputedAt           surrealTime                 `json:"computed_at"`
+}
+
+func (r *impactReportRow) toImpactReport() *graph.ImpactReport {
+	report := &graph.ImpactReport{
+		ID:                   r.ReportID,
+		RepositoryID:         r.RepoID,
+		OldCommitSHA:         r.OldCommitSHA,
+		NewCommitSHA:         r.NewCommitSHA,
+		FilesChanged:         r.FilesChanged,
+		SymbolsAdded:         r.SymbolsAdded,
+		SymbolsModified:      r.SymbolsModified,
+		SymbolsRemoved:       r.SymbolsRemoved,
+		AffectedLinks:        r.AffectedLinks,
+		AffectedRequirements: r.AffectedRequirements,
+		StaleArtifacts:       r.StaleArtifacts,
+		ComputedAt:           r.ComputedAt.Time,
+	}
+	if r.StaleArtifactReasons != "" {
+		var parsed []graph.StaleArtifactReason
+		if err := json.Unmarshal([]byte(r.StaleArtifactReasons), &parsed); err == nil {
+			report.StaleArtifactReasons = parsed
+		}
+	}
+	// Rollback-compat fallback: legacy reports only have the bare ID list.
+	// Project those into the rich shape with Blanket=true so consumers see a
+	// usable "stale for unknown reason" signal instead of nothing.
+	if len(report.StaleArtifactReasons) == 0 && len(report.StaleArtifacts) > 0 {
+		projected := make([]graph.StaleArtifactReason, 0, len(report.StaleArtifacts))
+		for _, aid := range report.StaleArtifacts {
+			if aid == "" {
+				continue
+			}
+			projected = append(projected, graph.StaleArtifactReason{
+				ArtifactID: aid,
+				Blanket:    true,
+				ReportID:   r.ReportID,
+			})
+		}
+		report.StaleArtifactReasons = projected
+	}
+	return report
 }
 
 // GetLatestImpactReport returns the most recent impact report for a repository.
@@ -2132,35 +2204,13 @@ func (s *SurrealStore) GetLatestImpactReport(repoID string) *graph.ImpactReport 
 	if db == nil {
 		return nil
 	}
-	type impactRow struct {
-		ReportID             string                      `json:"report_id"`
-		RepoID               string                      `json:"repo_id"`
-		OldCommitSHA         string                      `json:"old_commit_sha"`
-		NewCommitSHA         string                      `json:"new_commit_sha"`
-		FilesChanged         []graph.ImpactFileDiff      `json:"files_changed"`
-		SymbolsAdded         []graph.ImpactSymbolChange  `json:"symbols_added"`
-		SymbolsModified      []graph.ImpactSymbolChange  `json:"symbols_modified"`
-		SymbolsRemoved       []graph.ImpactSymbolChange  `json:"symbols_removed"`
-		AffectedLinks        []graph.AffectedLink        `json:"affected_links"`
-		AffectedRequirements []graph.AffectedRequirement `json:"affected_requirements"`
-		StaleArtifacts       []string                    `json:"stale_artifacts"`
-		ComputedAt           surrealTime                 `json:"computed_at"`
-	}
-	impRows, err := queryOne[[]impactRow](ctx(), db,
+	impRows, err := queryOne[[]impactReportRow](ctx(), db,
 		"SELECT * FROM ca_impact_report WHERE repo_id = $repo_id ORDER BY computed_at DESC LIMIT 1",
 		map[string]any{"repo_id": repoID})
 	if err != nil || len(impRows) == 0 {
 		return nil
 	}
-	r := impRows[0]
-	return &graph.ImpactReport{
-		ID: r.ReportID, RepositoryID: r.RepoID,
-		OldCommitSHA: r.OldCommitSHA, NewCommitSHA: r.NewCommitSHA,
-		FilesChanged: r.FilesChanged, SymbolsAdded: r.SymbolsAdded,
-		SymbolsModified: r.SymbolsModified, SymbolsRemoved: r.SymbolsRemoved,
-		AffectedLinks: r.AffectedLinks, AffectedRequirements: r.AffectedRequirements,
-		StaleArtifacts: r.StaleArtifacts, ComputedAt: r.ComputedAt.Time,
-	}
+	return impRows[0].toImpactReport()
 }
 
 // GetImpactReports returns impact reports for a repository, most recent first.
@@ -2169,39 +2219,18 @@ func (s *SurrealStore) GetImpactReports(repoID string, limit int) ([]*graph.Impa
 	if db == nil {
 		return nil, 0
 	}
-	type impactRow struct {
-		ReportID             string                      `json:"report_id"`
-		RepoID               string                      `json:"repo_id"`
-		OldCommitSHA         string                      `json:"old_commit_sha"`
-		NewCommitSHA         string                      `json:"new_commit_sha"`
-		FilesChanged         []graph.ImpactFileDiff      `json:"files_changed"`
-		SymbolsAdded         []graph.ImpactSymbolChange  `json:"symbols_added"`
-		SymbolsModified      []graph.ImpactSymbolChange  `json:"symbols_modified"`
-		SymbolsRemoved       []graph.ImpactSymbolChange  `json:"symbols_removed"`
-		AffectedLinks        []graph.AffectedLink        `json:"affected_links"`
-		AffectedRequirements []graph.AffectedRequirement `json:"affected_requirements"`
-		StaleArtifacts       []string                    `json:"stale_artifacts"`
-		ComputedAt           surrealTime                 `json:"computed_at"`
-	}
 	if limit <= 0 {
 		limit = 10
 	}
-	impRows, err := queryOne[[]impactRow](ctx(), db,
+	impRows, err := queryOne[[]impactReportRow](ctx(), db,
 		"SELECT * FROM ca_impact_report WHERE repo_id = $repo_id ORDER BY computed_at DESC LIMIT $lim",
 		map[string]any{"repo_id": repoID, "lim": limit})
 	if err != nil {
 		return nil, 0
 	}
-	var out []*graph.ImpactReport
+	out := make([]*graph.ImpactReport, 0, len(impRows))
 	for _, r := range impRows {
-		out = append(out, &graph.ImpactReport{
-			ID: r.ReportID, RepositoryID: r.RepoID,
-			OldCommitSHA: r.OldCommitSHA, NewCommitSHA: r.NewCommitSHA,
-			FilesChanged: r.FilesChanged, SymbolsAdded: r.SymbolsAdded,
-			SymbolsModified: r.SymbolsModified, SymbolsRemoved: r.SymbolsRemoved,
-			AffectedLinks: r.AffectedLinks, AffectedRequirements: r.AffectedRequirements,
-			StaleArtifacts: r.StaleArtifacts, ComputedAt: r.ComputedAt.Time,
-		})
+		out = append(out, r.toImpactReport())
 	}
 	return out, len(out)
 }

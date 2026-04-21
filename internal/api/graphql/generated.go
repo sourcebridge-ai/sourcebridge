@@ -393,6 +393,7 @@ type ComplexityRoot struct {
 		Sections                func(childComplexity int) int
 		SourceRevision          func(childComplexity int) int
 		Stale                   func(childComplexity int) int
+		StaleReason             func(childComplexity int) int
 		Status                  func(childComplexity int) int
 		Type                    func(childComplexity int) int
 		UnderstandingID         func(childComplexity int) int
@@ -787,6 +788,13 @@ type ComplexityRoot struct {
 		OutputTokens    func(childComplexity int) int
 		TotalCandidates func(childComplexity int) int
 		Warnings        func(childComplexity int) int
+	}
+
+	StaleReason struct {
+		Blanket  func(childComplexity int) int
+		Files    func(childComplexity int) int
+		ReportID func(childComplexity int) int
+		Symbols  func(childComplexity int) int
 	}
 
 	SymbolChange struct {
@@ -2696,6 +2704,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.KnowledgeArtifact.Stale(childComplexity), true
+
+	case "KnowledgeArtifact.staleReason":
+		if e.complexity.KnowledgeArtifact.StaleReason == nil {
+			break
+		}
+
+		return e.complexity.KnowledgeArtifact.StaleReason(childComplexity), true
 
 	case "KnowledgeArtifact.status":
 		if e.complexity.KnowledgeArtifact.Status == nil {
@@ -5137,6 +5152,34 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.SpecExtractionResult.Warnings(childComplexity), true
+
+	case "StaleReason.blanket":
+		if e.complexity.StaleReason.Blanket == nil {
+			break
+		}
+
+		return e.complexity.StaleReason.Blanket(childComplexity), true
+
+	case "StaleReason.files":
+		if e.complexity.StaleReason.Files == nil {
+			break
+		}
+
+		return e.complexity.StaleReason.Files(childComplexity), true
+
+	case "StaleReason.reportId":
+		if e.complexity.StaleReason.ReportID == nil {
+			break
+		}
+
+		return e.complexity.StaleReason.ReportID(childComplexity), true
+
+	case "StaleReason.symbols":
+		if e.complexity.StaleReason.Symbols == nil {
+			break
+		}
+
+		return e.complexity.StaleReason.Symbols(childComplexity), true
 
 	case "SymbolChange.changeType":
 		if e.complexity.SymbolChange.ChangeType == nil {
@@ -19663,6 +19706,57 @@ func (ec *executionContext) fieldContext_KnowledgeArtifact_stale(_ context.Conte
 	return fc, nil
 }
 
+func (ec *executionContext) _KnowledgeArtifact_staleReason(ctx context.Context, field graphql.CollectedField, obj *KnowledgeArtifact) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_KnowledgeArtifact_staleReason(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.StaleReason, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*StaleReason)
+	fc.Result = res
+	return ec.marshalOStaleReason2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐStaleReason(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_KnowledgeArtifact_staleReason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "KnowledgeArtifact",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "symbols":
+				return ec.fieldContext_StaleReason_symbols(ctx, field)
+			case "files":
+				return ec.fieldContext_StaleReason_files(ctx, field)
+			case "blanket":
+				return ec.fieldContext_StaleReason_blanket(ctx, field)
+			case "reportId":
+				return ec.fieldContext_StaleReason_reportId(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type StaleReason", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _KnowledgeArtifact_generatedAt(ctx context.Context, field graphql.CollectedField, obj *KnowledgeArtifact) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_KnowledgeArtifact_generatedAt(ctx, field)
 	if err != nil {
@@ -25329,6 +25423,8 @@ func (ec *executionContext) fieldContext_Mutation_generateCliffNotes(ctx context
 				return ec.fieldContext_KnowledgeArtifact_sourceRevision(ctx, field)
 			case "stale":
 				return ec.fieldContext_KnowledgeArtifact_stale(ctx, field)
+			case "staleReason":
+				return ec.fieldContext_KnowledgeArtifact_staleReason(ctx, field)
 			case "generatedAt":
 				return ec.fieldContext_KnowledgeArtifact_generatedAt(ctx, field)
 			case "createdAt":
@@ -25436,6 +25532,8 @@ func (ec *executionContext) fieldContext_Mutation_generateArchitectureDiagram(ct
 				return ec.fieldContext_KnowledgeArtifact_sourceRevision(ctx, field)
 			case "stale":
 				return ec.fieldContext_KnowledgeArtifact_stale(ctx, field)
+			case "staleReason":
+				return ec.fieldContext_KnowledgeArtifact_staleReason(ctx, field)
 			case "generatedAt":
 				return ec.fieldContext_KnowledgeArtifact_generatedAt(ctx, field)
 			case "createdAt":
@@ -25543,6 +25641,8 @@ func (ec *executionContext) fieldContext_Mutation_generateLearningPath(ctx conte
 				return ec.fieldContext_KnowledgeArtifact_sourceRevision(ctx, field)
 			case "stale":
 				return ec.fieldContext_KnowledgeArtifact_stale(ctx, field)
+			case "staleReason":
+				return ec.fieldContext_KnowledgeArtifact_staleReason(ctx, field)
 			case "generatedAt":
 				return ec.fieldContext_KnowledgeArtifact_generatedAt(ctx, field)
 			case "createdAt":
@@ -25650,6 +25750,8 @@ func (ec *executionContext) fieldContext_Mutation_generateCodeTour(ctx context.C
 				return ec.fieldContext_KnowledgeArtifact_sourceRevision(ctx, field)
 			case "stale":
 				return ec.fieldContext_KnowledgeArtifact_stale(ctx, field)
+			case "staleReason":
+				return ec.fieldContext_KnowledgeArtifact_staleReason(ctx, field)
 			case "generatedAt":
 				return ec.fieldContext_KnowledgeArtifact_generatedAt(ctx, field)
 			case "createdAt":
@@ -25757,6 +25859,8 @@ func (ec *executionContext) fieldContext_Mutation_generateWorkflowStory(ctx cont
 				return ec.fieldContext_KnowledgeArtifact_sourceRevision(ctx, field)
 			case "stale":
 				return ec.fieldContext_KnowledgeArtifact_stale(ctx, field)
+			case "staleReason":
+				return ec.fieldContext_KnowledgeArtifact_staleReason(ctx, field)
 			case "generatedAt":
 				return ec.fieldContext_KnowledgeArtifact_generatedAt(ctx, field)
 			case "createdAt":
@@ -25929,6 +26033,8 @@ func (ec *executionContext) fieldContext_Mutation_refreshKnowledgeArtifact(ctx c
 				return ec.fieldContext_KnowledgeArtifact_sourceRevision(ctx, field)
 			case "stale":
 				return ec.fieldContext_KnowledgeArtifact_stale(ctx, field)
+			case "staleReason":
+				return ec.fieldContext_KnowledgeArtifact_staleReason(ctx, field)
 			case "generatedAt":
 				return ec.fieldContext_KnowledgeArtifact_generatedAt(ctx, field)
 			case "createdAt":
@@ -28045,6 +28151,8 @@ func (ec *executionContext) fieldContext_Query_knowledgeArtifacts(ctx context.Co
 				return ec.fieldContext_KnowledgeArtifact_sourceRevision(ctx, field)
 			case "stale":
 				return ec.fieldContext_KnowledgeArtifact_stale(ctx, field)
+			case "staleReason":
+				return ec.fieldContext_KnowledgeArtifact_staleReason(ctx, field)
 			case "generatedAt":
 				return ec.fieldContext_KnowledgeArtifact_generatedAt(ctx, field)
 			case "createdAt":
@@ -28149,6 +28257,8 @@ func (ec *executionContext) fieldContext_Query_knowledgeArtifact(ctx context.Con
 				return ec.fieldContext_KnowledgeArtifact_sourceRevision(ctx, field)
 			case "stale":
 				return ec.fieldContext_KnowledgeArtifact_stale(ctx, field)
+			case "staleReason":
+				return ec.fieldContext_KnowledgeArtifact_staleReason(ctx, field)
 			case "generatedAt":
 				return ec.fieldContext_KnowledgeArtifact_generatedAt(ctx, field)
 			case "createdAt":
@@ -35921,6 +36031,179 @@ func (ec *executionContext) fieldContext_SpecExtractionResult_outputTokens(_ con
 	return fc, nil
 }
 
+func (ec *executionContext) _StaleReason_symbols(ctx context.Context, field graphql.CollectedField, obj *StaleReason) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StaleReason_symbols(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Symbols, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StaleReason_symbols(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StaleReason",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StaleReason_files(ctx context.Context, field graphql.CollectedField, obj *StaleReason) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StaleReason_files(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Files, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StaleReason_files(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StaleReason",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StaleReason_blanket(ctx context.Context, field graphql.CollectedField, obj *StaleReason) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StaleReason_blanket(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Blanket, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StaleReason_blanket(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StaleReason",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StaleReason_reportId(ctx context.Context, field graphql.CollectedField, obj *StaleReason) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StaleReason_reportId(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ReportID, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StaleReason_reportId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StaleReason",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SymbolChange_symbolId(ctx context.Context, field graphql.CollectedField, obj *SymbolChange) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_SymbolChange_symbolId(ctx, field)
 	if err != nil {
@@ -42248,6 +42531,8 @@ func (ec *executionContext) _KnowledgeArtifact(ctx context.Context, sel ast.Sele
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "staleReason":
+			out.Values[i] = ec._KnowledgeArtifact_staleReason(ctx, field, obj)
 		case "generatedAt":
 			out.Values[i] = ec._KnowledgeArtifact_generatedAt(ctx, field, obj)
 		case "createdAt":
@@ -45506,6 +45791,57 @@ func (ec *executionContext) _SpecExtractionResult(ctx context.Context, sel ast.S
 			out.Values[i] = ec._SpecExtractionResult_inputTokens(ctx, field, obj)
 		case "outputTokens":
 			out.Values[i] = ec._SpecExtractionResult_outputTokens(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var staleReasonImplementors = []string{"StaleReason"}
+
+func (ec *executionContext) _StaleReason(ctx context.Context, sel ast.SelectionSet, obj *StaleReason) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, staleReasonImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("StaleReason")
+		case "symbols":
+			out.Values[i] = ec._StaleReason_symbols(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "files":
+			out.Values[i] = ec._StaleReason_files(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "blanket":
+			out.Values[i] = ec._StaleReason_blanket(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reportId":
+			out.Values[i] = ec._StaleReason_reportId(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -49372,6 +49708,13 @@ func (ec *executionContext) marshalOSourceFile2ᚖgithubᚗcomᚋsourcebridgeᚋ
 		return graphql.Null
 	}
 	return ec._SourceFile(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOStaleReason2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐStaleReason(ctx context.Context, sel ast.SelectionSet, v *StaleReason) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._StaleReason(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOString2ᚕstringᚄ(ctx context.Context, v any) ([]string, error) {

@@ -48,6 +48,8 @@ type surrealKnowledgeArtifact struct {
 	RendererVersion         string           `json:"renderer_version"`
 	GenerationMode          string           `json:"generation_mode"`
 	Stale                   bool             `json:"stale"`
+	StaleReasonJSON         string           `json:"stale_reason_json"`
+	StaleReportID           string           `json:"stale_report_id"`
 	GeneratedAt             surrealTime      `json:"generated_at"`
 	CreatedAt               surrealTime      `json:"created_at"`
 	UpdatedAt               surrealTime      `json:"updated_at"`
@@ -82,6 +84,8 @@ func (r *surrealKnowledgeArtifact) toArtifact() *knowledge.Artifact {
 		UnderstandingRevisionFP: r.UnderstandingRevisionFP,
 		RendererVersion:         r.RendererVersion,
 		GenerationMode:          knowledge.GenerationMode(r.GenerationMode),
+		StaleReasonJSON:         r.StaleReasonJSON,
+		StaleReportID:           r.StaleReportID,
 		GeneratedAt:             r.GeneratedAt.Time,
 		CreatedAt:               r.CreatedAt.Time,
 		UpdatedAt:               r.UpdatedAt.Time,
@@ -558,10 +562,189 @@ func (s *SurrealStore) MarkKnowledgeArtifactStale(id string, stale bool) error {
 		return fmt.Errorf("database not connected")
 	}
 
+	if stale {
+		_, err := queryOne[interface{}](ctx(), db,
+			`UPDATE type::thing('ca_knowledge_artifact', $id)
+			 SET stale = $stale, updated_at = time::now()`,
+			map[string]any{"id": id, "stale": stale})
+		return err
+	}
+	// Clearing stale drops the reason as well so the UI doesn't show a stale
+	// explanation for a fresh artifact.
 	_, err := queryOne[interface{}](ctx(), db,
-		`UPDATE type::thing('ca_knowledge_artifact', $id) SET stale = $stale, updated_at = time::now()`,
-		map[string]any{"id": id, "stale": stale})
+		`UPDATE type::thing('ca_knowledge_artifact', $id)
+		 SET stale = false,
+		     stale_reason_json = '',
+		     stale_report_id = '',
+		     updated_at = time::now()`,
+		map[string]any{"id": id})
 	return err
+}
+
+func (s *SurrealStore) MarkKnowledgeArtifactStaleWithReason(id string, reasonJSON string, reportID string) error {
+	db := s.client.DB()
+	if db == nil {
+		return fmt.Errorf("database not connected")
+	}
+
+	_, err := queryOne[interface{}](ctx(), db,
+		`UPDATE type::thing('ca_knowledge_artifact', $id)
+		 SET stale = true,
+		     stale_reason_json = $reason_json,
+		     stale_report_id = $report_id,
+		     updated_at = time::now()`,
+		map[string]any{
+			"id":          id,
+			"reason_json": reasonJSON,
+			"report_id":   reportID,
+		})
+	return err
+}
+
+// GetArtifactsForSources returns artifacts whose evidence references any of
+// the given (source_type, source_id) pairs. Implemented as a two-step lookup:
+// resolve section_ids from evidence, then artifacts from sections.
+func (s *SurrealStore) GetArtifactsForSources(repoID string, sources []knowledge.SourceRef) []*knowledge.Artifact {
+	db := s.client.DB()
+	if db == nil || len(sources) == 0 {
+		return nil
+	}
+
+	// Build parallel arrays for the IN-tuple lookup. SurrealDB doesn't
+	// support compound IN syntax directly, so we union per source type.
+	bySourceType := make(map[string][]string)
+	for _, ref := range sources {
+		if ref.SourceID == "" {
+			continue
+		}
+		st := string(ref.SourceType)
+		bySourceType[st] = append(bySourceType[st], ref.SourceID)
+	}
+	if len(bySourceType) == 0 {
+		return nil
+	}
+
+	sectionIDSet := make(map[string]struct{})
+	type evRow struct {
+		SectionID string `json:"section_id"`
+	}
+	for sourceType, ids := range bySourceType {
+		rows, err := queryOne[[]evRow](ctx(), db,
+			`SELECT section_id FROM ca_knowledge_evidence
+			 WHERE source_type = $st AND source_id IN $ids`,
+			map[string]any{"st": sourceType, "ids": ids})
+		if err != nil {
+			continue
+		}
+		for _, r := range rows {
+			if r.SectionID == "" {
+				continue
+			}
+			sectionIDSet[r.SectionID] = struct{}{}
+		}
+	}
+	if len(sectionIDSet) == 0 {
+		return nil
+	}
+
+	return s.artifactsFromSectionIDs(repoID, sectionIDSet)
+}
+
+// GetArtifactsForFiles returns artifacts whose evidence references any of
+// the given file paths.
+func (s *SurrealStore) GetArtifactsForFiles(repoID string, filePaths []string) []*knowledge.Artifact {
+	db := s.client.DB()
+	if db == nil || len(filePaths) == 0 {
+		return nil
+	}
+
+	nonEmpty := make([]string, 0, len(filePaths))
+	for _, p := range filePaths {
+		if p != "" {
+			nonEmpty = append(nonEmpty, p)
+		}
+	}
+	if len(nonEmpty) == 0 {
+		return nil
+	}
+
+	type evRow struct {
+		SectionID string `json:"section_id"`
+	}
+	rows, err := queryOne[[]evRow](ctx(), db,
+		`SELECT section_id FROM ca_knowledge_evidence
+		 WHERE file_path IN $paths AND file_path != ''`,
+		map[string]any{"paths": nonEmpty})
+	if err != nil {
+		return nil
+	}
+	sectionIDSet := make(map[string]struct{}, len(rows))
+	for _, r := range rows {
+		if r.SectionID == "" {
+			continue
+		}
+		sectionIDSet[r.SectionID] = struct{}{}
+	}
+	if len(sectionIDSet) == 0 {
+		return nil
+	}
+
+	return s.artifactsFromSectionIDs(repoID, sectionIDSet)
+}
+
+// artifactsFromSectionIDs resolves a set of section IDs to their parent
+// artifacts, scoped to the given repo and deduped.
+func (s *SurrealStore) artifactsFromSectionIDs(repoID string, sectionIDSet map[string]struct{}) []*knowledge.Artifact {
+	db := s.client.DB()
+	if db == nil {
+		return nil
+	}
+
+	sectionIDs := make([]string, 0, len(sectionIDSet))
+	for id := range sectionIDSet {
+		sectionIDs = append(sectionIDs, id)
+	}
+
+	type secRow struct {
+		ArtifactID string `json:"artifact_id"`
+	}
+	secRows, err := queryOne[[]secRow](ctx(), db,
+		`SELECT artifact_id FROM ca_knowledge_section
+		 WHERE id IN $ids.map(|$v| type::thing('ca_knowledge_section', $v))`,
+		map[string]any{"ids": sectionIDs})
+	if err != nil {
+		return nil
+	}
+	artifactIDSet := make(map[string]struct{}, len(secRows))
+	for _, sr := range secRows {
+		if sr.ArtifactID == "" {
+			continue
+		}
+		artifactIDSet[sr.ArtifactID] = struct{}{}
+	}
+	if len(artifactIDSet) == 0 {
+		return nil
+	}
+
+	artifactIDs := make([]string, 0, len(artifactIDSet))
+	for id := range artifactIDSet {
+		artifactIDs = append(artifactIDs, id)
+	}
+	rows, err := queryOne[[]surrealKnowledgeArtifact](ctx(), db,
+		`SELECT * FROM ca_knowledge_artifact
+		 WHERE repo_id = $repo_id
+		   AND id IN $ids.map(|$v| type::thing('ca_knowledge_artifact', $v))`,
+		map[string]any{"repo_id": repoID, "ids": artifactIDs})
+	if err != nil {
+		return nil
+	}
+	out := make([]*knowledge.Artifact, 0, len(rows))
+	for _, r := range rows {
+		a := r.toArtifact()
+		a.Sections = s.loadSections(a.ID)
+		out = append(out, a)
+	}
+	return out
 }
 
 func (s *SurrealStore) DeleteKnowledgeArtifact(id string) error {

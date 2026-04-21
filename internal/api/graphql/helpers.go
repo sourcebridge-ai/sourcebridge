@@ -705,6 +705,19 @@ func mapKnowledgeArtifact(a *knowledgepkg.Artifact) *KnowledgeArtifact {
 	if a.ErrorMessage != "" {
 		out.ErrorMessage = ptrString(a.ErrorMessage)
 	}
+	if a.Stale {
+		if reason := knowledgepkg.DecodeStaleReason(a); reason != nil {
+			out.StaleReason = &StaleReason{
+				Symbols: nonNilStringSlice(reason.Symbols),
+				Files:   nonNilStringSlice(reason.Files),
+				Blanket: reason.Blanket,
+			}
+			if reason.ReportID != "" {
+				rid := reason.ReportID
+				out.StaleReason.ReportID = &rid
+			}
+		}
+	}
 	for _, sec := range a.Sections {
 		out.Sections = append(out.Sections, mapKnowledgeSection(&sec))
 	}
@@ -712,6 +725,15 @@ func mapKnowledgeArtifact(a *knowledgepkg.Artifact) *KnowledgeArtifact {
 		out.Sections = []*KnowledgeSection{}
 	}
 	return out
+}
+
+// nonNilStringSlice returns an empty slice instead of nil so the
+// non-null GraphQL [String!]! contract is honored.
+func nonNilStringSlice(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
 }
 
 func mapGenerationMode(mode knowledgepkg.GenerationMode) KnowledgeGenerationMode {

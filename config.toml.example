@@ -48,3 +48,22 @@ surreal_mode = "embedded"
 
 [security]
 mode = "oss"
+
+# ─── Knowledge artifact invalidation ───────────────────────────────
+# When a repository is reindexed, knowledge artifacts (cliff notes, diagrams,
+# learning paths, etc.) need to be re-examined for freshness. Two env vars
+# tune this:
+#
+# SOURCEBRIDGE_SELECTIVE_INVALIDATION (default: true)
+#   When true, only artifacts whose persisted evidence references a changed
+#   symbol or file are marked stale. Artifacts without usable provenance
+#   (missing or whole-repo-only evidence) conservatively fall back to
+#   blanket-stale so nothing silently drifts.
+#   Set to "false" / "0" / "off" to restore the legacy always-blanket
+#   behavior.
+#
+# SOURCEBRIDGE_SELECTIVE_INVALIDATION_MAX_CHANGES (default: 200)
+#   Upper bound on (changed symbols + changed files) passed to the selective
+#   query. Beyond this threshold the system falls back to blanket stale,
+#   because the selective query would produce a near-universal-stale result
+#   anyway.

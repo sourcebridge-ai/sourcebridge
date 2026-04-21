@@ -432,18 +432,23 @@ type ImportResult struct {
 }
 
 type KnowledgeArtifact struct {
-	ID                      string                     `json:"id"`
-	RepositoryID            string                     `json:"repositoryId"`
-	Type                    KnowledgeArtifactType      `json:"type"`
-	Audience                KnowledgeAudience          `json:"audience"`
-	Depth                   KnowledgeDepth             `json:"depth"`
-	Scope                   *KnowledgeScope            `json:"scope"`
-	Status                  KnowledgeArtifactStatus    `json:"status"`
-	Progress                float64                    `json:"progress"`
-	ProgressPhase           *string                    `json:"progressPhase,omitempty"`
-	ProgressMessage         *string                    `json:"progressMessage,omitempty"`
-	SourceRevision          *SourceRevision            `json:"sourceRevision"`
-	Stale                   bool                       `json:"stale"`
+	ID              string                  `json:"id"`
+	RepositoryID    string                  `json:"repositoryId"`
+	Type            KnowledgeArtifactType   `json:"type"`
+	Audience        KnowledgeAudience       `json:"audience"`
+	Depth           KnowledgeDepth          `json:"depth"`
+	Scope           *KnowledgeScope         `json:"scope"`
+	Status          KnowledgeArtifactStatus `json:"status"`
+	Progress        float64                 `json:"progress"`
+	ProgressPhase   *string                 `json:"progressPhase,omitempty"`
+	ProgressMessage *string                 `json:"progressMessage,omitempty"`
+	SourceRevision  *SourceRevision         `json:"sourceRevision"`
+	Stale           bool                    `json:"stale"`
+	// Explanation for why this artifact is stale. Present when selective
+	// invalidation on reindex flagged the artifact; null for fresh artifacts and
+	// for artifacts that were staled by legacy blanket invalidation on installs
+	// prior to the Phase 1 rollout.
+	StaleReason             *StaleReason               `json:"staleReason,omitempty"`
 	GeneratedAt             *time.Time                 `json:"generatedAt,omitempty"`
 	CreatedAt               time.Time                  `json:"createdAt"`
 	UpdatedAt               time.Time                  `json:"updatedAt"`
@@ -784,6 +789,20 @@ type SpecExtractionResult struct {
 	Model           *string  `json:"model,omitempty"`
 	InputTokens     *int     `json:"inputTokens,omitempty"`
 	OutputTokens    *int     `json:"outputTokens,omitempty"`
+}
+
+// StaleReason explains which changes caused an artifact to be marked stale.
+// Surfaces progressive-disclosure "what changed" context in the UI.
+type StaleReason struct {
+	// Symbol IDs whose change triggered the invalidation (may be empty).
+	Symbols []string `json:"symbols"`
+	// File paths whose change triggered the invalidation (may be empty).
+	Files []string `json:"files"`
+	// True when the artifact was staled without specific attribution
+	// (missing evidence, whole-repo evidence only, or change-set-size fallback).
+	Blanket bool `json:"blanket"`
+	// ID of the ImpactReport that caused the invalidation (may be empty).
+	ReportID *string `json:"reportId,omitempty"`
 }
 
 type SymbolChange struct {
