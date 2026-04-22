@@ -109,6 +109,12 @@ func (o *Orchestrator) Ask(ctx context.Context, in AskInput) (*AskResult, error)
 		in.Mode = ModeFast
 	}
 
+	// Route deep/explain modes through the deep pipeline which adds
+	// summary evidence + readiness gating + structured references.
+	if in.Mode == ModeDeep || in.Mode == ModeExplain {
+		return o.deepAsk(ctx, in)
+	}
+
 	// Stage 1: classify.
 	t0 := time.Now()
 	kind := ClassifyQuestion(in.Question)
