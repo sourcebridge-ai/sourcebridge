@@ -91,10 +91,13 @@ func main() {
 	flag.StringVar(&repositoryID, "repository-id", "", "Single repository ID. Used when every question targets the same repo.")
 	flag.StringVar(&repoMapSpec, "repo-map", "", "Comma-separated question.repo=server-id pairs. Overrides -repository-id per question.")
 	flag.StringVar(&workersDir, "workers-dir", "./workers", "Path to the workers/ dir (baseline arm only)")
+	var pathMapSpec string
+	flag.StringVar(&pathMapSpec, "repo-path-map", "", "Comma-separated question.repo=local-filesystem-path pairs. Baseline arm sets SOURCEBRIDGE_REPO_PATH per question.")
 	flag.StringVar(&notes, "notes", "", "Free-form notes recorded in environment.yaml")
 	flag.Parse()
 
 	repoMap := parseRepoMap(repoMapSpec)
+	pathMap := parseRepoMap(pathMapSpec)
 
 	if arm == "" || out == "" {
 		flag.Usage()
@@ -135,7 +138,8 @@ func main() {
 		start := time.Now()
 		switch arm {
 		case "baseline":
-			resp, err := runBaseline(ctx, workersDir, q.Question, mode)
+			repoPath := pathMap[q.Repo]
+			resp, err := runBaseline(ctx, workersDir, q.Question, mode, repoPath)
 			s.ElapsedMs = time.Since(start).Milliseconds()
 			if err != nil {
 				s.ErrorKind = "baseline_error"
@@ -223,13 +227,20 @@ func loadQuestions(path string) (*questionsFile, error) {
 	return &out, nil
 }
 
-func runBaseline(ctx context.Context, workersDir, question, mode string) (map[string]any, error) {
+func runBaseline(ctx context.Context, workersDir, question, mode, repoPath string) (map[string]any, error) {
 	absWorkers, err := filepath.Abs(workersDir)
 	if err != nil {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, "uv", "run", "python", "cli_ask.py", question, mode)
 	cmd.Dir = absWorkers
+	// Per-question repo path: cli_ask.py honors SOURCEBRIDGE_REPO_PATH
+	// to resolve the clone on disk for deep-context file evidence.
+	// When unset, falls back to the caller's cwd, which is fine for
+	// single-repo runs but wrong for a multi-repo benchmark.
+	if repoPath != "" {
+		cmd.Env = append(os.Environ(), "SOURCEBRIDGE_REPO_PATH="+repoPath)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
