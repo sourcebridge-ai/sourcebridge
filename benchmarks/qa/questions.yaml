@@ -1,18 +1,762 @@
 # QA parity question set — frozen gold set
 #
-# The Phase-4 decision rule requires N >= 120. This file is the template
-# for that set; authoring the full set is tracked as a follow-up task
-# per the plan's Open Question §1.
+# Authored 2026-04-22 for the deep-QA server-side orchestrator
+# migration. 120 questions across 3 repos with the plan's class
+# distribution:
 #
-# Question structure:
+#   Architecture             25  (17 SourceBridge, 8 acme-api)
+#   Ownership / Location     25  (10 SourceBridge, 10 acme-api, 5 multi-lang-go)
+#   Execution Flow           25  (10 SourceBridge, 10 acme-api, 5 multi-lang-go)
+#   Cross-cutting / Risk     25  (20 SourceBridge, 5 acme-api)
+#   Mixed / Behavior         20  (10 SourceBridge, 10 acme-api)
 #
-#   - id: q-00001
-#     repo: repo-a
-#     class: architecture|execution_flow|requirement_coverage|ownership|data_model|risk_review|behavior
-#     question: "<literal question text>"
-#     notes: optional authoring context (why this question is interesting)
+# Freeze policy: append-only. Renaming or removing a question after
+# a baseline report is published invalidates the paired comparison.
+# Prefer adding new questions at the end with fresh IDs over editing
+# existing rows.
 #
-# Freeze order: append-only. Renaming or removing questions after a
-# baseline is published invalidates the paired comparison.
+# Repo IDs are placeholders; seed.sh writes real IDs into the
+# environment.yaml after import. The runner substitutes.
 version: 1
-questions: []
+
+questions:
+
+  # ================================================================
+  # ARCHITECTURE (25) — 17 sourcebridge + 8 acme-api
+  # ================================================================
+
+  - id: arch-001
+    repo: sourcebridge
+    class: architecture
+    question: "Describe the high-level architecture of SourceBridge — what are the major subsystems and how do they communicate?"
+    notes: "Go API server, Python worker, Web UI, proto/gRPC."
+
+  - id: arch-002
+    repo: sourcebridge
+    class: architecture
+    question: "What is the role of the Python worker in SourceBridge, and why does it exist as a separate process from the Go server?"
+    notes: "LLM synthesis, gRPC boundary."
+
+  - id: arch-003
+    repo: sourcebridge
+    class: architecture
+    question: "How is the gRPC contract between the Go server and the Python worker defined and kept in sync?"
+    notes: "proto/reasoning/v1/reasoning.proto, gen/go."
+
+  - id: arch-004
+    repo: sourcebridge
+    class: architecture
+    question: "What are the responsibilities of the internal/knowledge package versus internal/graph?"
+    notes: "Knowledge = artifacts/sections/understanding; graph = symbols/files/repos/links."
+
+  - id: arch-005
+    repo: sourcebridge
+    class: architecture
+    question: "How does the internal/api/rest package relate to internal/api/graphql, and which requests flow through each?"
+    notes: "chi router + GraphQL handler; REST for non-graphql endpoints (discuss/stream, ask, mcp, health)."
+
+  - id: arch-006
+    repo: sourcebridge
+    class: architecture
+    question: "Describe how the LLM job orchestrator in internal/llm/orchestrator coordinates work across subsystems."
+    notes: "Subsystem enum, concurrency cap, metrics."
+
+  - id: arch-007
+    repo: sourcebridge
+    class: architecture
+    question: "What storage backends does SourceBridge use and how are they abstracted?"
+    notes: "SurrealDB + in-memory fallback; Redis optional for MCP sessions."
+
+  - id: arch-008
+    repo: sourcebridge
+    class: architecture
+    question: "Explain the MCP (Model Context Protocol) surface — what tools are exposed and how are they dispatched?"
+    notes: "search_symbols, explain_code, get_requirements, get_impact_report, get_cliff_notes, ask_question."
+
+  - id: arch-009
+    repo: sourcebridge
+    class: architecture
+    question: "What is the internal/qa package, why was it added, and how does it sit between the CLI / GraphQL and the reasoning worker?"
+    notes: "Server-side deep-QA orchestrator added 2026-04-22."
+
+  - id: arch-010
+    repo: sourcebridge
+    class: architecture
+    question: "What tenant-filtering mechanism guards cross-tenant data leaks in the GraphQL and REST surfaces?"
+    notes: "middleware.RepoAccessMiddleware, TenantFilteredStore, lazyRepoAccessMiddleware."
+
+  - id: arch-011
+    repo: sourcebridge
+    class: architecture
+    question: "Describe the feature-flag machinery that gates the QA orchestrator rollout."
+    notes: "QAConfig.ServerSideEnabled, X-SourceBridge-QA header, CLI capability probe."
+
+  - id: arch-012
+    repo: sourcebridge
+    class: architecture
+    question: "How does the knowledge generation pipeline (artifacts, sections, summary nodes, repository understanding) build up for a repo?"
+    notes: "comprehension + knowledge packages."
+
+  - id: arch-013
+    repo: sourcebridge
+    class: architecture
+    question: "What is the role of the requirement-linking subsystem and which packages implement it?"
+    notes: "internal/requirements, internal/linking, autoLinkRequirements mutation."
+
+  - id: arch-014
+    repo: sourcebridge
+    class: architecture
+    question: "Describe the three-tier separation of data plane, compute plane, and API surface in SourceBridge."
+    notes: "Go (data+API), Python (compute), React (UI)."
+
+  - id: arch-015
+    repo: sourcebridge
+    class: architecture
+    question: "How does the telemetry ping system work and what fields are collected?"
+    notes: "internal/telemetry/telemetry.go, opt-out, public dashboard."
+
+  - id: arch-016
+    repo: sourcebridge
+    class: architecture
+    question: "Explain the soft-delete recycle bin feature — what triggers it and how is retention enforced?"
+    notes: "internal/trash, TrashConfig, sweep interval."
+
+  - id: arch-017
+    repo: sourcebridge
+    class: architecture
+    question: "How does the worker-lanes semaphore system prevent embedding search and QA synthesis from starving each other?"
+    notes: "internal/worker/lanes.go, search.embed + qa.synthesize lanes."
+
+  - id: arch-018
+    repo: acme-api
+    class: architecture
+    question: "What is the high-level architecture of acme-api — what services, middleware, and data stores are involved?"
+    notes: "Next.js API routes + Supabase + Stripe + Resend; JWT/middleware/services."
+
+  - id: arch-019
+    repo: acme-api
+    class: architecture
+    question: "How are authentication, authorization, and session management layered in acme-api?"
+    notes: "JWT, session cookies, middleware/auth.ts."
+
+  - id: arch-020
+    repo: acme-api
+    class: architecture
+    question: "Explain the billing integration — how does acme-api communicate with Stripe?"
+    notes: "billing-service.ts + Stripe webhooks."
+
+  - id: arch-021
+    repo: acme-api
+    class: architecture
+    question: "What role does the middleware layer play in acme-api, and what concerns does each middleware handle?"
+    notes: "auth, rate-limit, validate."
+
+  - id: arch-022
+    repo: acme-api
+    class: architecture
+    question: "How are team, user, and invitation models related in the acme-api data model?"
+    notes: "models/user, team, invitation + TeamMembership."
+
+  - id: arch-023
+    repo: acme-api
+    class: architecture
+    question: "What separation exists between route handlers, services, and database queries in acme-api?"
+    notes: "api/routes -> services -> db/queries."
+
+  - id: arch-024
+    repo: acme-api
+    class: architecture
+    question: "Describe the plan-tier system in acme-api (free / pro / enterprise) and how limits are enforced."
+    notes: "PLAN_LIMITS; trackUsage; usage_count/usage_limit on team."
+
+  - id: arch-025
+    repo: acme-api
+    class: architecture
+    question: "How does acme-api handle email-based flows like magic links and invitations?"
+    notes: "email-service + magic-link + invitations."
+
+  # ================================================================
+  # OWNERSHIP / LOCATION (25) — 10 sourcebridge + 10 acme-api + 5 go
+  # ================================================================
+
+  - id: own-001
+    repo: sourcebridge
+    class: ownership
+    question: "Where is the QA orchestrator's Ask method defined?"
+    notes: "internal/qa/pipeline.go."
+
+  - id: own-002
+    repo: sourcebridge
+    class: ownership
+    question: "Which file contains the POST /api/v1/ask HTTP handler?"
+    notes: "internal/api/rest/ask_handler.go."
+
+  - id: own-003
+    repo: sourcebridge
+    class: ownership
+    question: "Where is the GraphQL discussCode resolver implemented?"
+    notes: "internal/api/graphql/schema.resolvers.go."
+
+  - id: own-004
+    repo: sourcebridge
+    class: ownership
+    question: "In which file is the MCP tool dispatch table defined?"
+    notes: "internal/api/rest/mcp.go, handleToolsCallCtx."
+
+  - id: own-005
+    repo: sourcebridge
+    class: ownership
+    question: "Where is the Python deep-QA context assembly code — the one being retired?"
+    notes: "workers/cli_ask.py, _build_deep_context."
+
+  - id: own-006
+    repo: sourcebridge
+    class: ownership
+    question: "Which file defines the Config struct and Load function for server configuration?"
+    notes: "internal/config/config.go."
+
+  - id: own-007
+    repo: sourcebridge
+    class: ownership
+    question: "Where is the file retriever's best-files scoring algorithm implemented?"
+    notes: "internal/qa/retrieval_files.go, BestFiles."
+
+  - id: own-008
+    repo: sourcebridge
+    class: ownership
+    question: "In which file is the question-type classifier defined?"
+    notes: "internal/qa/classifier.go, ClassifyQuestion."
+
+  - id: own-009
+    repo: sourcebridge
+    class: ownership
+    question: "Where does the REST router register the SSE discussion-stream endpoint?"
+    notes: "internal/api/rest/router.go."
+
+  - id: own-010
+    repo: sourcebridge
+    class: ownership
+    question: "Which files contain the gRPC proto definitions for the reasoning service?"
+    notes: "proto/reasoning/v1/reasoning.proto."
+
+  - id: own-011
+    repo: acme-api
+    class: ownership
+    question: "Where is the signIn service function defined?"
+    notes: "src/services/auth-service.ts."
+
+  - id: own-012
+    repo: acme-api
+    class: ownership
+    question: "Which file implements the rate-limiting middleware?"
+    notes: "src/api/middleware/rate-limit.ts."
+
+  - id: own-013
+    repo: acme-api
+    class: ownership
+    question: "Where is the JWT signing and verification code?"
+    notes: "src/auth/jwt.ts."
+
+  - id: own-014
+    repo: acme-api
+    class: ownership
+    question: "In which file is the Stripe webhook handler implemented?"
+    notes: "src/api/routes/billing.ts + src/services/billing-service.ts."
+
+  - id: own-015
+    repo: acme-api
+    class: ownership
+    question: "Which file defines the User data model?"
+    notes: "src/db/models/user.ts."
+
+  - id: own-016
+    repo: acme-api
+    class: ownership
+    question: "Where is the team invitation acceptance logic?"
+    notes: "src/services/team-service.ts, acceptTeamInvitation."
+
+  - id: own-017
+    repo: acme-api
+    class: ownership
+    question: "Which file handles magic-link token creation and consumption?"
+    notes: "src/auth/magic-link.ts."
+
+  - id: own-018
+    repo: acme-api
+    class: ownership
+    question: "Where is the session cookie management code?"
+    notes: "src/auth/session.ts."
+
+  - id: own-019
+    repo: acme-api
+    class: ownership
+    question: "In which file is the request-body validator middleware defined?"
+    notes: "src/api/middleware/validate.ts."
+
+  - id: own-020
+    repo: acme-api
+    class: ownership
+    question: "Where is the password hashing and verification implementation?"
+    notes: "src/auth/password.ts."
+
+  - id: own-021
+    repo: multi-lang-repo
+    class: ownership
+    question: "Where is the ProcessPayment function implemented in the Go fixture?"
+    notes: "payment/processor.go."
+
+  - id: own-022
+    repo: multi-lang-repo
+    class: ownership
+    question: "Which file defines the Config struct in the Go fixture?"
+    notes: "main.go."
+
+  - id: own-023
+    repo: multi-lang-repo
+    class: ownership
+    question: "Where is the payment validation helper function?"
+    notes: "payment/processor.go, validate."
+
+  - id: own-024
+    repo: multi-lang-repo
+    class: ownership
+    question: "In which file is the StartServer entry point?"
+    notes: "main.go."
+
+  - id: own-025
+    repo: multi-lang-repo
+    class: ownership
+    question: "Where is the Order data type defined?"
+    notes: "payment/processor.go."
+
+  # ================================================================
+  # EXECUTION FLOW (25) — 10 sourcebridge + 10 acme-api + 5 go
+  # ================================================================
+
+  - id: flow-001
+    repo: sourcebridge
+    class: execution_flow
+    question: "What happens when a user sends a question through the POST /api/v1/ask endpoint — from HTTP receipt to the answer being returned?"
+    notes: "ask_handler -> orchestrator.Ask -> classify -> retrieve -> synthesize."
+
+  - id: flow-002
+    repo: sourcebridge
+    class: execution_flow
+    question: "Trace the flow of a GraphQL discussCode mutation when the QA orchestrator is enabled."
+    notes: "resolver -> dispatchDiscussThroughOrchestrator -> deep pipeline -> flatten."
+
+  - id: flow-003
+    repo: sourcebridge
+    class: execution_flow
+    question: "How does the CLI decide between hitting the server and falling back to the Python subprocess for `sourcebridge ask`?"
+    notes: "cli/ask.go probeQACapability + --legacy flag."
+
+  - id: flow-004
+    repo: sourcebridge
+    class: execution_flow
+    question: "What happens when the deep pipeline encounters a repo whose understanding corpus isn't ready?"
+    notes: "fallback_used=understanding_not_ready + CTA reference; never errors."
+
+  - id: flow-005
+    repo: sourcebridge
+    class: execution_flow
+    question: "Describe the SSE streaming flow for /api/v1/discuss/stream from request to tokens arriving at the client."
+    notes: "handleDiscussStream -> AnswerQuestionStream -> event: token frames + done."
+
+  - id: flow-006
+    repo: sourcebridge
+    class: execution_flow
+    question: "What happens when a repository is added via the addRepository GraphQL mutation?"
+    notes: "repo record + clone + indexing trigger."
+
+  - id: flow-007
+    repo: sourcebridge
+    class: execution_flow
+    question: "How does the MCP streaming-tool flow deliver progress updates to the client during a long explain_code call?"
+    notes: "ContentEmitter + streamDiscussion + SSE notifications."
+
+  - id: flow-008
+    repo: sourcebridge
+    class: execution_flow
+    question: "Trace the lane acquisition for a QA synthesis request, including what happens when the lane is full."
+    notes: "lanes.Acquire -> semaphore block or context deadline."
+
+  - id: flow-009
+    repo: sourcebridge
+    class: execution_flow
+    question: "What is the sequence of reads the deep pipeline performs when producing a deep answer?"
+    notes: "status -> summaries -> files -> graph -> pinned blocks -> synthesize."
+
+  - id: flow-010
+    repo: sourcebridge
+    class: execution_flow
+    question: "Describe the authentication middleware pipeline on a protected API route."
+    notes: "auth.MiddlewareWithTokens -> lazyRepoAccessMiddleware -> CSRF -> handler."
+
+  - id: flow-011
+    repo: acme-api
+    class: execution_flow
+    question: "What happens when a user signs up via POST to the auth sign-up route?"
+    notes: "handleSignUp -> signUp -> hashPassword -> create user -> signToken -> setSession."
+
+  - id: flow-012
+    repo: acme-api
+    class: execution_flow
+    question: "Trace the magic-link redemption flow from request to a signed session being issued."
+    notes: "handleRedeemMagicLink -> redeemMagicLink -> consumeMagicLink -> signToken."
+
+  - id: flow-013
+    repo: acme-api
+    class: execution_flow
+    question: "Walk through what happens when a team owner invites a member by email."
+    notes: "handleInviteMember -> inviteTeamMember -> sendInvitationEmail."
+
+  - id: flow-014
+    repo: acme-api
+    class: execution_flow
+    question: "What is the sequence from a Stripe webhook arriving to a team's subscription state updating?"
+    notes: "handleStripeWebhook -> verify signature -> handleWebhook -> update team."
+
+  - id: flow-015
+    repo: acme-api
+    class: execution_flow
+    question: "Describe the rate-limiting check order for an authenticated API request."
+    notes: "rate-limit middleware -> key by user ID -> sliding-window check -> allow/429."
+
+  - id: flow-016
+    repo: acme-api
+    class: execution_flow
+    question: "What happens when a team member is removed — what side effects fire?"
+    notes: "handleRemoveMember -> removeTeamMember -> perm check -> delete membership."
+
+  - id: flow-017
+    repo: acme-api
+    class: execution_flow
+    question: "Trace the flow of accepting a team invitation via token."
+    notes: "acceptTeamInvitation -> lookup invitation -> create membership -> mark accepted."
+
+  - id: flow-018
+    repo: acme-api
+    class: execution_flow
+    question: "What happens when a user requests a magic link for login?"
+    notes: "handleRequestMagicLink -> requestMagicLink -> createMagicLink -> sendMagicLinkEmail."
+
+  - id: flow-019
+    repo: acme-api
+    class: execution_flow
+    question: "Describe the sign-in flow from credential submission to session cookie."
+    notes: "handleSignIn -> signIn -> verifyPassword -> signToken -> setSession."
+
+  - id: flow-020
+    repo: acme-api
+    class: execution_flow
+    question: "What is the sequence when a user creates a new team?"
+    notes: "handleCreateTeam -> createNewTeam -> owner membership creation."
+
+  - id: flow-021
+    repo: multi-lang-repo
+    class: execution_flow
+    question: "Walk through what ProcessPayment does from the point of receiving an Order to returning a Receipt."
+    notes: "validate -> requireApproval if Amount>1000 -> charge -> Receipt."
+
+  - id: flow-022
+    repo: multi-lang-repo
+    class: execution_flow
+    question: "What validation checks does the payment processor run on an Order before charging?"
+    notes: "validate: non-empty ID, Amount>0, non-empty PaymentMethod."
+
+  - id: flow-023
+    repo: multi-lang-repo
+    class: execution_flow
+    question: "When does ProcessPayment require approval, and how is that enforced?"
+    notes: "Amount > 1000 triggers requireApproval."
+
+  - id: flow-024
+    repo: multi-lang-repo
+    class: execution_flow
+    question: "What is the startup sequence when main.go starts the server?"
+    notes: "NewConfig -> Validate -> StartServer."
+
+  - id: flow-025
+    repo: multi-lang-repo
+    class: execution_flow
+    question: "Describe the Config validation — what checks run and what errors are possible?"
+    notes: "Port 1..65535, Database non-empty."
+
+  # ================================================================
+  # CROSS-CUTTING / RISK (25) — 20 sourcebridge + 5 acme-api
+  # ================================================================
+
+  - id: cross-001
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What prevents a prompt-injection attack from exfiltrating data across tenants in the QA orchestrator?"
+    notes: "delimited context + question envelope + repo scope never from question."
+
+  - id: cross-002
+    repo: sourcebridge
+    class: cross_cutting
+    question: "How are token budgets enforced to prevent a runaway session from burning unlimited LLM spend?"
+    notes: "QAConfig session/repo/deployment token budgets."
+
+  - id: cross-003
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What happens if the Python worker becomes unavailable during a deep-QA request?"
+    notes: "fallback_used=worker_unavailable, structured response, references preserved."
+
+  - id: cross-004
+    repo: sourcebridge
+    class: cross_cutting
+    question: "How does the GraphQL schema stay in sync with the Go resolver signatures across rebuilds?"
+    notes: "gqlgen generate, CI codegen check."
+
+  - id: cross-005
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What observability signals exist for deep-QA orchestration, and where are they emitted?"
+    notes: "stageTimings per qa.* stage, SubsystemQA, qa metrics."
+
+  - id: cross-006
+    repo: sourcebridge
+    class: cross_cutting
+    question: "How does the soft-delete (trash) system interact with the existing hard-delete paths?"
+    notes: "Enabled=true upgrades hard-deletes to soft; sweep retention."
+
+  - id: cross-007
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What happens when the understanding corpus revision changes mid-request?"
+    notes: "plan documents retry once; fallback_used=understanding_churned."
+
+  - id: cross-008
+    repo: sourcebridge
+    class: cross_cutting
+    question: "How is session persistence handled for MCP streamable-HTTP across multiple replicas?"
+    notes: "Redis-backed store when storage.redis_mode=external; memory fallback."
+
+  - id: cross-009
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What measures limit the blast radius of an LLM hallucination in a generated answer?"
+    notes: "structured references with provenance; diagnostics; no trust in answer content."
+
+  - id: cross-010
+    repo: sourcebridge
+    class: cross_cutting
+    question: "How does the system prevent repo-path traversal attacks when reading source files?"
+    notes: "safeJoinPath rejects ../ and absolute paths."
+
+  - id: cross-011
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What guards ensure a QA answer can't reveal data from a repo the caller doesn't have access to?"
+    notes: "tenant repo filtering via middleware; repo_id validated via GetRepository."
+
+  - id: cross-012
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What happens when the question length exceeds the configured QuestionMaxBytes?"
+    notes: "400 with InvalidInputError; never reaches LLM."
+
+  - id: cross-013
+    repo: sourcebridge
+    class: cross_cutting
+    question: "How is backwards compatibility preserved for existing discussCode callers when QA is enabled?"
+    notes: "DiscussionResult shape preserved; flatten refs to []string; Ledger F10/F11."
+
+  - id: cross-014
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What rollback mechanism exists if the server-side QA orchestrator shows regressions in production?"
+    notes: "Flag off, subprocess fallback via --legacy."
+
+  - id: cross-015
+    repo: sourcebridge
+    class: cross_cutting
+    question: "How are the Go server and Python worker kept at compatible proto versions?"
+    notes: "gen/go + gen/python from the same proto/; Makefile proto target."
+
+  - id: cross-016
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What prevents an MCP tool from leaking internal errors to the client in a way that aids attackers?"
+    notes: "tool-level error envelopes; audit logging for enterprise."
+
+  - id: cross-017
+    repo: sourcebridge
+    class: cross_cutting
+    question: "How does the feature-flag capability discovery work, and why is it on /healthz instead of a new endpoint?"
+    notes: "X-SourceBridge-QA header avoids a mandatory GraphQL pre-flight."
+
+  - id: cross-018
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What limits the parallelism of LLM-backed operations per deployment?"
+    notes: "orchestrator MaxConcurrency, aiConcurrencyMiddleware, worker lanes."
+
+  - id: cross-019
+    repo: sourcebridge
+    class: cross_cutting
+    question: "How does the knowledge-artifact staleness / reindex system avoid stampeding the LLM worker after bulk invalidation?"
+    notes: "delta-driven auto-regen rate limits per repo per hour."
+
+  - id: cross-020
+    repo: sourcebridge
+    class: cross_cutting
+    question: "What prevents a malicious repo contributor from planting prompt instructions in comments to hijack an answer?"
+    notes: "system-prompt guardrails + delimited context + output sanitization."
+
+  - id: cross-021
+    repo: acme-api
+    class: cross_cutting
+    question: "How does acme-api prevent a downgrade from Pro to Free from deleting historical team data?"
+    notes: "REQ-BILL-003: downgrade preserves data but restricts feature access."
+
+  - id: cross-022
+    repo: acme-api
+    class: cross_cutting
+    question: "What enforces that all mutations in acme-api require authentication?"
+    notes: "REQ-API-001 + auth middleware."
+
+  - id: cross-023
+    repo: acme-api
+    class: cross_cutting
+    question: "How does the rate limiter handle anonymous versus authenticated requests differently?"
+    notes: "keys by user ID when authenticated, IP otherwise."
+
+  - id: cross-024
+    repo: acme-api
+    class: cross_cutting
+    question: "What happens when a Stripe webhook signature doesn't verify?"
+    notes: "handleWebhook rejects with an error; no state change."
+
+  - id: cross-025
+    repo: acme-api
+    class: cross_cutting
+    question: "How are team permissions enforced when a member tries an owner-only action?"
+    notes: "TokenPayload.role checked in service layer."
+
+  # ================================================================
+  # MIXED / BEHAVIOR (20) — 10 sourcebridge + 10 acme-api
+  # ================================================================
+
+  - id: mix-001
+    repo: sourcebridge
+    class: behavior
+    question: "What does the PathBoosts function do and which question types does it boost for?"
+    notes: "per-language path heuristics; architecture/flow/behavior kinds."
+
+  - id: mix-002
+    repo: sourcebridge
+    class: behavior
+    question: "How does the QA classifier decide whether a question is architecture vs execution-flow?"
+    notes: "keyword precedence; architecture checked before flow."
+
+  - id: mix-003
+    repo: sourcebridge
+    class: behavior
+    question: "What does the orchestrator return when the request is missing a repository ID?"
+    notes: "InvalidInputError, 400 at transport."
+
+  - id: mix-004
+    repo: sourcebridge
+    class: behavior
+    question: "How is the stage_timings diagnostic block populated across the deep pipeline?"
+    notes: "each stage records FromDuration(time.Since(...))."
+
+  - id: mix-005
+    repo: sourcebridge
+    class: behavior
+    question: "Describe what happens when the AskInput includes both a symbol ID and a file path."
+    notes: "symbol context + file read if path absent gets set from symbol, then read."
+
+  - id: mix-006
+    repo: sourcebridge
+    class: behavior
+    question: "What does FlattenReferencesToStrings do, and when is it used?"
+    notes: "legacy DiscussionResult shape preservation; GraphQL discussCode adapter."
+
+  - id: mix-007
+    repo: sourcebridge
+    class: behavior
+    question: "How does the best-deep-files selector handle test files versus product code?"
+    notes: "test files pushed to tail; architecture cap=4."
+
+  - id: mix-008
+    repo: sourcebridge
+    class: behavior
+    question: "What does the bestSnippet function return for a file with no token matches?"
+    notes: "window from start; still returns something."
+
+  - id: mix-009
+    repo: sourcebridge
+    class: behavior
+    question: "How does the orchestrator decide whether to include the debug block in the response?"
+    notes: "AskInput.IncludeDebug opt-in."
+
+  - id: mix-010
+    repo: sourcebridge
+    class: behavior
+    question: "What triggers the `understanding_not_ready` fallback diagnostic?"
+    notes: "status.Ready == false."
+
+  - id: mix-011
+    repo: acme-api
+    class: behavior
+    question: "What does the requestMagicLink service method do if the email does not exist in the database?"
+    notes: "silent no-op (to avoid user enumeration)."
+
+  - id: mix-012
+    repo: acme-api
+    class: behavior
+    question: "How does the signIn service function respond to an invalid password?"
+    notes: "throws AuthError, no session issued."
+
+  - id: mix-013
+    repo: acme-api
+    class: behavior
+    question: "What does trackUsage do, and when is it called?"
+    notes: "increments usage_count; called on billable events."
+
+  - id: mix-014
+    repo: acme-api
+    class: behavior
+    question: "How does the JWT verifier behave when the token has expired?"
+    notes: "throws; caller treats as unauthenticated."
+
+  - id: mix-015
+    repo: acme-api
+    class: behavior
+    question: "What is the behavior of getSubscriptionStatus for a team with no Stripe subscription?"
+    notes: "returns {active: false, plan: 'free'}."
+
+  - id: mix-016
+    repo: acme-api
+    class: behavior
+    question: "Describe what happens when acceptTeamInvitation is called with an expired token."
+    notes: "rejects; no membership created."
+
+  - id: mix-017
+    repo: acme-api
+    class: behavior
+    question: "How does the rate-limit middleware clean up its in-memory store?"
+    notes: "5-minute periodic cleanup."
+
+  - id: mix-018
+    repo: acme-api
+    class: behavior
+    question: "What does the createCheckoutSession function return, and what does the caller do with it?"
+    notes: "Stripe checkout URL; redirect."
+
+  - id: mix-019
+    repo: acme-api
+    class: behavior
+    question: "How are validation errors from Zod schemas surfaced to API callers?"
+    notes: "422 ValidationError with per-field messages."
+
+  - id: mix-020
+    repo: acme-api
+    class: behavior
+    question: "What does hashPassword use for the hashing algorithm and salt strategy?"
+    notes: "bcrypt-style; per-password salt."
