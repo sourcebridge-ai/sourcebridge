@@ -97,18 +97,42 @@ func (o *Orchestrator) deepAsk(ctx context.Context, in AskInput) (*AskResult, er
 		summaries = trimSummaries(summaries, 8)
 	}
 
+	// Stage 3b: file-level retrieval over the clone. This matches
+	// Python's _best_deep_files and backs ownership/location questions
+	// that summaries alone can't answer.
+	var files []FileEvidence
+	if o.locator != nil {
+		t2b := time.Now()
+		if cloneRoot, ok := o.locator.LocateRepoClone(in.RepositoryID); ok && cloneRoot != "" {
+			fr := DefaultFileRetriever(cloneRoot)
+			files = fr.BestFiles(in.Question, kind)
+		}
+		result.Diagnostics.StageTimings["qa.file_retrieval"] = FromDuration(time.Since(t2b))
+	}
+
+	// Stage 3c: one-hop graph expansion. Caller/callee evidence for
+	// flow/behavior questions. Bounded by the retriever to avoid
+	// packing hundreds of neighbors; 12 callers + 12 callees per
+	// focal symbol is plenty for a 4k context budget.
+	var graphNeighbors []GraphNeighbor
+	if o.graph != nil {
+		t2c := time.Now()
+		graphNeighbors = collectGraphNeighbors(o.graph, in.SymbolID, 12)
+		result.Diagnostics.StageTimings["qa.graph_expand"] = FromDuration(time.Since(t2c))
+		result.Diagnostics.GraphExpansionUsed = len(graphNeighbors) > 0
+	}
+
 	// Stage 4: deterministic assembly.
 	t3 := time.Now()
-	contextMD := buildContextMarkdown(in, summaries, requirementLines)
+	contextMD := buildDeepContextMarkdown(in, summaries, files, graphNeighbors, requirementLines)
 	promptEnvelope := buildPromptEnvelope(in, contextMD)
 	result.Diagnostics.StageTimings["qa.assemble"] = FromDuration(time.Since(t3))
 	result.Diagnostics.StageTimings["qa.prompt_build"] = FromDuration(time.Since(t3))
 
-	// Record file-level provenance for diagnostics.
+	// Record provenance for diagnostics + references.
 	for _, s := range summaries {
 		if s.FilePath != "" {
 			result.Diagnostics.FilesConsidered = append(result.Diagnostics.FilesConsidered, s.FilePath)
-			result.Diagnostics.FilesUsed = append(result.Diagnostics.FilesUsed, s.FilePath)
 		}
 		result.References = append(result.References, AskReference{
 			Kind: RefKindUnderstandingSection,
@@ -119,6 +143,36 @@ func (o *Orchestrator) deepAsk(ctx context.Context, in AskInput) (*AskResult, er
 			Title: orDefault(s.Headline, s.UnitID),
 		})
 	}
+	for _, f := range files {
+		result.Diagnostics.FilesConsidered = append(result.Diagnostics.FilesConsidered, f.Path)
+		result.Diagnostics.FilesUsed = append(result.Diagnostics.FilesUsed, f.Path)
+		result.References = append(result.References, AskReference{
+			Kind: RefKindFileRange,
+			FileRange: &FileRangeRef{
+				FilePath:  f.Path,
+				StartLine: f.StartLine,
+				EndLine:   f.EndLine,
+				Snippet:   f.Snippet,
+			},
+			Title: f.Path,
+		})
+	}
+	for _, n := range graphNeighbors {
+		result.References = append(result.References, AskReference{
+			Kind: RefKindSymbol,
+			Symbol: &SymbolRef{
+				SymbolID:      n.SymbolID,
+				QualifiedName: n.QualifiedName,
+				FilePath:      n.FilePath,
+				StartLine:     n.StartLine,
+				EndLine:       n.EndLine,
+				Language:      n.Language,
+			},
+			Title: n.QualifiedName,
+		})
+	}
+	result.Diagnostics.FilesConsidered = uniqueStrings(result.Diagnostics.FilesConsidered)
+	result.Diagnostics.FilesUsed = uniqueStrings(result.Diagnostics.FilesUsed)
 
 	// Stage 5: synthesize.
 	if o.synthesizer == nil || !o.synthesizer.IsAvailable() {

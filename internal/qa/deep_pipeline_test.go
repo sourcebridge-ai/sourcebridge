@@ -112,8 +112,8 @@ func TestDeep_ReadyRoutesThroughSynthesis(t *testing.T) {
 	if !found {
 		t.Errorf("missing understanding_section for Auth service: %+v", res.References)
 	}
-	if len(res.Diagnostics.FilesUsed) == 0 {
-		t.Errorf("expected filesUsed populated")
+	if len(res.Diagnostics.FilesConsidered) == 0 {
+		t.Errorf("expected filesConsidered populated from summary metadata")
 	}
 	if !strings.Contains(synth.lastReq.GetContextCode(), "Auth service") {
 		t.Errorf("context markdown missing summary headline: %q", synth.lastReq.GetContextCode())

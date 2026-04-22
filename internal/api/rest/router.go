@@ -263,7 +263,12 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 		if s.knowledgeStore != nil && s.summaryNodeStore != nil {
 			reader = qaUnderstandingReader{knowledge: s.knowledgeStore, summaries: s.summaryNodeStore}
 		}
-		s.qaOrchestrator = qa.New(s.worker, reader, s.workerLanes, qaOrchCfg)
+		o := qa.New(s.worker, reader, s.workerLanes, qaOrchCfg)
+		if s.store != nil {
+			o = o.WithRepoLocator(newQARepoLocator(s.store, cfg.Storage.RepoCachePath))
+			o = o.WithGraphExpander(qa.NewGraphExpander(&qaGraphAdapter{store: s.store}, &qaGraphLookup{store: s.store}))
+		}
+		s.qaOrchestrator = o
 	}
 
 	slog.Info("backend feature flags", "enabled", s.flags.EnabledNames())

@@ -23,6 +23,36 @@ type Synthesizer interface {
 	IsAvailable() bool
 }
 
+// RepoLocator resolves a repo ID to its local filesystem clone path.
+// Kept as a tiny interface so tests can inject a fake without pulling
+// in the graph store. Returns ("", false) when the repo is unknown or
+// has no readable clone — the orchestrator then degrades to
+// summary-only retrieval.
+type RepoLocator interface {
+	LocateRepoClone(repoID string) (cloneRoot string, ok bool)
+}
+
+// GraphExpander returns caller/callee neighbors for a symbol. The
+// deep pipeline uses this to bring in one-hop graph evidence so
+// "how does X call Y?" questions have grounded answers. Nil is OK
+// — deep mode simply skips graph expansion.
+type GraphExpander interface {
+	GetCallers(symbolID string) []GraphNeighbor
+	GetCallees(symbolID string) []GraphNeighbor
+}
+
+// GraphNeighbor is the minimum shape the orchestrator needs for graph
+// evidence. Kept narrower than the full graph.StoredSymbol so we don't
+// leak storage types into internal/qa.
+type GraphNeighbor struct {
+	SymbolID      string
+	QualifiedName string
+	FilePath      string
+	StartLine     int
+	EndLine       int
+	Language      string
+}
+
 // Orchestrator is the server-side deep-QA entry point. One instance
 // lives per running server. Ask(req) is the only user-facing method;
 // everything else is internal plumbing.
@@ -32,8 +62,25 @@ type Synthesizer interface {
 type Orchestrator struct {
 	synthesizer Synthesizer
 	reader      UnderstandingReader
+	locator     RepoLocator
+	graph       GraphExpander
 	lanes       *worker.Lanes
 	config      Config
+}
+
+// WithRepoLocator returns o with the supplied locator installed.
+// Method-chain pattern keeps New() small; callers that don't need
+// file retrieval skip the call and deep mode degrades cleanly.
+func (o *Orchestrator) WithRepoLocator(l RepoLocator) *Orchestrator {
+	o.locator = l
+	return o
+}
+
+// WithGraphExpander installs the call-graph expander. Optional — nil
+// skips one-hop expansion without error.
+func (o *Orchestrator) WithGraphExpander(g GraphExpander) *Orchestrator {
+	o.graph = g
+	return o
 }
 
 // Config pins the orchestrator's observable tunables. Mirrors the
