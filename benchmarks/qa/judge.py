@@ -50,18 +50,29 @@ except ImportError:
 
 
 SYSTEM_PROMPT = """You are an expert software engineer grading answers to
-questions about an unfamiliar codebase. You will be shown one question
-and one answer. Grade the answer on a 0-3 scale:
+questions about an unfamiliar codebase. You will be shown one question,
+the answer the candidate produced, and the references the candidate
+claims to have drawn from. Grade on a 0-3 scale:
 
-0 — Misleading or wrong. The answer makes false claims about the code
-    or actively mis-directs a reader trying to understand the system.
-1 — Not useful. The answer is correct-ish in isolation but does not
-    actually answer the question that was asked.
-2 — Useful. The answer addresses the question with at most minor gaps.
-    A reader would come away with a correct understanding.
-3 — Excellent. The answer is thorough, directly responsive, and cites
-    concrete evidence (file paths, function names, REQ-* IDs) when
-    appropriate.
+0 — Misleading or wrong. The answer makes claims that are obviously
+    false for any real codebase of this kind, or gives directions
+    that would lead the reader to broken code.
+1 — Not useful. The answer is on-topic but does not actually answer
+    the question that was asked (hand-waves, punts to "the context
+    doesn't say", or never names concrete components).
+2 — Useful. The answer addresses the question directly with concrete
+    components, file paths, or function names that are plausible for
+    the stated domain. Minor gaps are fine.
+3 — Excellent. The answer is directly responsive AND cites specific
+    evidence (file paths, function names, REQ-* IDs, gRPC services,
+    config keys) that a reader could immediately verify.
+
+IMPORTANT: You are the judge, not a verifier. You do not have access
+to the codebase. Do NOT penalize an answer for "unverifiable claims"
+when the claims are plausible and coherent — treat them as correct
+unless you can articulate a concrete reason they are wrong. An answer
+that names real-sounding files and functions from the question's
+domain earns at least a 2, assuming it actually answers the question.
 
 You MUST respond with a single JSON object of the form:
 
