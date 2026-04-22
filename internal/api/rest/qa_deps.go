@@ -4,12 +4,16 @@
 package rest
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/llm"
+	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
 	"github.com/sourcebridge/sourcebridge/internal/qa"
 )
 
@@ -362,13 +366,47 @@ func hasPrefix(s, pfx string) bool {
 	return len(s) >= len(pfx) && s[:len(pfx)] == pfx
 }
 
-// compile-time check: both adapters satisfy the qa package's
-// interfaces. This catches drift if the qa interfaces change.
+// qaJobRunner integrates QA synthesis with the LLM job orchestrator
+// so Monitor sees qa.* jobs alongside knowledge / reasoning. When the
+// orchestrator is nil (tests), callers run inline via the qa.JobRunner
+// nil-check.
+type qaJobRunner struct {
+	orch *orchestrator.Orchestrator
+}
+
+func (j *qaJobRunner) RunSyncQAJob(ctx context.Context, jobType, targetKey, repoID string, run func(rt qa.TokenReporter) error) error {
+	if j == nil || j.orch == nil {
+		return run(nil)
+	}
+	job, err := j.orch.EnqueueSync(ctx, &llm.EnqueueRequest{
+		Subsystem: llm.SubsystemQA,
+		JobType:   jobType,
+		TargetKey: targetKey,
+		RepoID:    repoID,
+		Run: func(rt llm.Runtime) error {
+			return run(rt)
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if job != nil && job.Status == llm.StatusFailed {
+		if job.ErrorMessage != "" {
+			return errors.New(job.ErrorMessage)
+		}
+		return errors.New("qa job failed")
+	}
+	return nil
+}
+
+// compile-time check: adapters satisfy the qa package's interfaces.
+// This catches drift if the qa interfaces change.
 var _ qa.RepoLocator = (*qaRepoLocator)(nil)
 var _ qa.ArtifactLookup = (*qaArtifactLookup)(nil)
 var _ qa.RequirementLookup = (*qaRequirementLookup)(nil)
 var _ qa.SymbolLookup = (*qaSymbolLookup)(nil)
 var _ qa.FileReader = (*qaFileReader)(nil)
+var _ qa.JobRunner = (*qaJobRunner)(nil)
 
 // sentinel errors for the file reader. Kept internal — callers see
 // these via the qa.FileReader return and only need to know the file

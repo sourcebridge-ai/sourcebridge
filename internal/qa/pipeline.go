@@ -5,6 +5,8 @@ package qa
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -98,6 +100,25 @@ type FileReader interface {
 	ReadRepoFile(repoID, filePath string) (string, error)
 }
 
+// JobRunner integrates the synthesis call with the LLM job
+// orchestrator so QA jobs appear on the Monitor page alongside
+// knowledge / reasoning / linking / requirements jobs. Runtime carries
+// ReportTokens so the orchestrator can decrement token budgets.
+//
+// When nil the synthesis runs inline — no Monitor row, but no
+// correctness impact. Tests use nil to avoid wiring the whole
+// orchestrator.
+type JobRunner interface {
+	RunSyncQAJob(ctx context.Context, jobType, targetKey, repoID string, run func(rt TokenReporter) error) error
+}
+
+// TokenReporter is the minimum runtime shape the orchestrator uses
+// inside the job closure. Decouples internal/qa from llm.Runtime so
+// package boundaries stay narrow.
+type TokenReporter interface {
+	ReportTokens(input, output int)
+}
+
 // Orchestrator is the server-side deep-QA entry point. One instance
 // lives per running server. Ask(req) is the only user-facing method;
 // everything else is internal plumbing.
@@ -113,8 +134,16 @@ type Orchestrator struct {
 	requirements RequirementLookup
 	symbols      SymbolLookup
 	files        FileReader
+	jobs         JobRunner
 	lanes        *worker.Lanes
 	config       Config
+}
+
+// WithJobRunner installs the LLM-orchestrator adapter so QA jobs
+// show up on the Monitor page. Optional.
+func (o *Orchestrator) WithJobRunner(j JobRunner) *Orchestrator {
+	o.jobs = j
+	return o
 }
 
 // WithRepoLocator returns o with the supplied locator installed.
@@ -276,7 +305,18 @@ func (o *Orchestrator) Ask(ctx context.Context, in AskInput) (*AskResult, error)
 		Language:       languageFromString(in.Language),
 		MaxTokens:      int32(o.config.MaxAnswerTokens),
 	}
-	resp, err := o.synthesizer.AnswerQuestion(ctx, req)
+	var resp *reasoningv1.AnswerQuestionResponse
+	err = o.runSynth(ctx, in.RepositoryID, in.Question, func(rt TokenReporter) error {
+		var callErr error
+		resp, callErr = o.synthesizer.AnswerQuestion(ctx, req)
+		if callErr != nil {
+			return callErr
+		}
+		if rt != nil && resp.GetUsage() != nil {
+			rt.ReportTokens(int(resp.GetUsage().GetInputTokens()), int(resp.GetUsage().GetOutputTokens()))
+		}
+		return nil
+	})
 	result.Diagnostics.StageTimings["qa.llm_call"] = FromDuration(time.Since(t2))
 	if err != nil {
 		result.Diagnostics.FallbackUsed = "synthesis_failed"
@@ -408,6 +448,28 @@ func buildPromptEnvelope(in AskInput, contextMD string) string {
 	sb.WriteString(in.Question)
 	sb.WriteString("\n</question>\n")
 	return sb.String()
+}
+
+// runSynth wraps a synthesis closure in the LLM-job orchestrator when
+// a JobRunner is installed, otherwise runs inline with a no-op
+// TokenReporter. Keeps both the fast and deep pipelines DRY and
+// ensures QA jobs show up on the Monitor page when the server has
+// an orchestrator wired up.
+func (o *Orchestrator) runSynth(ctx context.Context, repoID, question string, run func(rt TokenReporter) error) error {
+	if o.jobs == nil {
+		return run(nil)
+	}
+	target := "qa:ask:" + repoID + ":" + hashQuestionKey(question)
+	return o.jobs.RunSyncQAJob(ctx, "ask", target, repoID, run)
+}
+
+// hashQuestionKey returns a short stable key for the orchestrator's
+// dedupe window. Collision probability is low enough that two
+// different questions submitted in the same ~30s window won't dedupe
+// each other by accident.
+func hashQuestionKey(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:6])
 }
 
 // languageFromString maps the AskInput.Language string to the proto

@@ -242,7 +242,18 @@ func (o *Orchestrator) deepAsk(ctx context.Context, in AskInput) (*AskResult, er
 		Language:       languageFromString(in.Language),
 		MaxTokens:      int32(o.config.MaxAnswerTokens),
 	}
-	resp, err := o.synthesizer.AnswerQuestion(ctx, req)
+	var resp *reasoningv1.AnswerQuestionResponse
+	err = o.runSynth(ctx, in.RepositoryID, in.Question, func(rt TokenReporter) error {
+		var callErr error
+		resp, callErr = o.synthesizer.AnswerQuestion(ctx, req)
+		if callErr != nil {
+			return callErr
+		}
+		if rt != nil && resp.GetUsage() != nil {
+			rt.ReportTokens(int(resp.GetUsage().GetInputTokens()), int(resp.GetUsage().GetOutputTokens()))
+		}
+		return nil
+	})
 	result.Diagnostics.StageTimings["qa.llm_call"] = FromDuration(time.Since(t4))
 	if err != nil {
 		// Even on synthesis failure we still emit the references we
