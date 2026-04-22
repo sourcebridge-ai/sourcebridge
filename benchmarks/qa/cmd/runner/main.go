@@ -90,9 +90,11 @@ func main() {
 	flag.StringVar(&mode, "mode", "deep", "QA mode: fast | deep")
 	flag.StringVar(&repositoryID, "repository-id", "", "Single repository ID. Used when every question targets the same repo.")
 	flag.StringVar(&repoMapSpec, "repo-map", "", "Comma-separated question.repo=server-id pairs. Overrides -repository-id per question.")
-	flag.StringVar(&workersDir, "workers-dir", "./workers", "Path to the workers/ dir (baseline arm only)")
+	flag.StringVar(&workersDir, "workers-dir", "./workers", "Path to the workers/ dir (baseline arm, local mode)")
 	var pathMapSpec string
-	flag.StringVar(&pathMapSpec, "repo-path-map", "", "Comma-separated question.repo=local-filesystem-path pairs. Baseline arm sets SOURCEBRIDGE_REPO_PATH per question.")
+	flag.StringVar(&pathMapSpec, "repo-path-map", "", "Comma-separated question.repo=path pairs. Baseline arm sets SOURCEBRIDGE_REPO_PATH per question.")
+	var baselinePod string
+	flag.StringVar(&baselinePod, "baseline-pod", "", "If set, baseline arm runs inside this k8s namespace/deployment (e.g. 'sourcebridge/deploy/sourcebridge-worker'). Uses kubectl exec. Bypasses -workers-dir.")
 	flag.StringVar(&notes, "notes", "", "Free-form notes recorded in environment.yaml")
 	flag.Parse()
 
@@ -139,7 +141,13 @@ func main() {
 		switch arm {
 		case "baseline":
 			repoPath := pathMap[q.Repo]
-			resp, err := runBaseline(ctx, workersDir, q.Question, mode, repoPath)
+			var resp map[string]any
+			var err error
+			if baselinePod != "" {
+				resp, err = runBaselineInPod(ctx, baselinePod, q.Question, mode, repoPath)
+			} else {
+				resp, err = runBaseline(ctx, workersDir, q.Question, mode, repoPath)
+			}
 			s.ElapsedMs = time.Since(start).Milliseconds()
 			if err != nil {
 				s.ErrorKind = "baseline_error"
@@ -252,6 +260,70 @@ func runBaseline(ctx context.Context, workersDir, question, mode, repoPath strin
 		return nil, fmt.Errorf("baseline response parse: %w", err)
 	}
 	return m, nil
+}
+
+// runBaselineInPod runs cli_ask.py inside a live k8s deployment pod
+// so the baseline arm sees the same LLM config, SurrealDB, and
+// repo-cache that the candidate arm sees. -baseline-pod takes a
+// "namespace/resource" spec (e.g. "sourcebridge/deploy/sourcebridge-worker").
+//
+// The pod must already have the workers tree installed at /app with
+// uv sync'd deps. This is the production worker image layout, so no
+// additional provisioning is required.
+func runBaselineInPod(ctx context.Context, podSpec, question, mode, repoPath string) (map[string]any, error) {
+	// Split "ns/resource" -> ("ns", "resource") so we can pass the
+	// resource form directly to kubectl.
+	slash := strings.IndexByte(podSpec, '/')
+	if slash <= 0 || slash == len(podSpec)-1 {
+		return nil, fmt.Errorf("invalid -baseline-pod %q (expected namespace/resource)", podSpec)
+	}
+	ns := podSpec[:slash]
+	resource := podSpec[slash+1:]
+	// Build: kubectl -n <ns> exec <resource> -- sh -c 'cd /app && env K=V uv run python workers/cli_ask.py "<q>" <mode>'
+	envPrefix := ""
+	if repoPath != "" {
+		envPrefix = "SOURCEBRIDGE_REPO_PATH=" + shellQuote(repoPath) + " "
+	}
+	script := fmt.Sprintf(
+		"cd /app && %sSOURCEBRIDGE_QA_LEGACY=1 uv run python workers/cli_ask.py %s %s",
+		envPrefix,
+		shellQuote(question),
+		mode,
+	)
+	args := []string{"-n", ns, "exec", resource, "--", "sh", "-c", script}
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("kubectl exec baseline failed: %w (stderr: %s)", err, stderr.String())
+	}
+	// cli_ask.py writes the JSON on stdout but emits warnings / logs
+	// on stderr. Take the stdout tail (last JSON object) to avoid
+	// stray lines corrupting the parse.
+	out := stdout.String()
+	// Trim anything before the first '{' on a line boundary.
+	if i := strings.Index(out, "\n{"); i >= 0 {
+		out = out[i+1:]
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		return nil, fmt.Errorf("baseline-in-pod parse: %w (stdout head: %q)", err, head(out, 200))
+	}
+	return m, nil
+}
+
+// shellQuote wraps s in single quotes with embedded single-quotes
+// escaped. Used for injecting the question into a `sh -c` script.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+func head(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 func runCandidate(ctx context.Context, serverURL, token, repoID, question, mode string) (map[string]any, error) {
