@@ -26,6 +26,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 	"github.com/sourcebridge/sourcebridge/internal/telemetry"
+	"github.com/sourcebridge/sourcebridge/internal/qa"
 	"github.com/sourcebridge/sourcebridge/internal/trash"
 	"github.com/sourcebridge/sourcebridge/internal/version"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
@@ -491,8 +492,9 @@ func (p *telemetryCountProvider) TelemetryCounts() (repos, users int, features [
 	}
 
 	counts = map[string]int{
-		"total_files":   totalFiles,
-		"total_symbols": totalSymbols,
+		"total_files":        totalFiles,
+		"total_symbols":      totalSymbols,
+		"qa_asks_total_14d":  qa.AsksTotal14d(),
 	}
 
 	// Merge in trash (recycle bin) counters. These are process-start
@@ -502,7 +504,11 @@ func (p *telemetryCountProvider) TelemetryCounts() (repos, users int, features [
 		counts[k] = v
 	}
 
-	return repos, 0, nil, counts
+	if qa.ServerSideEnabled() {
+		features = append(features, "qa_server_side")
+	}
+
+	return repos, 0, features, counts
 }
 
 func classifyTelemetryLLMProviderKind(provider string) string {

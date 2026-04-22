@@ -20,6 +20,8 @@ information is ever collected.
 | `trash_permanent_deletes_total` | `5` | Cumulative count of user-initiated `permanentlyDelete` invocations |
 | `trash_purges_total` | `120` | Cumulative count of rows purged by the retention worker |
 | `trash_size_gauge` | `17` | Most recent sampled count of items currently in the trash |
+| `qa_asks_total_14d` | `342` | Rolling 14-day count of server-side QA (`/api/v1/ask`, `ask` mutation, MCP `ask_question`) invocations on this install. Zero when server-side QA is disabled. |
+| `qa_server_side` feature flag | `["qa_server_side"]` | Present in the `features` array when `SOURCEBRIDGE_QA_SERVER_SIDE_ENABLED=true`. Lets the public dashboard track orchestrator adoption. |
 
 ## What is NOT collected
 

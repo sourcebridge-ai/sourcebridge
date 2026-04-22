@@ -202,6 +202,11 @@ func New(synth Synthesizer, reader UnderstandingReader, lanes *worker.Lanes, cfg
 // (classify + synthesize + normalize). The deep route adds retrieval
 // fan-out in Phase 3 but shares this scaffolding.
 func (o *Orchestrator) Ask(ctx context.Context, in AskInput) (*AskResult, error) {
+	// Count every invocation for telemetry (regardless of fallback /
+	// error path). Counter is process-local and read by the dashboard
+	// ping at most once per 24h.
+	CountAsk()
+
 	started := time.Now()
 	result := &AskResult{
 		References:          []AskReference{},

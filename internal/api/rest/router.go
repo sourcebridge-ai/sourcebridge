@@ -276,6 +276,12 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 			o = o.WithArtifactLookup(&qaArtifactLookup{store: s.knowledgeStore})
 		}
 		s.qaOrchestrator = o
+		// Publish the server-side QA state to the telemetry counters
+		// so the public dashboard can track adoption without collecting
+		// any request content. Counts: process-local ring buffer of
+		// ask invocations over 14 UTC days (qa.CountAsk is called from
+		// Orchestrator.Ask).
+		qa.SetServerSideEnabled(cfg.QA.ServerSideEnabled)
 	}
 
 	slog.Info("backend feature flags", "enabled", s.flags.EnabledNames())
