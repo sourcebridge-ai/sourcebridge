@@ -29,6 +29,12 @@ type readinessResponse struct {
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	// Capability discovery: CLI reads this header to decide whether to
+	// hit /api/v1/ask directly or fall back to the subprocess path.
+	// Cheap single round-trip — no mandatory GraphQL pre-flight.
+	if s.cfg != nil && s.cfg.QA.ServerSideEnabled {
+		w.Header().Set("X-SourceBridge-QA", "v1")
+	}
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("ok"))

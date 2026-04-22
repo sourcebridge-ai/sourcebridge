@@ -20,6 +20,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/db"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/qa"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
 
 	reasoningv1 "github.com/sourcebridge/sourcebridge/gen/go/reasoning/v1"
@@ -285,6 +286,16 @@ type mcpHandler struct {
 	permChecker  MCPPermissionChecker
 	auditLogger  MCPAuditLogger
 	toolExtender MCPToolExtender
+
+	// qaOrchestrator powers the ask_question tool when server-side QA
+	// is enabled. Nil = the tool is advertised with a diagnostic
+	// "server-side QA disabled" response so clients get a clear hint
+	// instead of "Unknown tool".
+	qaOrchestrator *qa.Orchestrator
+	// qaEnabled mirrors QAConfig.ServerSideEnabled. Checked at
+	// tool-call time so an operator flag-flip takes effect without a
+	// restart.
+	qaEnabled bool
 }
 
 // mcpLocalChans holds the per-pod delivery channels for an SSE session.
@@ -782,6 +793,24 @@ func (h *mcpHandler) baseTools() []mcpToolDefinition {
 			},
 		},
 		{
+			Name:        "ask_question",
+			Description: "Ask a question about a repository using the server-side deep-QA orchestrator. Returns an answer, structured references, related requirements, and diagnostic telemetry. Prefer this over explain_code when the question is about the whole codebase rather than a single symbol.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"repository_id":   map[string]interface{}{"type": "string", "description": "Repository ID"},
+					"question":        map[string]interface{}{"type": "string", "description": "Free-form question"},
+					"mode":            map[string]interface{}{"type": "string", "enum": []string{"fast", "deep"}, "description": "Retrieval mode (default: deep for whole-repo questions)"},
+					"file_path":       map[string]interface{}{"type": "string", "description": "Optional file-path pin"},
+					"code":            map[string]interface{}{"type": "string", "description": "Optional inline code context"},
+					"language":        map[string]interface{}{"type": "string", "description": "Language hint (go, python, typescript, ...)"},
+					"conversation_id": map[string]interface{}{"type": "string", "description": "Stable id across turns"},
+					"prior_messages":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Prior conversation turns"},
+				},
+				"required": []string{"repository_id", "question"},
+			},
+		},
+		{
 			Name:        "get_cliff_notes",
 			Description: "Get the cliff notes (AI-generated summary) for a repository, module, file, symbol, or requirement.",
 			InputSchema: map[string]interface{}{
@@ -837,6 +866,8 @@ func (h *mcpHandler) handleToolsCallCtx(ctx context.Context, session *mcpSession
 		result, toolErr = h.callGetImpactReport(session, params.Arguments)
 	case "get_cliff_notes":
 		result, toolErr = h.callGetCliffNotes(session, params.Arguments)
+	case "ask_question":
+		result, toolErr = h.callAskQuestion(ctx, session, params.Arguments)
 	default:
 		// Try enterprise tool extender
 		if h.toolExtender != nil {
@@ -986,6 +1017,67 @@ func (h *mcpHandler) callExplainCode(session *mcpSession, args json.RawMessage) 
 }
 
 // callExplainCodeCtx is the streaming-capable variant. When a
+// ---------------------------------------------------------------------------
+// Tool: ask_question
+// ---------------------------------------------------------------------------
+
+// callAskQuestion dispatches to the server-side QA orchestrator. Unlike
+// explain_code (which is symbol-scoped), ask_question is whole-repo
+// orchestrated retrieval + synthesis, with structured references and
+// diagnostics. Returns a graceful 503-style payload when the flag is
+// off so MCP clients get a hint, not an "Unknown tool" error.
+func (h *mcpHandler) callAskQuestion(ctx context.Context, session *mcpSession, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		RepositoryID   string   `json:"repository_id"`
+		Question       string   `json:"question"`
+		Mode           string   `json:"mode"`
+		FilePath       string   `json:"file_path"`
+		Code           string   `json:"code"`
+		Language       string   `json:"language"`
+		ConversationID string   `json:"conversation_id"`
+		PriorMessages  []string `json:"prior_messages"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %v", err)
+	}
+	if err := h.checkRepoAccess(session, params.RepositoryID); err != nil {
+		return nil, err
+	}
+	if !h.qaEnabled || h.qaOrchestrator == nil {
+		return map[string]interface{}{
+			"answer":        "Server-side QA is disabled on this deployment. Ask the operator to set SOURCEBRIDGE_QA_SERVER_SIDE_ENABLED=true.",
+			"error_kind":    "qa_disabled",
+			"references":    []interface{}{},
+			"diagnostics":   map[string]interface{}{"fallbackUsed": "server_side_disabled"},
+		}, nil
+	}
+	mode := qa.Mode(strings.ToLower(params.Mode))
+	if mode == "" {
+		// Deep is the whole-repo default for MCP clients; fast is only
+		// meaningful when the caller has supplied a file/code pin.
+		if params.FilePath != "" || params.Code != "" {
+			mode = qa.ModeFast
+		} else {
+			mode = qa.ModeDeep
+		}
+	}
+	in := qa.AskInput{
+		RepositoryID:   params.RepositoryID,
+		Question:       params.Question,
+		Mode:           mode,
+		FilePath:       params.FilePath,
+		Code:           params.Code,
+		Language:       params.Language,
+		ConversationID: params.ConversationID,
+		PriorMessages:  params.PriorMessages,
+	}
+	res, err := h.qaOrchestrator.Ask(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // ContentEmitter is present on the context (i.e. the request came in
 // through handleStreamingToolCall with a progressToken), we open the
 // worker's AnswerQuestionStream RPC and forward each delta up to the

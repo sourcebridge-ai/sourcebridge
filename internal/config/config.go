@@ -27,6 +27,7 @@ type Config struct {
 	MCP           MCPConfig           `mapstructure:"mcp"`
 	Comprehension ComprehensionConfig `mapstructure:"comprehension"`
 	Trash         TrashConfig         `mapstructure:"trash"`
+	QA            QAConfig            `mapstructure:"qa"`
 }
 
 // ComprehensionConfig holds tunables for the LLM job orchestrator and
@@ -183,6 +184,44 @@ type MCPConfig struct {
 	MaxSessions int    `mapstructure:"max_sessions"` // max concurrent MCP sessions (0 = unlimited)
 }
 
+// QAConfig controls the server-side deep-QA orchestrator.
+//
+// The orchestrator (internal/qa) owns both fast and deep question
+// answering for hosted deployments. For local-desktop installs the
+// subprocess fast path is kept by default so working-tree answers
+// still work against uncommitted edits.
+//
+// Limits are token-budget based. A request/min per-IP cap is only a
+// DoS guard; the meaningful budgets are per-session, per-repo, and
+// per-deployment token spend.
+type QAConfig struct {
+	// ServerSideEnabled turns on the new ask endpoint (GraphQL ask,
+	// REST POST /api/v1/ask, MCP ask_question). When false the server
+	// returns 503 on these surfaces and the CLI falls back to the
+	// subprocess path.
+	ServerSideEnabled bool `mapstructure:"server_side_enabled"` // SOURCEBRIDGE_QA_SERVER_SIDE_ENABLED
+	// LocalFastModeSubprocess keeps the CLI's subprocess fast path
+	// active on local-desktop installs so developers retain
+	// working-tree visibility (Ledger F13). Hosted / multi-tenant
+	// installs set this false once they've validated the server path.
+	LocalFastModeSubprocess bool `mapstructure:"local_fast_mode_subprocess"`
+	// QuestionMaxBytes caps question length. Default 4096 (4 KB).
+	QuestionMaxBytes int `mapstructure:"question_max_bytes"`
+	// SessionTokensPerHour caps total prompt+completion tokens per
+	// user session per hour. Default 100_000. Zero disables.
+	SessionTokensPerHour int `mapstructure:"session_tokens_per_hour"`
+	// RepoTokensPerDay caps total tokens per repo per day.
+	// Default 1_000_000. Zero disables.
+	RepoTokensPerDay int `mapstructure:"repo_tokens_per_day"`
+	// DeploymentTokensPerDay is the operator-level circuit breaker.
+	// Default 10_000_000. Zero disables.
+	DeploymentTokensPerDay int `mapstructure:"deployment_tokens_per_day"`
+	// SynthesisLane bounds concurrent synthesis calls (qa.llm_call)
+	// against the reasoning worker. Default 4 — tuned so embed and
+	// synthesis don't starve each other.
+	SynthesisLane int `mapstructure:"synthesis_lane"`
+}
+
 // TrashConfig controls the soft-delete recycle bin feature.
 //
 // When Enabled is false, moveToTrash mutations and the retention worker
@@ -265,6 +304,15 @@ func Defaults() *Config {
 			SweepIntervalSec: 6 * 3600,
 			MaxBatchSize:     500,
 		},
+		QA: QAConfig{
+			ServerSideEnabled:       false, // default-off through Phase 4
+			LocalFastModeSubprocess: true,
+			QuestionMaxBytes:        4096,
+			SessionTokensPerHour:    100_000,
+			RepoTokensPerDay:        1_000_000,
+			DeploymentTokensPerDay:  10_000_000,
+			SynthesisLane:           4,
+		},
 	}
 }
 
@@ -326,6 +374,13 @@ func Load() (*Config, error) {
 	v.SetDefault("trash.retention_days", cfg.Trash.RetentionDays)
 	v.SetDefault("trash.sweep_interval_sec", cfg.Trash.SweepIntervalSec)
 	v.SetDefault("trash.max_batch_size", cfg.Trash.MaxBatchSize)
+	v.SetDefault("qa.server_side_enabled", cfg.QA.ServerSideEnabled)
+	v.SetDefault("qa.local_fast_mode_subprocess", cfg.QA.LocalFastModeSubprocess)
+	v.SetDefault("qa.question_max_bytes", cfg.QA.QuestionMaxBytes)
+	v.SetDefault("qa.session_tokens_per_hour", cfg.QA.SessionTokensPerHour)
+	v.SetDefault("qa.repo_tokens_per_day", cfg.QA.RepoTokensPerDay)
+	v.SetDefault("qa.deployment_tokens_per_day", cfg.QA.DeploymentTokensPerDay)
+	v.SetDefault("qa.synthesis_lane", cfg.QA.SynthesisLane)
 
 	// Try reading config file (not required)
 	if err := v.ReadInConfig(); err != nil {
@@ -377,6 +432,15 @@ func (c *Config) Validate() error {
 		if c.Trash.MaxBatchSize < 1 || c.Trash.MaxBatchSize > 10000 {
 			return fmt.Errorf("invalid trash.max_batch_size: %d (must be 1..10000)", c.Trash.MaxBatchSize)
 		}
+	}
+	if c.QA.QuestionMaxBytes < 0 {
+		return fmt.Errorf("invalid qa.question_max_bytes: %d (must be >= 0)", c.QA.QuestionMaxBytes)
+	}
+	if c.QA.SessionTokensPerHour < 0 || c.QA.RepoTokensPerDay < 0 || c.QA.DeploymentTokensPerDay < 0 {
+		return fmt.Errorf("qa token budgets must be non-negative (0 disables)")
+	}
+	if c.QA.SynthesisLane < 0 {
+		return fmt.Errorf("invalid qa.synthesis_lane: %d (must be >= 0)", c.QA.SynthesisLane)
 	}
 	return nil
 }

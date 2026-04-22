@@ -458,15 +458,15 @@ func TestMCP_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatal("expected tools array in result")
 	}
-	if len(tools) != 5 {
-		t.Fatalf("expected 5 tools, got %d", len(tools))
+	if len(tools) != 6 {
+		t.Fatalf("expected 6 tools, got %d", len(tools))
 	}
 
 	names := make(map[string]bool)
 	for _, tool := range tools {
 		names[tool.Name] = true
 	}
-	expected := []string{"search_symbols", "explain_code", "get_requirements", "get_impact_report", "get_cliff_notes"}
+	expected := []string{"search_symbols", "explain_code", "get_requirements", "get_impact_report", "get_cliff_notes", "ask_question"}
 	for _, name := range expected {
 		if !names[name] {
 			t.Errorf("missing tool: %s", name)

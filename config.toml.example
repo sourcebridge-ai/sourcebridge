@@ -93,3 +93,32 @@ mode = "oss"
 # SOURCEBRIDGE_DELTA_REGEN_MAX_PER_REPO_PER_HOUR (default: 20)
 #   Rolling-hour cap per repo. Protects against reindex thrash (a user
 #   reindexing 20×/hour won't spawn 20 regen waves).
+
+# ─── Deep-QA server-side orchestrator ────────────────────────────
+# The server-side QA orchestrator (internal/qa) owns both fast and
+# deep question answering for hosted deployments. Local-desktop
+# installs keep the subprocess fast path by default so developers
+# retain working-tree visibility (uncommitted edits).
+
+# SOURCEBRIDGE_QA_SERVER_SIDE_ENABLED (default: false)
+#   Turns on POST /api/v1/ask, the ask GraphQL mutation, and the
+#   MCP ask_question tool. Default off through the parity benchmark
+#   phase; flip to true once the paired benchmark report is in-repo.
+
+# SOURCEBRIDGE_QA_LOCAL_FAST_MODE_SUBPROCESS (default: true)
+#   Keeps the CLI subprocess fast path active on local-desktop
+#   installs. Hosted / multi-tenant installs set this false once
+#   they've validated the server path.
+
+# SOURCEBRIDGE_QA_QUESTION_MAX_BYTES (default: 4096)
+#   Hard cap on question length. Requests over this cap return 400.
+
+# SOURCEBRIDGE_QA_SESSION_TOKENS_PER_HOUR (default: 100000)
+# SOURCEBRIDGE_QA_REPO_TOKENS_PER_DAY (default: 1000000)
+# SOURCEBRIDGE_QA_DEPLOYMENT_TOKENS_PER_DAY (default: 10000000)
+#   Token-budget rate limits. Zero disables a layer. Exceeding any
+#   returns 429 with Retry-After.
+
+# SOURCEBRIDGE_QA_SYNTHESIS_LANE (default: 4)
+#   Concurrent synthesis calls against the reasoning worker. Keeps
+#   QA and embedding-search from starving each other under load.

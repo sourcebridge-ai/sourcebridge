@@ -27,6 +27,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
+	"github.com/sourcebridge/sourcebridge/internal/qa"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 	"github.com/sourcebridge/sourcebridge/internal/trash"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
@@ -155,6 +156,8 @@ type Server struct {
 	summaryNodeStore   comprehension.SummaryNodeStore // cached summary tree nodes
 	cache              db.Cache                       // shared KV cache (memory or Redis); nil = MCP session store falls back to in-memory
 	trashStore         trash.Store                    // soft-delete recycle bin; nil = feature disabled
+	qaOrchestrator     *qa.Orchestrator               // server-side deep-QA orchestrator; nil = server-side QA disabled
+	workerLanes        *worker.Lanes                  // shared lane registry used by search + qa
 }
 
 // getStore returns a tenant-filtered store when RepoAccessMiddleware has
@@ -228,6 +231,30 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 			s.orchestrator.SetIntakePaused(rec.IntakePaused)
 		}
 	}
+
+	// Worker lanes — shared by search.embed and qa.synthesize so they
+	// don't starve each other under load.
+	s.workerLanes = worker.NewLanes()
+	if cfg != nil && cfg.QA.SynthesisLane > 0 {
+		s.workerLanes.Register(worker.NewLane(worker.LaneQASynthesize, cfg.QA.SynthesisLane))
+	}
+
+	// Server-side QA orchestrator. Default off until Phase 5 flips
+	// QAConfig.ServerSideEnabled. The handler also double-checks the
+	// flag so operators can disable cleanly without a restart.
+	if cfg != nil {
+		askModel := cfg.LLM.AskModel
+		qaOrchCfg := qa.Config{
+			QuestionMaxBytes: cfg.QA.QuestionMaxBytes,
+			AskModel:         askModel,
+		}
+		var reader qa.UnderstandingReader
+		if s.knowledgeStore != nil && s.summaryNodeStore != nil {
+			reader = qaUnderstandingReader{knowledge: s.knowledgeStore, summaries: s.summaryNodeStore}
+		}
+		s.qaOrchestrator = qa.New(s.worker, reader, s.workerLanes, qaOrchCfg)
+	}
+
 	slog.Info("backend feature flags", "enabled", s.flags.EnabledNames())
 
 	s.setupRouter()
@@ -329,6 +356,10 @@ func (s *Server) setupRouter() {
 		// model generates them. GraphQL's `discussCode` mutation is
 		// still the unary fallback for clients that can't consume SSE.
 		r.With(aiConcurrencyMiddleware).Post("/api/v1/discuss/stream", s.handleDiscussStream)
+
+		// Server-side deep-QA orchestrator. Default-gated on
+		// QAConfig.ServerSideEnabled — handler returns 503 when off.
+		r.With(aiConcurrencyMiddleware).Post("/api/v1/ask", s.handleAsk)
 	})
 
 	// Admin API routes (requires auth, accepts both JWT and API tokens)
@@ -412,6 +443,8 @@ func (s *Server) setupRouter() {
 		sessionTTL := time.Duration(s.cfg.MCP.SessionTTL) * time.Second
 		keepalive := time.Duration(s.cfg.MCP.Keepalive) * time.Second
 		s.mcp = newMCPHandler(s.store, s.knowledgeStore, s.worker, s.cfg.MCP.Repos, sessionTTL, keepalive, s.cfg.MCP.MaxSessions, s.cache)
+		s.mcp.qaOrchestrator = s.qaOrchestrator
+		s.mcp.qaEnabled = s.cfg.QA.ServerSideEnabled
 		// Wire enterprise extensions if provided via server options
 		if s.mcpPermChecker != nil {
 			s.mcp.permChecker = s.mcpPermChecker
