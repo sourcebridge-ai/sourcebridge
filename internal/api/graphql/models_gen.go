@@ -765,14 +765,24 @@ type ScopeOrigin struct {
 }
 
 type SearchResult struct {
-	Type           string  `json:"type"`
-	ID             string  `json:"id"`
-	Title          string  `json:"title"`
-	Description    *string `json:"description,omitempty"`
-	FilePath       *string `json:"filePath,omitempty"`
-	Line           *int    `json:"line,omitempty"`
-	RepositoryID   string  `json:"repositoryId"`
-	RepositoryName string  `json:"repositoryName"`
+	Type           string         `json:"type"`
+	ID             string         `json:"id"`
+	Title          string         `json:"title"`
+	Description    *string        `json:"description,omitempty"`
+	FilePath       *string        `json:"filePath,omitempty"`
+	Line           *int           `json:"line,omitempty"`
+	RepositoryID   string         `json:"repositoryId"`
+	RepositoryName string         `json:"repositoryName"`
+	Score          *float64       `json:"score,omitempty"`
+	Signals        *SearchSignals `json:"signals,omitempty"`
+}
+
+type SearchSignals struct {
+	Exact       *float64 `json:"exact,omitempty"`
+	Lexical     *float64 `json:"lexical,omitempty"`
+	Semantic    *float64 `json:"semantic,omitempty"`
+	Graph       *float64 `json:"graph,omitempty"`
+	Requirement *float64 `json:"requirement,omitempty"`
 }
 
 type ServiceHealth struct {

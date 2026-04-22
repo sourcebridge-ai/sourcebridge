@@ -751,6 +751,24 @@ type SearchResult {
   line: Int
   repositoryId: ID!
   repositoryName: String!
+
+  # Hybrid retrieval fields (all additive and nullable — legacy clients
+  # that request only the fields above keep working unchanged). See
+  # thoughts/shared/plans/2026-04-22-hybrid-retrieval-search.md Phase 3.
+  score: Float
+  signals: SearchSignals
+}
+
+# SearchSignals carries the per-adapter score breakdown for one
+# result. Fields are populated when the corresponding adapter fired
+# for this entity; a missing (null) signal means the adapter did not
+# contribute. Used by the UI to render signal chips.
+type SearchSignals {
+  exact: Float
+  lexical: Float
+  semantic: Float
+  graph: Float
+  requirement: Float
 }
 
 # Understanding score types

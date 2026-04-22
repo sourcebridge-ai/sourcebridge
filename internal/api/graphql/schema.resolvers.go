@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	commonv1 "github.com/sourcebridge/sourcebridge/gen/go/common/v1"
@@ -28,6 +29,7 @@ import (
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/requirements"
+	"github.com/sourcebridge/sourcebridge/internal/search"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 	"github.com/sourcebridge/sourcebridge/internal/version"
 )
@@ -2498,94 +2500,114 @@ func (r *queryResolver) Requirement(ctx context.Context, id string) (*Requiremen
 }
 
 // Search is the resolver for the search field.
+//
+// Implements the hybrid retrieval contract per
+// thoughts/shared/plans/2026-04-22-hybrid-retrieval-search.md:
+//
+//   - When repositoryId is provided, runs one repo-scoped call into
+//     internal/search.Service.
+//   - When repositoryId is omitted, enumerates the caller's authorized
+//     repos (bounded by maxCrossRepoSearchRepos), fans out concurrently
+//     (bounded by crossRepoSearchConcurrency), and merges per-repo
+//     results with a second-stage RRF. Raw per-repo fused scores are
+//     never compared directly.
+//   - Requirements and files remain lexical in V1 (the hybrid service
+//     is symbol-centric). The resolver still surfaces them so the web
+//     search page's mixed-entity UX continues to work.
+//
+// When r.Search is nil (e.g. in tests that construct a bare Resolver),
+// falls back to the legacy substring implementation to preserve
+// correctness during partial rollouts.
 func (r *queryResolver) Search(ctx context.Context, query string, repositoryID *string, limit *int) ([]*SearchResult, error) {
 	if r.getStore(ctx) == nil {
 		return []*SearchResult{}, nil
+	}
+	if r.SearchSvc == nil {
+		return r.searchLegacy(ctx, query, repositoryID, limit)
 	}
 
 	maxResults := 50
 	if limit != nil && *limit > 0 && *limit < 200 {
 		maxResults = *limit
 	}
+	store := r.getStore(ctx)
 
-	var results []*SearchResult
-	queryLower := strings.ToLower(query)
-
-	// Search across all repositories
-	repos := r.getStore(ctx).ListRepositories()
-	for _, repo := range repos {
-		if repositoryID != nil && *repositoryID != "" && repo.ID != *repositoryID {
-			continue
+	// Select the authorized repo scope. If repositoryID is provided
+	// we validate access via the repo-scoped store; otherwise we
+	// enumerate all repos the caller can see.
+	var scopedRepos []*graphstore.Repository
+	if repositoryID != nil && *repositoryID != "" {
+		repo := store.GetRepository(*repositoryID)
+		if repo != nil {
+			scopedRepos = []*graphstore.Repository{repo}
 		}
-
-		// Search symbols
-		symbols, _ := r.getStore(ctx).GetSymbols(repo.ID, nil, nil, 0, 0)
-		for _, sym := range symbols {
-			if len(results) >= maxResults {
-				break
-			}
-			nameLower := strings.ToLower(sym.Name)
-			qualLower := strings.ToLower(sym.QualifiedName)
-			if strings.Contains(nameLower, queryLower) || strings.Contains(qualLower, queryLower) {
-				fp := sym.FilePath
-				sl := sym.StartLine
-				results = append(results, &SearchResult{
-					Type:           "symbol",
-					ID:             sym.ID,
-					Title:          sym.Name,
-					Description:    &sym.QualifiedName,
-					FilePath:       &fp,
-					Line:           &sl,
-					RepositoryID:   repo.ID,
-					RepositoryName: repo.Name,
-				})
-			}
-		}
-
-		// Search requirements
-		reqs, _ := r.getStore(ctx).GetRequirements(repo.ID, 0, 0)
-		for _, req := range reqs {
-			if len(results) >= maxResults {
-				break
-			}
-			titleLower := strings.ToLower(req.Title)
-			descLower := strings.ToLower(req.Description)
-			extLower := strings.ToLower(req.ExternalID)
-			if strings.Contains(titleLower, queryLower) || strings.Contains(descLower, queryLower) || strings.Contains(extLower, queryLower) {
-				desc := req.Description
-				results = append(results, &SearchResult{
-					Type:           "requirement",
-					ID:             req.ID,
-					Title:          req.ExternalID + ": " + req.Title,
-					Description:    &desc,
-					RepositoryID:   repo.ID,
-					RepositoryName: repo.Name,
-				})
-			}
-		}
-
-		// Search files
-		files := r.getStore(ctx).GetFiles(repo.ID)
-		for _, f := range files {
-			if len(results) >= maxResults {
-				break
-			}
-			pathLower := strings.ToLower(f.Path)
-			if strings.Contains(pathLower, queryLower) {
-				fp := f.Path
-				results = append(results, &SearchResult{
-					Type:           "file",
-					ID:             f.ID,
-					Title:          f.Path,
-					FilePath:       &fp,
-					RepositoryID:   repo.ID,
-					RepositoryName: repo.Name,
-				})
-			}
-		}
+	} else {
+		scopedRepos = store.ListRepositories()
+	}
+	if len(scopedRepos) == 0 {
+		return []*SearchResult{}, nil
+	}
+	if len(scopedRepos) > maxCrossRepoSearchRepos {
+		return nil, fmt.Errorf("scope required: authorized on %d repos but cross-repo search caps at %d — pass repositoryId", len(scopedRepos), maxCrossRepoSearchRepos)
 	}
 
-	return results, nil
+	// Run the hybrid service per repo (bounded fanout). Requirements
+	// and files are fetched alongside so we can merge them into the
+	// final mixed-entity list.
+	symbolLists := make([][]*SearchResult, len(scopedRepos))
+	reqLists := make([][]*SearchResult, len(scopedRepos))
+	fileLists := make([][]*SearchResult, len(scopedRepos))
+
+	sem := make(chan struct{}, crossRepoSearchConcurrency)
+	var wg sync.WaitGroup
+	for i, repo := range scopedRepos {
+		wg.Add(1)
+		go func(i int, repo *graphstore.Repository) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			cctx, cancel := context.WithTimeout(ctx, perRepoSearchTimeout)
+			defer cancel()
+			resp, err := r.SearchSvc.Search(cctx, &search.Request{
+				Repo:  repo.ID,
+				Query: query,
+				Limit: maxResults,
+			})
+			if err != nil || resp == nil {
+				return
+			}
+			syms := make([]*SearchResult, 0, len(resp.Results))
+			for _, res := range resp.Results {
+				syms = append(syms, mapSearchResultSymbol(res, repo))
+			}
+			symbolLists[i] = syms
+			reqLists[i] = legacyRequirementResults(store, repo, query, maxResults)
+			fileLists[i] = legacyFileResults(store, repo, query, maxResults)
+		}(i, repo)
+	}
+	wg.Wait()
+
+	// Symbol merge: second-stage RRF preserves rank stability across
+	// incomparable per-repo score distributions.
+	symbols := mergeSearchResultRanks(symbolLists)
+	// Requirements / files are lexical today — no score; just flatten
+	// in repo order. This preserves the current grouped-rendering UX
+	// without pretending we have ranked signals for them.
+	var reqs, files []*SearchResult
+	for i := range scopedRepos {
+		reqs = append(reqs, reqLists[i]...)
+		files = append(files, fileLists[i]...)
+	}
+
+	out := make([]*SearchResult, 0, len(symbols)+len(reqs)+len(files))
+	out = append(out, symbols...)
+	out = append(out, reqs...)
+	out = append(out, files...)
+	if len(out) > maxResults {
+		out = out[:maxResults]
+	}
+	return out, nil
 }
 
 // TraceabilityMatrix is the resolver for the traceabilityMatrix field.

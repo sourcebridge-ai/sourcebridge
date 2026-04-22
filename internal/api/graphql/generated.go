@@ -763,8 +763,18 @@ type ComplexityRoot struct {
 		Line           func(childComplexity int) int
 		RepositoryID   func(childComplexity int) int
 		RepositoryName func(childComplexity int) int
+		Score          func(childComplexity int) int
+		Signals        func(childComplexity int) int
 		Title          func(childComplexity int) int
 		Type           func(childComplexity int) int
+	}
+
+	SearchSignals struct {
+		Exact       func(childComplexity int) int
+		Graph       func(childComplexity int) int
+		Lexical     func(childComplexity int) int
+		Requirement func(childComplexity int) int
+		Semantic    func(childComplexity int) int
 	}
 
 	ServiceHealth struct {
@@ -5151,6 +5161,20 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SearchResult.RepositoryName(childComplexity), true
 
+	case "SearchResult.score":
+		if e.complexity.SearchResult.Score == nil {
+			break
+		}
+
+		return e.complexity.SearchResult.Score(childComplexity), true
+
+	case "SearchResult.signals":
+		if e.complexity.SearchResult.Signals == nil {
+			break
+		}
+
+		return e.complexity.SearchResult.Signals(childComplexity), true
+
 	case "SearchResult.title":
 		if e.complexity.SearchResult.Title == nil {
 			break
@@ -5164,6 +5188,41 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.SearchResult.Type(childComplexity), true
+
+	case "SearchSignals.exact":
+		if e.complexity.SearchSignals.Exact == nil {
+			break
+		}
+
+		return e.complexity.SearchSignals.Exact(childComplexity), true
+
+	case "SearchSignals.graph":
+		if e.complexity.SearchSignals.Graph == nil {
+			break
+		}
+
+		return e.complexity.SearchSignals.Graph(childComplexity), true
+
+	case "SearchSignals.lexical":
+		if e.complexity.SearchSignals.Lexical == nil {
+			break
+		}
+
+		return e.complexity.SearchSignals.Lexical(childComplexity), true
+
+	case "SearchSignals.requirement":
+		if e.complexity.SearchSignals.Requirement == nil {
+			break
+		}
+
+		return e.complexity.SearchSignals.Requirement(childComplexity), true
+
+	case "SearchSignals.semantic":
+		if e.complexity.SearchSignals.Semantic == nil {
+			break
+		}
+
+		return e.complexity.SearchSignals.Semantic(childComplexity), true
 
 	case "ServiceHealth.name":
 		if e.complexity.ServiceHealth.Name == nil {
@@ -28847,6 +28906,10 @@ func (ec *executionContext) fieldContext_Query_search(ctx context.Context, field
 				return ec.fieldContext_SearchResult_repositoryId(ctx, field)
 			case "repositoryName":
 				return ec.fieldContext_SearchResult_repositoryName(ctx, field)
+			case "score":
+				return ec.fieldContext_SearchResult_score(ctx, field)
+			case "signals":
+				return ec.fieldContext_SearchResult_signals(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type SearchResult", field.Name)
 		},
@@ -36480,6 +36543,305 @@ func (ec *executionContext) fieldContext_SearchResult_repositoryName(_ context.C
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchResult_score(ctx context.Context, field graphql.CollectedField, obj *SearchResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchResult_score(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Score, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchResult_score(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchResult_signals(ctx context.Context, field graphql.CollectedField, obj *SearchResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchResult_signals(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Signals, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*SearchSignals)
+	fc.Result = res
+	return ec.marshalOSearchSignals2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐSearchSignals(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchResult_signals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "exact":
+				return ec.fieldContext_SearchSignals_exact(ctx, field)
+			case "lexical":
+				return ec.fieldContext_SearchSignals_lexical(ctx, field)
+			case "semantic":
+				return ec.fieldContext_SearchSignals_semantic(ctx, field)
+			case "graph":
+				return ec.fieldContext_SearchSignals_graph(ctx, field)
+			case "requirement":
+				return ec.fieldContext_SearchSignals_requirement(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SearchSignals", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchSignals_exact(ctx context.Context, field graphql.CollectedField, obj *SearchSignals) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchSignals_exact(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Exact, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchSignals_exact(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchSignals",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchSignals_lexical(ctx context.Context, field graphql.CollectedField, obj *SearchSignals) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchSignals_lexical(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Lexical, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchSignals_lexical(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchSignals",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchSignals_semantic(ctx context.Context, field graphql.CollectedField, obj *SearchSignals) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchSignals_semantic(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Semantic, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchSignals_semantic(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchSignals",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchSignals_graph(ctx context.Context, field graphql.CollectedField, obj *SearchSignals) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchSignals_graph(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Graph, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchSignals_graph(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchSignals",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchSignals_requirement(ctx context.Context, field graphql.CollectedField, obj *SearchSignals) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchSignals_requirement(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Requirement, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchSignals_requirement(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchSignals",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
 		},
 	}
 	return fc, nil
@@ -48267,6 +48629,54 @@ func (ec *executionContext) _SearchResult(ctx context.Context, sel ast.Selection
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "score":
+			out.Values[i] = ec._SearchResult_score(ctx, field, obj)
+		case "signals":
+			out.Values[i] = ec._SearchResult_signals(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var searchSignalsImplementors = []string{"SearchSignals"}
+
+func (ec *executionContext) _SearchSignals(ctx context.Context, sel ast.SelectionSet, obj *SearchSignals) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, searchSignalsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SearchSignals")
+		case "exact":
+			out.Values[i] = ec._SearchSignals_exact(ctx, field, obj)
+		case "lexical":
+			out.Values[i] = ec._SearchSignals_lexical(ctx, field, obj)
+		case "semantic":
+			out.Values[i] = ec._SearchSignals_semantic(ctx, field, obj)
+		case "graph":
+			out.Values[i] = ec._SearchSignals_graph(ctx, field, obj)
+		case "requirement":
+			out.Values[i] = ec._SearchSignals_requirement(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -52750,6 +53160,13 @@ func (ec *executionContext) marshalORestoreConflictResolution2ᚖgithubᚗcomᚋ
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) marshalOSearchSignals2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐSearchSignals(ctx context.Context, sel ast.SelectionSet, v *SearchSignals) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._SearchSignals(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOSimulatedImpactReport2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐSimulatedImpactReport(ctx context.Context, sel ast.SelectionSet, v *SimulatedImpactReport) graphql.Marshaler {

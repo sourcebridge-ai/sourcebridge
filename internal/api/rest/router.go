@@ -27,6 +27,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
+	"github.com/sourcebridge/sourcebridge/internal/search"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 	"github.com/sourcebridge/sourcebridge/internal/trash"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
@@ -155,6 +156,8 @@ type Server struct {
 	summaryNodeStore   comprehension.SummaryNodeStore // cached summary tree nodes
 	cache              db.Cache                       // shared KV cache (memory or Redis); nil = MCP session store falls back to in-memory
 	trashStore         trash.Store                    // soft-delete recycle bin; nil = feature disabled
+	searchSvc          *search.Service                // hybrid retrieval backbone; always set in NewServer
+	reqBooster         *search.RequirementBooster     // repo-scoped requirement link cache; feeds searchSvc boosters
 }
 
 // getStore returns a tenant-filtered store when RepoAccessMiddleware has
@@ -230,6 +233,19 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 	}
 	slog.Info("backend feature flags", "enabled", s.flags.EnabledNames())
 
+	// Build the hybrid retrieval service. One instance per process,
+	// shared by every transport adapter (MCP, GraphQL, REST, CLI).
+	// Embedder is wired when a worker client is available; absent it,
+	// the vector arm reports unavailable and the fuser degrades.
+	s.searchSvc = search.NewService(s.store)
+	if s.worker != nil {
+		emb := search.NewWorkerEmbedder(s.worker, "")
+		cached := search.NewCachedEmbedder(emb, 2048, 5*time.Minute, 5, 30*time.Second)
+		s.searchSvc.WithEmbedder(cached)
+	}
+	s.reqBooster = &search.RequirementBooster{Store: s.store}
+	s.searchSvc.WithRequirementBooster(s.reqBooster)
+
 	s.setupRouter()
 	return s
 }
@@ -302,7 +318,19 @@ func (s *Server) setupRouter() {
 
 	// GraphQL server
 	gqlSrv := handler.NewDefaultServer(graphql.NewExecutableSchema(graphql.Config{
-		Resolvers: &graphql.Resolver{Store: s.store, KnowledgeStore: s.knowledgeStore, Worker: s.worker, Orchestrator: s.orchestrator, Config: s.cfg, EventBus: s.eventBus, Flags: s.flags, GitConfig: s.gitConfigStore, ComprehensionStore: s.comprehensionStore, TrashStore: s.trashStore},
+		Resolvers: &graphql.Resolver{
+			Store:              s.store,
+			KnowledgeStore:     s.knowledgeStore,
+			Worker:             s.worker,
+			Orchestrator:       s.orchestrator,
+			Config:             s.cfg,
+			EventBus:           s.eventBus,
+			Flags:              s.flags,
+			GitConfig:          s.gitConfigStore,
+			ComprehensionStore: s.comprehensionStore,
+			TrashStore:         s.trashStore,
+			SearchSvc:          s.searchSvc,
+		},
 	}))
 
 	// Protected API routes (accepts both JWT and API tokens)
@@ -412,6 +440,7 @@ func (s *Server) setupRouter() {
 		sessionTTL := time.Duration(s.cfg.MCP.SessionTTL) * time.Second
 		keepalive := time.Duration(s.cfg.MCP.Keepalive) * time.Second
 		s.mcp = newMCPHandler(s.store, s.knowledgeStore, s.worker, s.cfg.MCP.Repos, sessionTTL, keepalive, s.cfg.MCP.MaxSessions, s.cache)
+		s.mcp.searchSvc = s.searchSvc
 		// Wire enterprise extensions if provided via server options
 		if s.mcpPermChecker != nil {
 			s.mcp.permChecker = s.mcpPermChecker

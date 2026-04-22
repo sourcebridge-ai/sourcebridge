@@ -20,6 +20,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/db"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/search"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
 
 	reasoningv1 "github.com/sourcebridge/sourcebridge/gen/go/reasoning/v1"
@@ -285,6 +286,11 @@ type mcpHandler struct {
 	permChecker  MCPPermissionChecker
 	auditLogger  MCPAuditLogger
 	toolExtender MCPToolExtender
+
+	// searchSvc is the hybrid retrieval backbone. When non-nil,
+	// callSearchSymbols routes through it for ranked results; when
+	// nil, the legacy substring path is used for rollback safety.
+	searchSvc *search.Service
 }
 
 // mcpLocalChans holds the per-pod delivery channels for an SSE session.
@@ -911,6 +917,13 @@ func (h *mcpHandler) callSearchSymbols(session *mcpSession, args json.RawMessage
 		params.Limit = 500
 	}
 
+	// Route through the hybrid retrieval service when wired. The MCP
+	// transport keeps the symbol-only envelope shape (plan §Phase 3 —
+	// "preserve the symbol-only outward MCP result shape").
+	if h.searchSvc != nil && params.FilePath == "" && params.Query != "" {
+		return h.searchSymbolsHybrid(session, params)
+	}
+
 	var kindPtr *string
 	if params.Kind != "" {
 		kindPtr = &params.Kind
@@ -950,6 +963,72 @@ func (h *mcpHandler) callSearchSymbols(session *mcpSession, args json.RawMessage
 		symbols, total = h.store.GetSymbols(params.RepositoryID, queryPtr, kindPtr, params.Limit, params.Offset)
 	}
 
+	return packSymbolResults(symbols, total), nil
+}
+
+// symbolSearchParams narrows the callSearchSymbols args for the
+// hybrid branch without pulling the full type declaration to the
+// package scope.
+type symbolSearchParams = struct {
+	RepositoryID string `json:"repository_id"`
+	Query        string `json:"query"`
+	Kind         string `json:"kind"`
+	FilePath     string `json:"file_path"`
+	Limit        int    `json:"limit"`
+	Offset       int    `json:"offset"`
+}
+
+// searchSymbolsHybrid routes the MCP search_symbols call through the
+// hybrid retrieval service, projecting each result back into the
+// symbol-only envelope that existing MCP clients (including Claude
+// Code) expect.
+func (h *mcpHandler) searchSymbolsHybrid(session *mcpSession, params symbolSearchParams) (interface{}, error) {
+	ctx := context.Background()
+	req := &search.Request{
+		Repo:  params.RepositoryID,
+		Query: params.Query,
+		Limit: params.Limit,
+		Filters: search.Filters{
+			Kind:     params.Kind,
+			FilePath: params.FilePath,
+		},
+	}
+	resp, err := h.searchSvc.Search(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("search: %v", err)
+	}
+	// Offset is applied client-side since the hybrid service uses
+	// cursor-style pagination via its stable tie-break ordering. MCP
+	// v1 keeps offset semantics for contract compatibility.
+	offset := params.Offset
+	results := resp.Results
+	if offset > 0 {
+		if offset >= len(results) {
+			results = nil
+		} else {
+			results = results[offset:]
+		}
+	}
+	if params.Limit > 0 && len(results) > params.Limit {
+		results = results[:params.Limit]
+	}
+	syms := make([]*graphstore.StoredSymbol, 0, len(results))
+	for _, r := range results {
+		if r.Symbol != nil {
+			syms = append(syms, r.Symbol)
+			continue
+		}
+		if s := h.store.GetSymbol(r.EntityID); s != nil {
+			syms = append(syms, s)
+		}
+	}
+	return packSymbolResults(syms, len(resp.Results)), nil
+}
+
+// packSymbolResults builds the stable JSON envelope returned to MCP
+// clients. Kept in one place so the hybrid and legacy paths emit
+// identical shapes.
+func packSymbolResults(symbols []*graphstore.StoredSymbol, total int) map[string]interface{} {
 	type symbolResult struct {
 		ID       string `json:"id"`
 		Name     string `json:"name"`
@@ -958,9 +1037,11 @@ func (h *mcpHandler) callSearchSymbols(session *mcpSession, args json.RawMessage
 		Line     int    `json:"line"`
 		EndLine  int    `json:"end_line,omitempty"`
 	}
-
 	results := make([]symbolResult, 0, len(symbols))
 	for _, s := range symbols {
+		if s == nil {
+			continue
+		}
 		results = append(results, symbolResult{
 			ID:       s.ID,
 			Name:     s.Name,
@@ -970,11 +1051,10 @@ func (h *mcpHandler) callSearchSymbols(session *mcpSession, args json.RawMessage
 			EndLine:  s.EndLine,
 		})
 	}
-
 	return map[string]interface{}{
 		"symbols":     results,
 		"total_count": total,
-	}, nil
+	}
 }
 
 // ---------------------------------------------------------------------------
