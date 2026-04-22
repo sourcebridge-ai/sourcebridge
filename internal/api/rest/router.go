@@ -361,6 +361,11 @@ func (s *Server) setupRouter() {
 		// model generates them. GraphQL's `discussCode` mutation is
 		// still the unary fallback for clients that can't consume SSE.
 		r.With(aiConcurrencyMiddleware).Post("/api/v1/discuss/stream", s.handleDiscussStream)
+
+		// Hybrid retrieval REST endpoint. Same backend as the GraphQL
+		// search(...) field and the MCP search_symbols tool. Useful for
+		// CLI and deep-mode QA clients that don't speak GraphQL.
+		r.Post("/api/v1/search", s.handleSearch)
 	})
 
 	// Admin API routes (requires auth, accepts both JWT and API tokens)
