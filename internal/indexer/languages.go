@@ -5,6 +5,8 @@ package indexer
 
 import (
 	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/cpp"
+	"github.com/smacker/go-tree-sitter/csharp"
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/javascript"
@@ -42,6 +44,8 @@ var Registry = map[string]*LanguageConfig{
 	"rust":       rustConfig(),
 	"ruby":       rubyConfig(),
 	"php":        phpConfig(),
+	"cpp":        cppConfig(),
+	"csharp":     csharpConfig(),
 }
 
 func goConfig() *LanguageConfig {
@@ -337,6 +341,164 @@ func phpConfig() *LanguageConfig {
 		// PHPUnit convention: *Test.php files, `public function testFoo`.
 		TestFilePatterns: []string{"Test.php"},
 		TestFuncPattern:  "^test",
+	}
+}
+
+func cppConfig() *LanguageConfig {
+	return &LanguageConfig{
+		Name:     "cpp",
+		Language: cpp.GetLanguage(),
+		// Top-level function definitions. The C++ grammar distinguishes
+		// between a plain `function_definition` (whose declarator is a
+		// function_declarator with an identifier) and class-scoped ones
+		// where the declarator uses `qualified_identifier`. Both shapes
+		// are captured here; class-scoped definitions appear twice (once
+		// here, once under MethodQuery) and the parser dedupes by
+		// line+kind.
+		FunctionQuery: `[
+			(function_definition
+				declarator: (function_declarator
+					declarator: (identifier) @name)) @func
+			(function_definition
+				declarator: (function_declarator
+					declarator: (field_identifier) @name)) @func
+			(function_definition
+				declarator: (function_declarator
+					declarator: (qualified_identifier
+						name: (identifier) @name))) @func
+		]`,
+		// class, struct, union, and enum are all emitted as "class" for
+		// downstream kind classification. Templates fall under the
+		// `template_declaration` wrapper; the inner class_specifier is
+		// still captured.
+		ClassQuery: `[
+			(class_specifier
+				name: (type_identifier) @name) @class
+			(struct_specifier
+				name: (type_identifier) @name) @class
+			(union_specifier
+				name: (type_identifier) @name) @class
+			(enum_specifier
+				name: (type_identifier) @name) @class
+		]`,
+		// #include "foo.h" and #include <foo.h> — the grammar uses two
+		// distinct node types for the path, so both are captured.
+		ImportQuery: `[
+			(preproc_include
+				path: (string_literal) @path)
+			(preproc_include
+				path: (system_lib_string) @path)
+		]`,
+		// Methods defined inside a class/struct body via `field_declaration`
+		// or an inline function_definition.
+		MethodQuery: `[
+			(class_specifier
+				body: (field_declaration_list
+					(function_definition
+						declarator: (function_declarator
+							declarator: (field_identifier) @name)) @method))
+			(struct_specifier
+				body: (field_declaration_list
+					(function_definition
+						declarator: (function_declarator
+							declarator: (field_identifier) @name)) @method))
+		]`,
+		// foo(...) and obj.foo(...) / obj->foo(...). C++ field_expression
+		// covers both `.` and `->` member access.
+		CallQuery: `[
+			(call_expression
+				function: (identifier) @callee) @call
+			(call_expression
+				function: (field_expression
+					field: (field_identifier) @callee)) @call
+			(call_expression
+				function: (qualified_identifier
+					name: (identifier) @callee)) @call
+		]`,
+		// Both // line comments and /* … */ block comments come through as
+		// the same node kind; doxygen blocks fall under this too.
+		DocCommentQuery: `(comment) @comment`,
+		// Common C++ test patterns:
+		//   GoogleTest: TEST / TEST_F / TEST_P macros in *_test.cc / *_test.cpp
+		//   Catch2:     TEST_CASE macro
+		// These are preprocessor macros, not function_definitions — the
+		// indexer can't see them through the FunctionQuery above. We still
+		// tag tests by filename so link-coverage reporting works at a file
+		// level.
+		TestFilePatterns: []string{"_test.cpp", "_test.cc", "_tests.cpp", "test_"},
+		TestFuncPattern:  "^(TEST|test_|Test)",
+	}
+}
+
+func csharpConfig() *LanguageConfig {
+	return &LanguageConfig{
+		Name:     "csharp",
+		Language: csharp.GetLanguage(),
+		// Top-level method declarations. In C# these appear inside a
+		// class/struct/interface; the grammar has a distinct
+		// `local_function_statement` for method-body-local funcs (rare;
+		// we skip those).
+		FunctionQuery: `(method_declaration
+			name: (identifier) @name) @func`,
+		// class, struct, interface, record — all emit as "class" kind.
+		ClassQuery: `[
+			(class_declaration
+				name: (identifier) @name) @class
+			(struct_declaration
+				name: (identifier) @name) @class
+			(interface_declaration
+				name: (identifier) @name) @class
+			(record_declaration
+				name: (identifier) @name) @class
+			(enum_declaration
+				name: (identifier) @name) @class
+		]`,
+		// `using Foo.Bar;` and `using static Foo.Bar;` both wrap the
+		// namespace path in a qualified_name (or plain identifier for
+		// single-segment imports).
+		ImportQuery: `[
+			(using_directive
+				(qualified_name) @path)
+			(using_directive
+				(identifier) @path)
+		]`,
+		// Methods inside a class / struct / interface / record body.
+		MethodQuery: `[
+			(class_declaration
+				body: (declaration_list
+					(method_declaration
+						name: (identifier) @name) @method))
+			(struct_declaration
+				body: (declaration_list
+					(method_declaration
+						name: (identifier) @name) @method))
+			(interface_declaration
+				body: (declaration_list
+					(method_declaration
+						name: (identifier) @name) @method))
+			(record_declaration
+				body: (declaration_list
+					(method_declaration
+						name: (identifier) @name) @method))
+		]`,
+		// Foo(), obj.Foo(), Foo.Bar.Baz(). C# uses `invocation_expression`
+		// for all three; the callee shape varies.
+		CallQuery: `[
+			(invocation_expression
+				function: (identifier) @callee) @call
+			(invocation_expression
+				function: (member_access_expression
+					name: (identifier) @callee)) @call
+		]`,
+		// Line `//`, block `/* */`, and XML doc `///` comments all come
+		// through as `(comment)` nodes.
+		DocCommentQuery: `(comment) @comment`,
+		// Common C# test patterns: xUnit / NUnit / MSTest all use method
+		// attributes like `[Fact]` / `[Test]` / `[TestMethod]`, which the
+		// indexer can't see without attribute extraction. Fall back to
+		// filename-based detection, which is the dominant convention.
+		TestFilePatterns: []string{"Tests.cs", "Test.cs", ".Tests.cs"},
+		TestFuncPattern:  "^(Test|Should)",
 	}
 }
 
