@@ -1,0 +1,13 @@
+# QA parity labels — adjudicated 0..3 per question.
+#
+# Rubric:
+#   0 — misleading / wrong (actively hurts the user)
+#   1 — not useful (correct-ish but doesn't answer the question)
+#   2 — useful (answers the question, minor gaps)
+#   3 — excellent (answers fully, cites correct evidence)
+#
+# Two-reviewer protocol: both reviewers independently label; disputes
+# are adjudicated to a single frozen value here. Rows must exist for
+# every `questions.yaml` id.
+version: 1
+labels: {}

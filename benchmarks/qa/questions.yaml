@@ -1,0 +1,18 @@
+# QA parity question set — frozen gold set
+#
+# The Phase-4 decision rule requires N >= 120. This file is the template
+# for that set; authoring the full set is tracked as a follow-up task
+# per the plan's Open Question §1.
+#
+# Question structure:
+#
+#   - id: q-00001
+#     repo: repo-a
+#     class: architecture|execution_flow|requirement_coverage|ownership|data_model|risk_review|behavior
+#     question: "<literal question text>"
+#     notes: optional authoring context (why this question is interesting)
+#
+# Freeze order: append-only. Renaming or removing questions after a
+# baseline is published invalidates the paired comparison.
+version: 1
+questions: []
