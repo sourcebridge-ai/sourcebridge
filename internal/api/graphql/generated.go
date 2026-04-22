@@ -639,6 +639,7 @@ type ComplexityRoot struct {
 		RequirementCount        func(childComplexity int) int
 		Status                  func(childComplexity int) int
 		UnderstandingScore      func(childComplexity int) int
+		UpstreamStatus          func(childComplexity int) int
 	}
 
 	RepositoryUnderstanding struct {
@@ -659,6 +660,14 @@ type ComplexityRoot struct {
 		TotalNodes        func(childComplexity int) int
 		TreeStatus        func(childComplexity int) int
 		UpdatedAt         func(childComplexity int) int
+	}
+
+	RepositoryUpstreamStatus struct {
+		CheckedAt         func(childComplexity int) int
+		ErrorMessage      func(childComplexity int) int
+		IndexedCommitSha  func(childComplexity int) int
+		Status            func(childComplexity int) int
+		UpstreamCommitSha func(childComplexity int) int
 	}
 
 	Requirement struct {
@@ -971,6 +980,7 @@ type RepositoryResolver interface {
 
 	UnderstandingScore(ctx context.Context, obj *Repository) (*UnderstandingScore, error)
 	RepositoryUnderstanding(ctx context.Context, obj *Repository, scopeType *KnowledgeScopeType, scopePath *string) (*RepositoryUnderstanding, error)
+	UpstreamStatus(ctx context.Context, obj *Repository) (*RepositoryUpstreamStatus, error)
 }
 
 type executableSchema struct {
@@ -4546,6 +4556,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Repository.UnderstandingScore(childComplexity), true
 
+	case "Repository.upstreamStatus":
+		if e.complexity.Repository.UpstreamStatus == nil {
+			break
+		}
+
+		return e.complexity.Repository.UpstreamStatus(childComplexity), true
+
 	case "RepositoryUnderstanding.cachedNodes":
 		if e.complexity.RepositoryUnderstanding.CachedNodes == nil {
 			break
@@ -4664,6 +4681,41 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.RepositoryUnderstanding.UpdatedAt(childComplexity), true
+
+	case "RepositoryUpstreamStatus.checkedAt":
+		if e.complexity.RepositoryUpstreamStatus.CheckedAt == nil {
+			break
+		}
+
+		return e.complexity.RepositoryUpstreamStatus.CheckedAt(childComplexity), true
+
+	case "RepositoryUpstreamStatus.errorMessage":
+		if e.complexity.RepositoryUpstreamStatus.ErrorMessage == nil {
+			break
+		}
+
+		return e.complexity.RepositoryUpstreamStatus.ErrorMessage(childComplexity), true
+
+	case "RepositoryUpstreamStatus.indexedCommitSha":
+		if e.complexity.RepositoryUpstreamStatus.IndexedCommitSha == nil {
+			break
+		}
+
+		return e.complexity.RepositoryUpstreamStatus.IndexedCommitSha(childComplexity), true
+
+	case "RepositoryUpstreamStatus.status":
+		if e.complexity.RepositoryUpstreamStatus.Status == nil {
+			break
+		}
+
+		return e.complexity.RepositoryUpstreamStatus.Status(childComplexity), true
+
+	case "RepositoryUpstreamStatus.upstreamCommitSha":
+		if e.complexity.RepositoryUpstreamStatus.UpstreamCommitSha == nil {
+			break
+		}
+
+		return e.complexity.RepositoryUpstreamStatus.UpstreamCommitSha(childComplexity), true
 
 	case "Requirement.acceptanceCriteria":
 		if e.complexity.Requirement.AcceptanceCriteria == nil {
@@ -24448,6 +24500,8 @@ func (ec *executionContext) fieldContext_Mutation_addRepository(ctx context.Cont
 				return ec.fieldContext_Repository_understandingScore(ctx, field)
 			case "repositoryUnderstanding":
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -24659,6 +24713,8 @@ func (ec *executionContext) fieldContext_Mutation_reindexRepository(ctx context.
 				return ec.fieldContext_Repository_understandingScore(ctx, field)
 			case "repositoryUnderstanding":
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -24845,6 +24901,8 @@ func (ec *executionContext) fieldContext_Mutation_updateRepositoryKnowledgeSetti
 				return ec.fieldContext_Repository_understandingScore(ctx, field)
 			case "repositoryUnderstanding":
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -28433,6 +28491,8 @@ func (ec *executionContext) fieldContext_Query_repositories(_ context.Context, f
 				return ec.fieldContext_Repository_understandingScore(ctx, field)
 			case "repositoryUnderstanding":
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -28514,6 +28574,8 @@ func (ec *executionContext) fieldContext_Query_repository(ctx context.Context, f
 				return ec.fieldContext_Repository_understandingScore(ctx, field)
 			case "repositoryUnderstanding":
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -32513,6 +32575,59 @@ func (ec *executionContext) fieldContext_Repository_repositoryUnderstanding(ctx 
 	return fc, nil
 }
 
+func (ec *executionContext) _Repository_upstreamStatus(ctx context.Context, field graphql.CollectedField, obj *Repository) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Repository_upstreamStatus(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Repository().UpstreamStatus(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*RepositoryUpstreamStatus)
+	fc.Result = res
+	return ec.marshalORepositoryUpstreamStatus2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryUpstreamStatus(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Repository_upstreamStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Repository",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "status":
+				return ec.fieldContext_RepositoryUpstreamStatus_status(ctx, field)
+			case "upstreamCommitSha":
+				return ec.fieldContext_RepositoryUpstreamStatus_upstreamCommitSha(ctx, field)
+			case "indexedCommitSha":
+				return ec.fieldContext_RepositoryUpstreamStatus_indexedCommitSha(ctx, field)
+			case "checkedAt":
+				return ec.fieldContext_RepositoryUpstreamStatus_checkedAt(ctx, field)
+			case "errorMessage":
+				return ec.fieldContext_RepositoryUpstreamStatus_errorMessage(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RepositoryUpstreamStatus", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _RepositoryUnderstanding_id(ctx context.Context, field graphql.CollectedField, obj *RepositoryUnderstanding) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_RepositoryUnderstanding_id(ctx, field)
 	if err != nil {
@@ -33254,6 +33369,217 @@ func (ec *executionContext) _RepositoryUnderstanding_errorMessage(ctx context.Co
 func (ec *executionContext) fieldContext_RepositoryUnderstanding_errorMessage(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "RepositoryUnderstanding",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryUpstreamStatus_status(ctx context.Context, field graphql.CollectedField, obj *RepositoryUpstreamStatus) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryUpstreamStatus_status(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Status, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(UpstreamStatus)
+	fc.Result = res
+	return ec.marshalNUpstreamStatus2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpstreamStatus(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryUpstreamStatus_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryUpstreamStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UpstreamStatus does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryUpstreamStatus_upstreamCommitSha(ctx context.Context, field graphql.CollectedField, obj *RepositoryUpstreamStatus) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryUpstreamStatus_upstreamCommitSha(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.UpstreamCommitSha, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryUpstreamStatus_upstreamCommitSha(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryUpstreamStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryUpstreamStatus_indexedCommitSha(ctx context.Context, field graphql.CollectedField, obj *RepositoryUpstreamStatus) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryUpstreamStatus_indexedCommitSha(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.IndexedCommitSha, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryUpstreamStatus_indexedCommitSha(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryUpstreamStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryUpstreamStatus_checkedAt(ctx context.Context, field graphql.CollectedField, obj *RepositoryUpstreamStatus) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryUpstreamStatus_checkedAt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.CheckedAt, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(time.Time)
+	fc.Result = res
+	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryUpstreamStatus_checkedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryUpstreamStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryUpstreamStatus_errorMessage(ctx context.Context, field graphql.CollectedField, obj *RepositoryUpstreamStatus) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryUpstreamStatus_errorMessage(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ErrorMessage, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryUpstreamStatus_errorMessage(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryUpstreamStatus",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -47117,6 +47443,39 @@ func (ec *executionContext) _Repository(ctx context.Context, sel ast.SelectionSe
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "upstreamStatus":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Repository_upstreamStatus(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -47221,6 +47580,56 @@ func (ec *executionContext) _RepositoryUnderstanding(ctx context.Context, sel as
 			out.Values[i] = ec._RepositoryUnderstanding_errorCode(ctx, field, obj)
 		case "errorMessage":
 			out.Values[i] = ec._RepositoryUnderstanding_errorMessage(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var repositoryUpstreamStatusImplementors = []string{"RepositoryUpstreamStatus"}
+
+func (ec *executionContext) _RepositoryUpstreamStatus(ctx context.Context, sel ast.SelectionSet, obj *RepositoryUpstreamStatus) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, repositoryUpstreamStatusImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RepositoryUpstreamStatus")
+		case "status":
+			out.Values[i] = ec._RepositoryUpstreamStatus_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "upstreamCommitSha":
+			out.Values[i] = ec._RepositoryUpstreamStatus_upstreamCommitSha(ctx, field, obj)
+		case "indexedCommitSha":
+			out.Values[i] = ec._RepositoryUpstreamStatus_indexedCommitSha(ctx, field, obj)
+		case "checkedAt":
+			out.Values[i] = ec._RepositoryUpstreamStatus_checkedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "errorMessage":
+			out.Values[i] = ec._RepositoryUpstreamStatus_errorMessage(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -51754,6 +52163,16 @@ func (ec *executionContext) unmarshalNUpdateRequirementFieldsInput2githubᚗcom�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNUpstreamStatus2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpstreamStatus(ctx context.Context, v any) (UpstreamStatus, error) {
+	var res UpstreamStatus
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNUpstreamStatus2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpstreamStatus(ctx context.Context, sel ast.SelectionSet, v UpstreamStatus) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) marshalNVersionInfo2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐVersionInfo(ctx context.Context, sel ast.SelectionSet, v VersionInfo) graphql.Marshaler {
 	return ec._VersionInfo(ctx, sel, &v)
 }
@@ -52301,6 +52720,13 @@ func (ec *executionContext) marshalORepositoryUnderstanding2ᚖgithubᚗcomᚋso
 		return graphql.Null
 	}
 	return ec._RepositoryUnderstanding(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalORepositoryUpstreamStatus2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryUpstreamStatus(ctx context.Context, sel ast.SelectionSet, v *RepositoryUpstreamStatus) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._RepositoryUpstreamStatus(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalORequirement2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRequirement(ctx context.Context, sel ast.SelectionSet, v *Requirement) graphql.Marshaler {

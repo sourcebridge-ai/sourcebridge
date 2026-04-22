@@ -37,3 +37,5 @@ models:
         resolver: true
       understandingScore:
         resolver: true
+      upstreamStatus:
+        resolver: true

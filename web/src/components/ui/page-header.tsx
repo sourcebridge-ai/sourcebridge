@@ -3,8 +3,12 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-type PageHeaderProps = HTMLAttributes<HTMLDivElement> & {
-  title: string;
+// Omit the native HTML `title` attribute so our prop can be widened to
+// ReactNode (callers render inline adornments next to the heading, e.g.
+// staleness pills). HTMLAttributes types `title` as string and the
+// intersection would otherwise collapse to `never`.
+type PageHeaderProps = Omit<HTMLAttributes<HTMLDivElement>, "title"> & {
+  title: ReactNode;
   eyebrow?: string;
   description?: ReactNode;
   actions?: ReactNode;

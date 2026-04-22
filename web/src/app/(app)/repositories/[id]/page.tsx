@@ -56,6 +56,7 @@ import { ChangeSimulationPanel } from "@/components/change-simulation";
 import { ArchitectureDiagram } from "@/components/architecture/ArchitectureDiagram";
 import { RelatedReposPanel } from "@/components/federation/RelatedReposPanel";
 import { CreateRequirementDialog } from "@/components/requirements/CreateRequirementDialog";
+import { UpstreamStalenessPill } from "@/components/repository/UpstreamStalenessPill";
 import { SymbolTree } from "@/components/source/SymbolTree";
 import { SymbolList } from "@/components/source/SymbolList";
 import { kindBadgeClass, kindLabel, SYMBOL_KINDS } from "@/components/source/symbol-kind";
@@ -1780,7 +1781,12 @@ export default function RepositoryDetailPage() {
 
       <PageHeader
         eyebrow="Repository Workspace"
-        title={repo?.name || "Repository"}
+        title={
+          <span className="inline-flex flex-wrap items-center gap-3">
+            <span>{repo?.name || "Repository"}</span>
+            {repo ? <UpstreamStalenessPill repositoryId={repo.id} /> : null}
+          </span>
+        }
         description={repo?.remoteUrl ? (
           <a href={repo.remoteUrl} target="_blank" rel="noopener noreferrer" className="underline decoration-[var(--border-default)] underline-offset-4 transition-colors hover:text-[var(--text-primary)] hover:decoration-[var(--text-primary)]">
             {repo.path || repo.remoteUrl}

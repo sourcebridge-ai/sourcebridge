@@ -305,6 +305,39 @@ type Repository {
   modules: [Module!]!
   understandingScore: UnderstandingScore
   repositoryUnderstanding(scopeType: KnowledgeScopeType, scopePath: String): RepositoryUnderstanding
+  """
+  Liveness of the stored index vs the canonical remote. Null for repos
+  that don't have a remote URL (local-path only). The lookup is a
+  cached `git ls-remote`; UI callers should poll this while the repo
+  page is visible to surface "N commits behind" signals.
+  """
+  upstreamStatus: RepositoryUpstreamStatus
+}
+
+"""
+Snapshot of the upstream remote's HEAD for the repo's tracked branch,
+compared against the repo's stored indexed commit. `checkedAt` is when
+the server last refreshed its cache (typically within the last ~30s).
+"""
+type RepositoryUpstreamStatus {
+  status: UpstreamStatus!
+  upstreamCommitSha: String
+  indexedCommitSha: String
+  checkedAt: Time!
+  errorMessage: String
+}
+
+enum UpstreamStatus {
+  """Indexed commit matches upstream HEAD."""
+  UP_TO_DATE
+  """Upstream HEAD differs from indexed commit — reindex recommended."""
+  BEHIND
+  """Check has never completed; UI should treat as 'unknown'."""
+  UNKNOWN
+  """ls-remote failed (network, auth, unreachable host). Soft error."""
+  UNREACHABLE
+  """Repo has no remote URL; nothing to compare against."""
+  UNSUPPORTED
 }
 
 input UpdateRepositoryKnowledgeSettingsInput {

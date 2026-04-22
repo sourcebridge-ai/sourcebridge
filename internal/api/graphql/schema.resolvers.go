@@ -3360,6 +3360,28 @@ func (r *repositoryResolver) RepositoryUnderstanding(ctx context.Context, obj *R
 	return mapRepositoryUnderstanding(r.KnowledgeStore.GetRepositoryUnderstanding(obj.ID, scope)), nil
 }
 
+// UpstreamStatus is the resolver for the upstreamStatus field.
+//
+// Compares the repository's stored indexed commit against the upstream
+// git remote's HEAD. Cached per-process for ~30s so concurrent viewers
+// of the same repo share a single ls-remote call. Returns a soft
+// UNREACHABLE on network/auth failure so a blip doesn't surface as an
+// error the user has to dismiss.
+func (r *repositoryResolver) UpstreamStatus(ctx context.Context, obj *Repository) (*RepositoryUpstreamStatus, error) {
+	if obj == nil {
+		return nil, nil
+	}
+	store := r.getStore(ctx)
+	if store == nil {
+		return nil, nil
+	}
+	repo := store.GetRepository(obj.ID)
+	if repo == nil {
+		return nil, nil
+	}
+	return r.resolveUpstreamStatus(ctx, repo), nil
+}
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
