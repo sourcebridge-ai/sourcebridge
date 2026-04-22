@@ -78,6 +78,7 @@ func main() {
 		apiToken     string
 		mode         string
 		repositoryID string
+		repoMapSpec  string
 		workersDir   string
 		notes        string
 	)
@@ -87,10 +88,13 @@ func main() {
 	flag.StringVar(&serverURL, "server-url", "", "Server URL for candidate arm")
 	flag.StringVar(&apiToken, "api-token", os.Getenv("SOURCEBRIDGE_API_TOKEN"), "API token for candidate arm")
 	flag.StringVar(&mode, "mode", "deep", "QA mode: fast | deep")
-	flag.StringVar(&repositoryID, "repository-id", "", "Repository ID (required for candidate arm; ignored for baseline)")
+	flag.StringVar(&repositoryID, "repository-id", "", "Single repository ID. Used when every question targets the same repo.")
+	flag.StringVar(&repoMapSpec, "repo-map", "", "Comma-separated question.repo=server-id pairs. Overrides -repository-id per question.")
 	flag.StringVar(&workersDir, "workers-dir", "./workers", "Path to the workers/ dir (baseline arm only)")
 	flag.StringVar(&notes, "notes", "", "Free-form notes recorded in environment.yaml")
 	flag.Parse()
+
+	repoMap := parseRepoMap(repoMapSpec)
 
 	if arm == "" || out == "" {
 		flag.Usage()
@@ -140,10 +144,17 @@ func main() {
 				s.fromBaselineResp(resp)
 			}
 		case "candidate":
-			if serverURL == "" || repositoryID == "" {
-				die(errors.New("-server-url and -repository-id are required for candidate arm"))
+			if serverURL == "" {
+				die(errors.New("-server-url is required for candidate arm"))
 			}
-			resp, err := runCandidate(ctx, serverURL, apiToken, repositoryID, q.Question, mode)
+			rid := repositoryID
+			if mapped, ok := repoMap[q.Repo]; ok {
+				rid = mapped
+			}
+			if rid == "" {
+				die(fmt.Errorf("no repository ID for question %s (repo=%q); set -repository-id or add to -repo-map", q.ID, q.Repo))
+			}
+			resp, err := runCandidate(ctx, serverURL, apiToken, rid, q.Question, mode)
 			s.ElapsedMs = time.Since(start).Milliseconds()
 			if err != nil {
 				s.ErrorKind = "candidate_error"
@@ -176,6 +187,28 @@ func main() {
 	}
 
 	fmt.Printf("wrote %d samples to %s\n", len(qs.Questions), runPath)
+}
+
+// parseRepoMap parses a "name=id,name2=id2" spec into a lookup table.
+// Unknown entries are tolerated; malformed entries are fatal so the
+// operator sees typos immediately.
+func parseRepoMap(spec string) map[string]string {
+	out := map[string]string{}
+	if spec == "" {
+		return out
+	}
+	for _, pair := range strings.Split(spec, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		eq := strings.IndexByte(pair, '=')
+		if eq <= 0 || eq == len(pair)-1 {
+			die(fmt.Errorf("invalid -repo-map entry %q (expect name=id)", pair))
+		}
+		out[strings.TrimSpace(pair[:eq])] = strings.TrimSpace(pair[eq+1:])
+	}
+	return out
 }
 
 func loadQuestions(path string) (*questionsFile, error) {
