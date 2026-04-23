@@ -201,15 +201,44 @@ func buildAgentSeedMessages(in AskInput, kind QuestionKind, summaries []SummaryE
 	system := agentSystemPrompt(kind)
 	seed := []AgentMessage{{Role: AgentRoleSystem, Text: system}}
 
-	// Intentionally omits FileCandidates — see buildSeedContextBlock.
-	hasHints := len(hints.SymbolCandidates) > 0 || len(hints.TopicTerms) > 0
+	showFileCandidates := classBenefitsFromFileCandidates(kind)
+	hasHints := len(hints.SymbolCandidates) > 0 ||
+		len(hints.TopicTerms) > 0 ||
+		(showFileCandidates && len(hints.FileCandidates) > 0)
 	if len(summaries) > 0 || len(in.PriorMessages) > 0 || in.Code != "" || in.FilePath != "" || hasHints {
 		seed = append(seed, AgentMessage{
 			Role: AgentRoleAssistant,
-			Text: buildSeedContextBlock(in, summaries, hints),
+			Text: buildSeedContextBlock(in, summaries, hints, showFileCandidates),
 		})
 	}
 	return seed
+}
+
+// classBenefitsFromFileCandidates returns true for question kinds
+// that reward being told a seed entry file. Empirical from the
+// Phase-5.1 benchmark:
+//
+//   - architecture: multi-file synthesis benefits from anchors.
+//   - execution_flow: needs a starting file to trace from. Hiding
+//     file_candidates dropped execution_flow from +4% to -8%.
+//   - cross_cutting: benefits for the same reason as execution_flow
+//     (concerns span files; candidate anchors shorten exploration).
+//
+// Hidden for:
+//   - ownership: "where is X defined?" — fabrication is deadly;
+//     the model must verify with read_file or search_evidence.
+//     Showing file_candidates caused the 3→1 fabrication regressions
+//     in the full-push benchmark.
+//   - behavior: similar fabrication risk; behavior questions reward
+//     test-based grounding over plausible-path citation.
+//   - data_model, requirement_coverage, risk_review: default-hidden
+//     until we have benchmark evidence that surfacing helps.
+func classBenefitsFromFileCandidates(kind QuestionKind) bool {
+	switch kind {
+	case KindArchitecture, KindExecutionFlow, KindCrossCutting:
+		return true
+	}
+	return false
 }
 
 // agentSystemPrompt is the core instruction. It commits the model
@@ -249,7 +278,13 @@ func agentSystemPrompt(kind QuestionKind) string {
 // files, and topic terms when the smart classifier produced them.
 // The first agent turn sees these directly and can call read_file
 // or search_evidence on targeted candidates instead of exploring.
-func buildSeedContextBlock(in AskInput, summaries []SummaryEvidence, hints EvidenceKindHints) string {
+//
+// `showFileCandidates` is decided per question class (see
+// classBenefitsFromFileCandidates). When false, file paths are
+// suppressed so the model can't over-trust them as citation
+// anchors — critical for ownership/behavior questions where
+// fabrication is penalized.
+func buildSeedContextBlock(in AskInput, summaries []SummaryEvidence, hints EvidenceKindHints, showFileCandidates bool) string {
 	var sb strings.Builder
 	sb.WriteString("Here is what I already retrieved before you started:\n\n")
 	if len(summaries) > 0 {
@@ -288,33 +323,37 @@ func buildSeedContextBlock(in AskInput, summaries []SummaryEvidence, hints Evide
 		}
 		sb.WriteString("\n")
 	}
-	// Quality-push Phase 5 post-mortem: earlier versions surfaced
-	// file_candidates here, which ownership questions consistently
-	// over-trusted — the synthesis turn would cite an advisory path
-	// without tool-verifying it, producing confident-sounding but
-	// fabricated references. The judge flagged 7 of 25 ownership
-	// regressions ("plausible file path...fabricated" / "punts...
-	// claiming no handler was found").
+	// Hints from the smart classifier (quality-push Phase 2).
 	//
-	// Fix: stop surfacing file paths entirely. Keep symbol-name and
-	// topic-term hints which function as search queries rather than
-	// citation anchors, and reframe the header so the model treats
-	// them as WHAT-TO-SEARCH-FOR, not WHAT-TO-CITE.
-	if len(hints.SymbolCandidates) > 0 || len(hints.TopicTerms) > 0 {
+	// Phase-5 post-mortem: surfacing `file_candidates` had opposite
+	// effects across classes:
+	//   - Ownership / behavior: model over-trusted them as citation
+	//     anchors, fabricating plausible-but-unverified paths.
+	//   - Execution_flow / cross_cutting / architecture: model used
+	//     them as seed entry points for tracing; suppressing them
+	//     dropped execution_flow from +4% to -8% in the 5.1 run.
+	//
+	// Fix (class-conditional): show file_candidates only when the
+	// question class benefits from a seed entry file. Symbol names
+	// and topic terms always show — they function as search queries
+	// rather than citation anchors.
+	renderFiles := showFileCandidates && len(hints.FileCandidates) > 0
+	if len(hints.SymbolCandidates) > 0 || len(hints.TopicTerms) > 0 || renderFiles {
 		sb.WriteString("# Search hints\n\n")
-		sb.WriteString("These are terms to search for, NOT files to cite. " +
-			"Use them as `search_evidence` queries; only cite paths that " +
-			"appear in an actual tool_result handle.\n\n")
+		sb.WriteString("These are starting points for exploration. Only cite paths " +
+			"that appear in an actual tool_result handle — never cite from this " +
+			"hint list directly.\n\n")
 		if len(hints.SymbolCandidates) > 0 {
 			fmt.Fprintf(&sb, "candidate symbol names: %s\n", strings.Join(hints.SymbolCandidates, ", "))
 		}
 		if len(hints.TopicTerms) > 0 {
 			fmt.Fprintf(&sb, "topic terms: %s\n", strings.Join(hints.TopicTerms, ", "))
 		}
+		if renderFiles {
+			fmt.Fprintf(&sb, "candidate files to start reading: %s\n", strings.Join(hints.FileCandidates, ", "))
+		}
 		sb.WriteString("\n")
 	}
-	// file_candidates intentionally omitted — see comment above.
-	_ = hints.FileCandidates
 	if len(in.PriorMessages) > 0 {
 		sb.WriteString("# Prior conversation turns\n\n")
 		for i, m := range in.PriorMessages {
