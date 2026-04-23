@@ -167,6 +167,39 @@ type Orchestrator struct {
 	jobs         JobRunner
 	lanes        *worker.Lanes
 	config       Config
+	// Agentic loop dependencies. Optional — when nil the orchestrator
+	// stays on single-shot deep mode regardless of config flags.
+	agent        AgentSynthesizer
+	agentEnabled bool
+	agentCanary  int // 0..100 — per-request coin flip for canary stages
+}
+
+// WithAgentSynthesizer installs the tool-use synthesizer. When nil,
+// the orchestrator stays on single-shot. Toggled on per §Phase 4
+// canary rollout by flipping AgenticRetrievalEnabled or setting
+// AgenticRetrievalCanaryPct > 0.
+func (o *Orchestrator) WithAgentSynthesizer(s AgentSynthesizer) *Orchestrator {
+	o.agent = s
+	return o
+}
+
+// WithAgenticEnabled sets the global on/off for the agentic path.
+func (o *Orchestrator) WithAgenticEnabled(on bool) *Orchestrator {
+	o.agentEnabled = on
+	return o
+}
+
+// WithAgenticCanaryPct sets the per-request coin-flip percentage for
+// the canary rollout (0..100).
+func (o *Orchestrator) WithAgenticCanaryPct(pct int) *Orchestrator {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	o.agentCanary = pct
+	return o
 }
 
 // WithSearcher installs the hybrid retrieval service (search.Service

@@ -42,6 +42,18 @@ func (o *Orchestrator) deepAsk(ctx context.Context, in AskInput) (*AskResult, er
 	result.Diagnostics.QuestionType = string(kind)
 	result.Diagnostics.StageTimings["qa.classify"] = FromDuration(time.Since(t0))
 
+	// Agentic route — only when enabled (or canary-sampled), the
+	// worker supports tool use, and a dispatcher is wireable. Falls
+	// through to single-shot on any gate miss.
+	if o.shouldUseAgenticPath(in.RepositoryID) {
+		if ar, err := o.runAgentic(ctx, in, kind, result, started); err == nil && ar != nil {
+			return ar, nil
+		}
+		// Soft-fallback to single-shot when the agent loop refused
+		// to start. Fine silently because the loop has its own
+		// diagnostics and the single-shot path is the baseline.
+	}
+
 	// Stage 2: readiness check. If we have no reader, deep degrades
 	// to the fast-route synthesis with whatever caller-supplied code
 	// the user passed. This preserves answerability on installs that

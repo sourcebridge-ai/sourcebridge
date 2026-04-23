@@ -151,6 +151,18 @@ type AskDiagnostics struct {
 	ModelUsed             string                `json:"modelUsed,omitempty"`
 	StageTimings          map[string]DurationMs `json:"stageTimings,omitempty"`
 	Mode                  string                `json:"mode,omitempty"`
+
+	// Agentic-loop diagnostics (plan 2026-04-23-agentic-retrieval).
+	// All zero-valued on the single-shot path.
+	AgenticUsed          bool     `json:"agenticUsed,omitempty"`
+	ToolCallsCount       int      `json:"toolCallsCount,omitempty"`
+	ToolNames            []string `json:"toolNames,omitempty"`
+	TerminationReason    string   `json:"terminationReason,omitempty"`
+	Turn1TextOnly        bool     `json:"turn1TextOnly,omitempty"`
+	LoopGuardTriggered   bool     `json:"loopGuardTriggered,omitempty"`
+	CitationFallbackUsed bool     `json:"citationFallbackUsed,omitempty"`
+	EvidenceTokens       int      `json:"evidenceTokens,omitempty"`
+	EvidenceExhausted    bool     `json:"evidenceExhausted,omitempty"`
 }
 
 // DurationMs is a duration expressed as integer milliseconds on the wire.
