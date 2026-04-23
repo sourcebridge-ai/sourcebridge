@@ -1,0 +1,7 @@
+arm: candidate
+date: 2026-04-23T20:55:49.346139755Z
+commit_sha: ""
+server_url: http://sourcebridge-api.sourcebridge.svc.cluster.local:8080
+mode: deep
+questions_hash: ""
+notes: in-cluster run, thor sha-c2f384d, surgical v2
