@@ -20,14 +20,18 @@ import (
 // so the overall p95 lands within the Decision Rule's p95 ceiling.
 const (
 	// decompParentWallClock is the total budget for the whole
-	// decomposition flow. 120s covers: ~3s decompose + up to 30s of
-	// parallel sub-loops + ~20s synthesis + slack.
-	decompParentWallClock = 120 * time.Second
+	// decomposition flow. 180s covers: ~3s decompose + up to 60s
+	// of parallel sub-loops + ~20s synthesis + slack. Raised from
+	// the initial 120s after first smoke showed sub-loops cut off
+	// at 30s were hitting deadline on the final synthesis turn.
+	decompParentWallClock = 180 * time.Second
 
-	// decompSubLoopWallClock caps each sub-loop. 30s per sub-loop
-	// keeps per-ask cost bounded and matches the typical p50 of a
-	// 3–5 turn loop against Sonnet 4.5 with caching.
-	decompSubLoopWallClock = 30 * time.Second
+	// decompSubLoopWallClock caps each sub-loop. 60s per sub-loop
+	// gives Sonnet 4.5 room for 3–5 turns including a dense
+	// final-answer synthesis turn. Since sub-loops run in parallel
+	// (bounded at decompMaxConcurrent), the parent budget only
+	// needs to absorb the slowest sub-loop, not the sum.
+	decompSubLoopWallClock = 60 * time.Second
 
 	// decompMaxConcurrent bounds parallel sub-loop execution. Four
 	// parallel paths keep the worker lane utilisation reasonable
