@@ -139,6 +139,27 @@ func indexResultsByHandle(results []ToolResult) map[string]resultIndex {
 			}
 			continue
 		}
+		// find_tests returns a `tests` array where each row carries
+		// a `handle` prefixed with "test:". Index these the same way
+		// as search_evidence rows so the citation resolver can surface
+		// them as file-range references (Phase 3 of the quality push).
+		if rows, ok := generic["tests"].([]any); ok {
+			for _, row := range rows {
+				rowMap, _ := row.(map[string]any)
+				if rowMap == nil {
+					continue
+				}
+				h, _ := rowMap["handle"].(string)
+				if h == "" {
+					continue
+				}
+				idx[h] = resultIndex{
+					toolName: ToolFindTests,
+					data:     rowMap,
+				}
+			}
+			continue
+		}
 		if rows, ok := generic["results"].([]any); ok {
 			for _, row := range rows {
 				rowMap, _ := row.(map[string]any)
@@ -263,6 +284,28 @@ func refFromHandle(handle string, idx map[string]resultIndex) (AskReference, boo
 			},
 		}
 		return r, true
+	case ToolFindTests:
+		// Tests render as FileRange refs so downstream UIs and
+		// citation flows don't need to grow a separate kind. Title
+		// carries the test function name so readers see what's being
+		// cited at a glance.
+		title := stringField(row.data, "test_name")
+		if title == "" {
+			title = handle
+		} else {
+			title = "test: " + title
+		}
+		r := AskReference{
+			Kind:  RefKindFileRange,
+			Title: title,
+			FileRange: &FileRangeRef{
+				FilePath:  stringField(row.data, "file_path"),
+				StartLine: intField(row.data, "start_line"),
+				EndLine:   intField(row.data, "end_line"),
+				Snippet:   stringField(row.data, "content"),
+			},
+		}
+		return r, true
 	}
 	// Unknown shape — emit a best-effort cross-repo ref so the
 	// citation isn't lost.
@@ -302,8 +345,9 @@ func emitAllFromResults(results []ToolResult) []AskReference {
 				refs = append(refs, ref)
 			}
 		}
-		// Multi-handle results.
-		for _, key := range []string{"results", "neighbors"} {
+		// Multi-handle results (find_tests also surfaces here via
+		// the "tests" key).
+		for _, key := range []string{"results", "neighbors", "tests"} {
 			arr, ok := generic[key].([]any)
 			if !ok {
 				continue
@@ -324,6 +368,9 @@ func emitAllFromResults(results []ToolResult) []AskReference {
 				toolName := toolNameFromData(rowMap)
 				if toolName == "" && key == "neighbors" {
 					toolName = ToolGetCallers
+				}
+				if key == "tests" {
+					toolName = ToolFindTests
 				}
 				idx := map[string]resultIndex{h: {
 					toolName: toolName,

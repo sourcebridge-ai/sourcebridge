@@ -386,6 +386,10 @@ func projectToolResultTokens(call ToolCall) int {
 		return 800 // one summary, ~600 tokens typical
 	case ToolGetRequirements:
 		return 2500 // 25 requirements × ~100 tokens each
+	case ToolFindTests:
+		// 10 tests × ~300 tokens/each (body + assertions), plus
+		// per-test metadata overhead.
+		return 3500
 	}
 	return 1500
 }

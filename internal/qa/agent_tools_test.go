@@ -27,13 +27,15 @@ func newTestDispatcher(t *testing.T) *AgentToolDispatcher {
 	return NewAgentToolDispatcher(o, "repo-1")
 }
 
-// TestAvailableToolsIsSixAndStable confirms we ship the v1 catalog
-// exactly. The LLM routes on these names; drift is a wire break.
-func TestAvailableToolsIsSixAndStable(t *testing.T) {
+// TestAvailableToolsIsStable confirms we ship the v1 catalog in
+// stable order. The LLM routes on these names; drift is a wire
+// break. Updated to 7 tools with find_tests added in quality-push
+// Phase 3.
+func TestAvailableToolsIsStable(t *testing.T) {
 	d := newTestDispatcher(t)
 	tools := d.AvailableTools()
-	if len(tools) != 6 {
-		t.Fatalf("expected 6 tools in v1 catalog, got %d", len(tools))
+	if len(tools) != 7 {
+		t.Fatalf("expected 7 tools in the catalog, got %d", len(tools))
 	}
 	got := make([]string, len(tools))
 	for i, s := range tools {
@@ -42,6 +44,7 @@ func TestAvailableToolsIsSixAndStable(t *testing.T) {
 	want := []string{
 		ToolSearchEvidence, ToolReadFile, ToolGetCallers,
 		ToolGetCallees, ToolGetSummary, ToolGetRequirements,
+		ToolFindTests,
 	}
 	for i := range want {
 		if got[i] != want[i] {

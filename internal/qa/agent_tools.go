@@ -22,6 +22,7 @@ const (
 	ToolGetCallees      = "get_callees"
 	ToolGetSummary      = "get_summary"
 	ToolGetRequirements = "get_requirements"
+	ToolFindTests       = "find_tests"
 )
 
 // Tool error enums. One per Tool Catalog row. The LLM sees these as
@@ -73,6 +74,9 @@ func NewAgentToolDispatcher(o *Orchestrator, repoID string) *AgentToolDispatcher
 
 // AvailableTools returns the v1 tool catalog in stable order.
 // list_files is intentionally absent (plan §Tool Catalog).
+// find_tests (quality-push Phase 3) is appended so providers that
+// don't support it gracefully ignore it; callers can opt out via
+// the no-tests fallback inside the dispatcher.
 func (d *AgentToolDispatcher) AvailableTools() []ToolSchema {
 	return []ToolSchema{
 		toolSchemaSearchEvidence,
@@ -81,6 +85,7 @@ func (d *AgentToolDispatcher) AvailableTools() []ToolSchema {
 		toolSchemaGetCallees,
 		toolSchemaGetSummary,
 		toolSchemaGetRequirements,
+		toolSchemaFindTests,
 	}
 }
 
@@ -105,6 +110,8 @@ func (d *AgentToolDispatcher) Dispatch(ctx context.Context, call ToolCall) ToolR
 		return d.dispatchGetSummary(ctx, call)
 	case ToolGetRequirements:
 		return d.dispatchGetRequirements(ctx, call)
+	case ToolFindTests:
+		return d.dispatchFindTests(ctx, call)
 	default:
 		return errResult(call.CallID, ErrInvalidArgs, fmt.Sprintf("unknown tool %q", call.Name))
 	}
@@ -556,6 +563,78 @@ func (d *AgentToolDispatcher) dispatchGetRequirements(_ context.Context, call To
 	return okResult(call.CallID, getRequirementsResult{Results: results})
 }
 
+// ---- find_tests (quality-push Phase 3) ------------------------------
+
+type findTestsArgs struct {
+	SymbolID string `json:"symbol_id,omitempty"`
+	FilePath string `json:"file_path,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+}
+
+type findTestsResult struct {
+	Tests   []TestHit `json:"tests"`
+	HasMore bool      `json:"has_more"`
+}
+
+var toolSchemaFindTests = ToolSchema{
+	Name: ToolFindTests,
+	Description: "Find unit tests that exercise a given symbol or file. " +
+		"Returns each matching test with a stable `handle` for citation, its " +
+		"source location, assertion lines, and the matched subject name. " +
+		"Provide exactly one of `symbol_id` (e.g. \"sym_abc\") or `file_path`. " +
+		"Prefer `symbol_id` when you have it — the adjacency heuristic is " +
+		"stronger for symbol queries. Use `find_tests` for behavior / " +
+		"risk-review questions when you need ground-truth semantics rather " +
+		"than code reading.",
+	InputSchemaJSON: `{
+    "type": "object",
+    "properties": {
+      "symbol_id": {"type": "string", "maxLength": 128},
+      "file_path": {"type": "string", "maxLength": 512},
+      "limit":     {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}
+    },
+    "anyOf": [
+      {"required": ["symbol_id"]},
+      {"required": ["file_path"]}
+    ]
+  }`,
+}
+
+func (d *AgentToolDispatcher) dispatchFindTests(ctx context.Context, call ToolCall) ToolResult {
+	var args findTestsArgs
+	if err := json.Unmarshal(call.Args, &args); err != nil {
+		return errResult(call.CallID, ErrInvalidArgs, "args must be an object with either `symbol_id` or `file_path`")
+	}
+	if strings.TrimSpace(args.SymbolID) == "" && strings.TrimSpace(args.FilePath) == "" {
+		return errResult(call.CallID, ErrInvalidArgs, "provide either `symbol_id` or `file_path`")
+	}
+	if args.Limit <= 0 {
+		args.Limit = 5
+	}
+	if args.Limit > 10 {
+		return errResult(call.CallID, ErrLimitOutOfRange, "limit must be between 1 and 10")
+	}
+	if d.o.files == nil {
+		return errResult(call.CallID, ErrServiceUnavailable, "file reader not configured; cannot read candidate test files")
+	}
+
+	finder := NewTestFinder(d.o, d.repoID)
+	var hits []TestHit
+	var err error
+	if args.SymbolID != "" {
+		hits, err = finder.FindForSymbol(ctx, args.SymbolID, args.Limit)
+	} else {
+		hits, err = finder.FindForFile(ctx, args.FilePath, args.Limit)
+	}
+	if err != nil {
+		return errResult(call.CallID, ErrServiceUnavailable, err.Error())
+	}
+	return okResult(call.CallID, findTestsResult{
+		Tests:   hits,
+		HasMore: false,
+	})
+}
+
 // ---- helpers -------------------------------------------------------
 
 func okResult(callID string, v any) ToolResult {
@@ -623,6 +702,7 @@ func stableToolNames() []string {
 		ToolGetCallees,
 		ToolGetSummary,
 		ToolGetRequirements,
+		ToolFindTests,
 	}
 	sort.Strings(names)
 	return names
@@ -638,6 +718,7 @@ func init() {
 		toolSchemaGetCallees,
 		toolSchemaGetSummary,
 		toolSchemaGetRequirements,
+		toolSchemaFindTests,
 	} {
 		if s.Name == "" || s.Description == "" || s.InputSchemaJSON == "" {
 			panic("qa: tool schema incomplete: " + s.Name)
