@@ -246,28 +246,34 @@ class ToolResult(_message.Message):
     def __init__(self, call_id: _Optional[str] = ..., ok: bool = ..., data_json: _Optional[str] = ..., error: _Optional[str] = ..., hint: _Optional[str] = ...) -> None: ...
 
 class AnswerQuestionWithToolsRequest(_message.Message):
-    __slots__ = ("repository_id", "messages", "tools", "max_tokens")
+    __slots__ = ("repository_id", "messages", "tools", "max_tokens", "enable_prompt_caching")
     REPOSITORY_ID_FIELD_NUMBER: _ClassVar[int]
     MESSAGES_FIELD_NUMBER: _ClassVar[int]
     TOOLS_FIELD_NUMBER: _ClassVar[int]
     MAX_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    ENABLE_PROMPT_CACHING_FIELD_NUMBER: _ClassVar[int]
     repository_id: str
     messages: _containers.RepeatedCompositeFieldContainer[AgentMessage]
     tools: _containers.RepeatedCompositeFieldContainer[ToolSchema]
     max_tokens: int
-    def __init__(self, repository_id: _Optional[str] = ..., messages: _Optional[_Iterable[_Union[AgentMessage, _Mapping]]] = ..., tools: _Optional[_Iterable[_Union[ToolSchema, _Mapping]]] = ..., max_tokens: _Optional[int] = ...) -> None: ...
+    enable_prompt_caching: bool
+    def __init__(self, repository_id: _Optional[str] = ..., messages: _Optional[_Iterable[_Union[AgentMessage, _Mapping]]] = ..., tools: _Optional[_Iterable[_Union[ToolSchema, _Mapping]]] = ..., max_tokens: _Optional[int] = ..., enable_prompt_caching: bool = ...) -> None: ...
 
 class AnswerQuestionWithToolsResponse(_message.Message):
-    __slots__ = ("capability_supported", "turn", "usage", "termination_hint")
+    __slots__ = ("capability_supported", "turn", "usage", "termination_hint", "cache_creation_input_tokens", "cache_read_input_tokens")
     CAPABILITY_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
     TURN_FIELD_NUMBER: _ClassVar[int]
     USAGE_FIELD_NUMBER: _ClassVar[int]
     TERMINATION_HINT_FIELD_NUMBER: _ClassVar[int]
+    CACHE_CREATION_INPUT_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    CACHE_READ_INPUT_TOKENS_FIELD_NUMBER: _ClassVar[int]
     capability_supported: bool
     turn: AgentMessage
     usage: _types_pb2.LLMUsage
     termination_hint: str
-    def __init__(self, capability_supported: bool = ..., turn: _Optional[_Union[AgentMessage, _Mapping]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ..., termination_hint: _Optional[str] = ...) -> None: ...
+    cache_creation_input_tokens: int
+    cache_read_input_tokens: int
+    def __init__(self, capability_supported: bool = ..., turn: _Optional[_Union[AgentMessage, _Mapping]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ..., termination_hint: _Optional[str] = ..., cache_creation_input_tokens: _Optional[int] = ..., cache_read_input_tokens: _Optional[int] = ...) -> None: ...
 
 class GetProviderCapabilitiesRequest(_message.Message):
     __slots__ = ()

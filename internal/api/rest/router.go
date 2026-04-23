@@ -274,8 +274,9 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 	if cfg != nil {
 		askModel := cfg.LLM.AskModel
 		qaOrchCfg := qa.Config{
-			QuestionMaxBytes: cfg.QA.QuestionMaxBytes,
-			AskModel:         askModel,
+			QuestionMaxBytes:     cfg.QA.QuestionMaxBytes,
+			AskModel:             askModel,
+			PromptCachingEnabled: cfg.QA.PromptCachingEnabled,
 		}
 		var reader qa.UnderstandingReader
 		if s.knowledgeStore != nil && s.summaryNodeStore != nil {

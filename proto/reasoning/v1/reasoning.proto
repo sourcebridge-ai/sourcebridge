@@ -231,6 +231,11 @@ message AnswerQuestionWithToolsRequest {
   repeated ToolSchema tools = 3;
   // Soft cap on the output tokens the model may produce this turn.
   int32 max_tokens = 4;
+  // When true, attach Anthropic prompt-cache markers
+  // (cache_control: ephemeral) to the system prompt and last tool
+  // schema. Cuts input-token cost 60–80% on multi-turn loops.
+  // Ignored by providers that don't support prompt caching.
+  bool enable_prompt_caching = 5;
 }
 
 message AnswerQuestionWithToolsResponse {
@@ -247,6 +252,13 @@ message AnswerQuestionWithToolsResponse {
   // safety gate fired inside the worker, this explains why. Empty
   // on the happy path.
   string termination_hint = 4;
+  // Prompt-cache accounting (Anthropic). `cache_creation_input_tokens`
+  // counts tokens written to the cache on this turn; `cache_read`
+  // counts tokens served from the cache. Zero when prompt caching
+  // is disabled or the provider doesn't support it. Surfaced as
+  // diagnostics so operators can verify the cache is active.
+  int64 cache_creation_input_tokens = 5;
+  int64 cache_read_input_tokens = 6;
 }
 
 message GetProviderCapabilitiesRequest {}

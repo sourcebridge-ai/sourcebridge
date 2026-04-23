@@ -1390,9 +1390,14 @@ type AnswerQuestionWithToolsRequest struct {
 	// the model produces a text answer only.
 	Tools []*ToolSchema `protobuf:"bytes,3,rep,name=tools,proto3" json:"tools,omitempty"`
 	// Soft cap on the output tokens the model may produce this turn.
-	MaxTokens     int32 `protobuf:"varint,4,opt,name=max_tokens,json=maxTokens,proto3" json:"max_tokens,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	MaxTokens int32 `protobuf:"varint,4,opt,name=max_tokens,json=maxTokens,proto3" json:"max_tokens,omitempty"`
+	// When true, attach Anthropic prompt-cache markers
+	// (cache_control: ephemeral) to the system prompt and last tool
+	// schema. Cuts input-token cost 60–80% on multi-turn loops.
+	// Ignored by providers that don't support prompt caching.
+	EnablePromptCaching bool `protobuf:"varint,5,opt,name=enable_prompt_caching,json=enablePromptCaching,proto3" json:"enable_prompt_caching,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *AnswerQuestionWithToolsRequest) Reset() {
@@ -1453,6 +1458,13 @@ func (x *AnswerQuestionWithToolsRequest) GetMaxTokens() int32 {
 	return 0
 }
 
+func (x *AnswerQuestionWithToolsRequest) GetEnablePromptCaching() bool {
+	if x != nil {
+		return x.EnablePromptCaching
+	}
+	return false
+}
+
 type AnswerQuestionWithToolsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// True when the active provider/model supports structured tool
@@ -1468,8 +1480,15 @@ type AnswerQuestionWithToolsResponse struct {
 	// safety gate fired inside the worker, this explains why. Empty
 	// on the happy path.
 	TerminationHint string `protobuf:"bytes,4,opt,name=termination_hint,json=terminationHint,proto3" json:"termination_hint,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Prompt-cache accounting (Anthropic). `cache_creation_input_tokens`
+	// counts tokens written to the cache on this turn; `cache_read`
+	// counts tokens served from the cache. Zero when prompt caching
+	// is disabled or the provider doesn't support it. Surfaced as
+	// diagnostics so operators can verify the cache is active.
+	CacheCreationInputTokens int64 `protobuf:"varint,5,opt,name=cache_creation_input_tokens,json=cacheCreationInputTokens,proto3" json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int64 `protobuf:"varint,6,opt,name=cache_read_input_tokens,json=cacheReadInputTokens,proto3" json:"cache_read_input_tokens,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *AnswerQuestionWithToolsResponse) Reset() {
@@ -1528,6 +1547,20 @@ func (x *AnswerQuestionWithToolsResponse) GetTerminationHint() string {
 		return x.TerminationHint
 	}
 	return ""
+}
+
+func (x *AnswerQuestionWithToolsResponse) GetCacheCreationInputTokens() int64 {
+	if x != nil {
+		return x.CacheCreationInputTokens
+	}
+	return 0
+}
+
+func (x *AnswerQuestionWithToolsResponse) GetCacheReadInputTokens() int64 {
+	if x != nil {
+		return x.CacheReadInputTokens
+	}
+	return 0
 }
 
 type GetProviderCapabilitiesRequest struct {
@@ -1755,18 +1788,21 @@ const file_reasoning_v1_reasoning_proto_rawDesc = "" +
 	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x1b\n" +
 	"\tdata_json\x18\x03 \x01(\tR\bdataJson\x12\x14\n" +
 	"\x05error\x18\x04 \x01(\tR\x05error\x12\x12\n" +
-	"\x04hint\x18\x05 \x01(\tR\x04hint\"\xe6\x01\n" +
+	"\x04hint\x18\x05 \x01(\tR\x04hint\"\x9a\x02\n" +
 	"\x1eAnswerQuestionWithToolsRequest\x12#\n" +
 	"\rrepository_id\x18\x01 \x01(\tR\frepositoryId\x12C\n" +
 	"\bmessages\x18\x02 \x03(\v2'.sourcebridge.reasoning.v1.AgentMessageR\bmessages\x12;\n" +
 	"\x05tools\x18\x03 \x03(\v2%.sourcebridge.reasoning.v1.ToolSchemaR\x05tools\x12\x1d\n" +
 	"\n" +
-	"max_tokens\x18\x04 \x01(\x05R\tmaxTokens\"\xf4\x01\n" +
+	"max_tokens\x18\x04 \x01(\x05R\tmaxTokens\x122\n" +
+	"\x15enable_prompt_caching\x18\x05 \x01(\bR\x13enablePromptCaching\"\xea\x02\n" +
 	"\x1fAnswerQuestionWithToolsResponse\x121\n" +
 	"\x14capability_supported\x18\x01 \x01(\bR\x13capabilitySupported\x12;\n" +
 	"\x04turn\x18\x02 \x01(\v2'.sourcebridge.reasoning.v1.AgentMessageR\x04turn\x126\n" +
 	"\x05usage\x18\x03 \x01(\v2 .sourcebridge.common.v1.LLMUsageR\x05usage\x12)\n" +
-	"\x10termination_hint\x18\x04 \x01(\tR\x0fterminationHint\" \n" +
+	"\x10termination_hint\x18\x04 \x01(\tR\x0fterminationHint\x12=\n" +
+	"\x1bcache_creation_input_tokens\x18\x05 \x01(\x03R\x18cacheCreationInputTokens\x125\n" +
+	"\x17cache_read_input_tokens\x18\x06 \x01(\x03R\x14cacheReadInputTokens\" \n" +
 	"\x1eGetProviderCapabilitiesRequest\"\xbb\x01\n" +
 	"\x1fGetProviderCapabilitiesResponse\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x14\n" +

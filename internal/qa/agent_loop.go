@@ -33,6 +33,10 @@ type AgentTurnRequest struct {
 	Messages     []AgentMessage
 	Tools        []ToolSchema
 	MaxTokens    int
+	// EnablePromptCaching routes through to the worker's Anthropic
+	// cache_control markers. Orchestrator sources the bool from
+	// Config.PromptCachingEnabled.
+	EnablePromptCaching bool
 }
 
 // AgentLoopResult is the final envelope the loop returns to deepAsk.
@@ -61,6 +65,10 @@ type AgentLoopResult struct {
 	EvidenceExhausted   bool
 	TotalTokens         int
 	Model               string
+	// Prompt-cache accounting summed across turns (Anthropic). Zero
+	// when caching is disabled or the provider doesn't support it.
+	CacheCreationInputTokens int
+	CacheReadInputTokens     int
 }
 
 // AgentTraceEntry captures one (call, result) pair for diagnostics.
@@ -178,10 +186,11 @@ func (o *Orchestrator) RunAgentLoop(
 		// One round-trip to the worker.
 		turnStart := time.Now()
 		resp, err := synth.AnswerQuestionWithTools(turnCtx, AgentTurnRequest{
-			RepositoryID: in.RepositoryID,
-			Messages:     history,
-			Tools:        dispatcher.AvailableTools(),
-			MaxTokens:    o.config.MaxAnswerTokens,
+			RepositoryID:        in.RepositoryID,
+			Messages:            history,
+			Tools:               dispatcher.AvailableTools(),
+			MaxTokens:           o.config.MaxAnswerTokens,
+			EnablePromptCaching: o.config.PromptCachingEnabled,
 		})
 		turnCancel()
 		if err != nil {
@@ -202,6 +211,8 @@ func (o *Orchestrator) RunAgentLoop(
 		}
 		result.TurnsCount = turn
 		result.TotalTokens += resp.InputTokens + resp.OutputTokens
+		result.CacheCreationInputTokens += resp.CacheCreationInputTokens
+		result.CacheReadInputTokens += resp.CacheReadInputTokens
 		if resp.Model != "" {
 			result.Model = resp.Model
 		}

@@ -71,10 +71,11 @@ func (s *WorkerAgentSynthesizer) AnswerQuestionWithTools(
 	}
 
 	resp, err := s.worker.AnswerQuestionWithTools(ctx, &reasoningv1.AnswerQuestionWithToolsRequest{
-		RepositoryId: req.RepositoryID,
-		Messages:     protoMsgs,
-		Tools:        protoTools,
-		MaxTokens:    int32(req.MaxTokens),
+		RepositoryId:        req.RepositoryID,
+		Messages:            protoMsgs,
+		Tools:               protoTools,
+		MaxTokens:           int32(req.MaxTokens),
+		EnablePromptCaching: req.EnablePromptCaching,
 	})
 	if err != nil {
 		return AgentTurn{}, err
@@ -100,6 +101,8 @@ func (s *WorkerAgentSynthesizer) AnswerQuestionWithTools(
 		turn.InputTokens = int(u.GetInputTokens())
 		turn.OutputTokens = int(u.GetOutputTokens())
 	}
+	turn.CacheCreationInputTokens = int(resp.GetCacheCreationInputTokens())
+	turn.CacheReadInputTokens = int(resp.GetCacheReadInputTokens())
 	return turn, nil
 }
 

@@ -491,6 +491,7 @@ class ReasoningServicer(reasoning_pb2_grpc.ReasoningServiceServicer):
                 messages=messages,
                 tools=tools,
                 max_tokens=max_tokens,
+                enable_prompt_caching=bool(request.enable_prompt_caching),
             )
         except Exception as exc:
             log.error("agent_turn_failed", error=str(exc))
@@ -498,6 +499,15 @@ class ReasoningServicer(reasoning_pb2_grpc.ReasoningServiceServicer):
                 grpc.StatusCode.INTERNAL, f"Agent turn failed: {exc}"
             )
             return  # type: ignore[return-value]
+
+        if turn_resp.cache_read_input_tokens or turn_resp.cache_creation_input_tokens:
+            log.info(
+                "agent_turn_prompt_cache",
+                cache_creation=turn_resp.cache_creation_input_tokens,
+                cache_read=turn_resp.cache_read_input_tokens,
+                input_tokens=turn_resp.input_tokens,
+                model=turn_resp.model,
+            )
 
         return reasoning_pb2.AnswerQuestionWithToolsResponse(
             capability_supported=True,
@@ -520,6 +530,8 @@ class ReasoningServicer(reasoning_pb2_grpc.ReasoningServiceServicer):
                 operation="agent_turn",
             ),
             termination_hint=turn_resp.termination_hint,
+            cache_creation_input_tokens=turn_resp.cache_creation_input_tokens,
+            cache_read_input_tokens=turn_resp.cache_read_input_tokens,
         )
 
     async def GetProviderCapabilities(  # noqa: N802

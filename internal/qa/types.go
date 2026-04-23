@@ -163,6 +163,10 @@ type AskDiagnostics struct {
 	CitationFallbackUsed bool     `json:"citationFallbackUsed,omitempty"`
 	EvidenceTokens       int      `json:"evidenceTokens,omitempty"`
 	EvidenceExhausted    bool     `json:"evidenceExhausted,omitempty"`
+	// Prompt-cache diagnostics (quality-push Phase 1). Zero when
+	// caching is disabled or the provider doesn't support it.
+	CacheCreationInputTokens int `json:"cacheCreationInputTokens,omitempty"`
+	CacheReadInputTokens     int `json:"cacheReadInputTokens,omitempty"`
 }
 
 // DurationMs is a duration expressed as integer milliseconds on the wire.

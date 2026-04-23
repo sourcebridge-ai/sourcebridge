@@ -129,6 +129,8 @@ func (o *Orchestrator) runAgentic(
 	result.Diagnostics.CitationFallbackUsed = loopResult.CitationFallbackUsed
 	result.Diagnostics.EvidenceTokens = loopResult.EvidenceTokens
 	result.Diagnostics.EvidenceExhausted = loopResult.EvidenceExhausted
+	result.Diagnostics.CacheCreationInputTokens = loopResult.CacheCreationInputTokens
+	result.Diagnostics.CacheReadInputTokens = loopResult.CacheReadInputTokens
 
 	// Record files considered/used from the tool trace (best-effort
 	// extraction — uses the same logic as the single-shot path so

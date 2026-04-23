@@ -234,6 +234,14 @@ type QAConfig struct {
 	// Per-request coin flip; only evaluated when the provider
 	// supports tool use.
 	AgenticRetrievalCanaryPct int `mapstructure:"agentic_retrieval_canary_pct"`
+	// PromptCachingEnabled applies Anthropic prompt-cache markers
+	// (cache_control: ephemeral) to the agentic system prompt and
+	// tool schemas. Cuts input-token cost 60–80% on multi-turn loops
+	// by serving repeated prefixes from the cache. Default true —
+	// safe on all current Anthropic models and ignored by providers
+	// that don't support it. Set false to roll back if cache behavior
+	// breaks in a future SDK/model combination.
+	PromptCachingEnabled bool `mapstructure:"prompt_caching_enabled"`
 }
 
 // TrashConfig controls the soft-delete recycle bin feature.
@@ -328,6 +336,7 @@ func Defaults() *Config {
 			SynthesisLane:             4,
 			AgenticRetrievalEnabled:   false, // default-off through Phase 3
 			AgenticRetrievalCanaryPct: 0,
+			PromptCachingEnabled:      true, // Anthropic-safe default
 		},
 	}
 }
@@ -399,6 +408,7 @@ func Load() (*Config, error) {
 	v.SetDefault("qa.synthesis_lane", cfg.QA.SynthesisLane)
 	v.SetDefault("qa.agentic_retrieval_enabled", cfg.QA.AgenticRetrievalEnabled)
 	v.SetDefault("qa.agentic_retrieval_canary_pct", cfg.QA.AgenticRetrievalCanaryPct)
+	v.SetDefault("qa.prompt_caching_enabled", cfg.QA.PromptCachingEnabled)
 
 	// Try reading config file (not required)
 	if err := v.ReadInConfig(); err != nil {

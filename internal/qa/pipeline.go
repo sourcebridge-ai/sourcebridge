@@ -259,18 +259,20 @@ func (o *Orchestrator) WithFileReader(f FileReader) *Orchestrator {
 // package boundaries stay clean (internal/qa does not import
 // internal/config).
 type Config struct {
-	QuestionMaxBytes int
-	AskModel         string
-	MaxAnswerTokens  int
+	QuestionMaxBytes     int
+	AskModel             string
+	MaxAnswerTokens      int
+	PromptCachingEnabled bool
 }
 
 // DefaultConfig returns a Config with reasonable defaults for unit
 // tests. Production callers pass the resolved QAConfig.
 func DefaultConfig() Config {
 	return Config{
-		QuestionMaxBytes: 4096,
-		AskModel:         "",
-		MaxAnswerTokens:  1024,
+		QuestionMaxBytes:     4096,
+		AskModel:             "",
+		MaxAnswerTokens:      1024,
+		PromptCachingEnabled: true,
 	}
 }
 

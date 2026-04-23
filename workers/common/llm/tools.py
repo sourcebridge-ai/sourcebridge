@@ -79,6 +79,12 @@ class AgentTurnResponse:
     input_tokens: int = 0
     output_tokens: int = 0
     model: str = ""
+    # Prompt-cache accounting. When prompt caching is active on the
+    # provider, Anthropic reports how many tokens were served from
+    # the cache vs had to be re-ingested. A high cache_read rate is
+    # the point of Phase 5 caching.
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
     # Natural-language reason when the worker short-circuited the turn
     # (e.g. a safety gate). Empty on the happy path.
     termination_hint: str = ""
@@ -144,22 +150,31 @@ def _messages_for_anthropic(messages: list[AgentMessage]) -> tuple[list[dict[str
     return out, "\n\n".join(system_parts)
 
 
-async def run_agent_turn_anthropic(
-    client: Any,
+def build_anthropic_kwargs(
     model: str,
     messages: list[AgentMessage],
     tools: list[ToolSchema],
     max_tokens: int,
-) -> AgentTurnResponse:
-    """Run one tool-use turn against Anthropic's messages API.
+    enable_prompt_caching: bool,
+) -> dict[str, Any]:
+    """Build the kwargs dict for `client.messages.create(**kwargs)`.
 
-    Returns the assistant's response as an AgentMessage; either
-    `text` or `tool_calls` is populated. Raises on hard API errors.
+    Extracted from `run_agent_turn_anthropic` so unit tests can
+    assert the outgoing payload shape without mocking the Anthropic
+    SDK. `enable_prompt_caching` controls whether `cache_control`
+    markers are attached to the system prompt and tool list.
+
+    Anthropic caches up to and including the LAST block that carries
+    a `cache_control` marker. Placing the marker on:
+      - the last tool schema, AND
+      - the system prompt text block
+    means the (system prompt + all N tools) prefix is cached for 5
+    minutes. Second and later turns in the same loop see this prefix
+    as `cache_read_input_tokens` in `usage`, typically 85–95% of
+    the input-token volume for long-context agentic conversations.
     """
     api_messages, system_text = _messages_for_anthropic(messages)
     api_tools = [t.to_anthropic() for t in tools]
-
-    import anthropic
 
     kwargs: dict[str, Any] = {
         "model": model,
@@ -167,9 +182,61 @@ async def run_agent_turn_anthropic(
         "messages": cast(list[dict[str, Any]], api_messages),
     }
     if system_text:
-        kwargs["system"] = system_text
+        if enable_prompt_caching:
+            # Content-block form lets us attach cache_control. Anthropic
+            # accepts the array form for `system` the same way it does
+            # for message content.
+            kwargs["system"] = [
+                {
+                    "type": "text",
+                    "text": system_text,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+        else:
+            kwargs["system"] = system_text
     if api_tools:
+        if enable_prompt_caching and api_tools:
+            # Cache up to and including the last tool. Earlier tools
+            # are included implicitly.
+            api_tools = list(api_tools)
+            api_tools[-1] = {
+                **api_tools[-1],
+                "cache_control": {"type": "ephemeral"},
+            }
         kwargs["tools"] = api_tools
+    return kwargs
+
+
+async def run_agent_turn_anthropic(
+    client: Any,
+    model: str,
+    messages: list[AgentMessage],
+    tools: list[ToolSchema],
+    max_tokens: int,
+    enable_prompt_caching: bool = True,
+) -> AgentTurnResponse:
+    """Run one tool-use turn against Anthropic's messages API.
+
+    Returns the assistant's response as an AgentMessage; either
+    `text` or `tool_calls` is populated. Raises on hard API errors.
+
+    `enable_prompt_caching` (default True) attaches ephemeral
+    cache_control markers to the system prompt and the last tool
+    schema. For Anthropic models 3.5+ this cuts input-token cost
+    ~60-80% on multi-turn loops. Pass False to disable on providers
+    that don't support cache markers (currently none in production,
+    but kept for safety).
+    """
+    import anthropic  # noqa: F401 — verifies SDK is installed
+
+    kwargs = build_anthropic_kwargs(
+        model=model,
+        messages=messages,
+        tools=tools,
+        max_tokens=max_tokens,
+        enable_prompt_caching=enable_prompt_caching,
+    )
 
     resp = await client.messages.create(**kwargs)  # type: ignore[call-overload]
 
@@ -188,12 +255,19 @@ async def run_agent_turn_anthropic(
                 )
             )
 
+    # Cache accounting. Older SDK versions may not expose these
+    # attributes, so default to 0 on AttributeError.
+    cache_creation = getattr(resp.usage, "cache_creation_input_tokens", 0) or 0
+    cache_read = getattr(resp.usage, "cache_read_input_tokens", 0) or 0
+
     return AgentTurnResponse(
         capability_supported=True,
         turn=turn,
         input_tokens=resp.usage.input_tokens,
         output_tokens=resp.usage.output_tokens,
         model=model,
+        cache_creation_input_tokens=cache_creation,
+        cache_read_input_tokens=cache_read,
     )
 
 

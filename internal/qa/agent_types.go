@@ -64,6 +64,11 @@ type AgentTurn struct {
 	OutputTokens    int        `json:"output_tokens"`
 	Model           string     `json:"model"`
 	TerminationHint string     `json:"termination_hint,omitempty"`
+	// Prompt-cache accounting (Anthropic). CacheRead is tokens served
+	// from the cache on this turn; CacheCreation is tokens written to
+	// the cache. Summed across turns these land in AskDiagnostics.
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // ProviderCapabilities is the cached capability snapshot the
