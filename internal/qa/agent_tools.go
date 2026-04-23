@@ -592,11 +592,7 @@ var toolSchemaFindTests = ToolSchema{
       "symbol_id": {"type": "string", "maxLength": 128},
       "file_path": {"type": "string", "maxLength": 512},
       "limit":     {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}
-    },
-    "anyOf": [
-      {"required": ["symbol_id"]},
-      {"required": ["file_path"]}
-    ]
+    }
   }`,
 }
 
