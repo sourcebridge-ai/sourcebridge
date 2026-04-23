@@ -100,10 +100,19 @@ func evidenceTokenBudget(kind QuestionKind) int {
 }
 
 // Wall-clock cap for the whole loop; applies to every class.
-const agentWallClockBudget = 30 * time.Second
+//
+// 60s is the upper bound an agentic ask can run before Decision Rule
+// Phase 3 would flag it. Empirically, a 3–5 turn loop with Claude
+// Sonnet 4.5 needs ~8–15s per turn plus ~1–3s per tool call, so the
+// median finishes in 20–30s and architecture questions land in
+// 35–50s. 60s covers p95; beyond that, the loop is thrashing and
+// the timeout is the correct answer.
+const agentWallClockBudget = 60 * time.Second
 
-// Per-turn deadline cap (min with remaining budget).
-const agentPerTurnDeadline = 15 * time.Second
+// Per-turn deadline cap (min with remaining budget). Claude Sonnet
+// 4.5 can take 15–25s on long-context synthesis turns, so 30s gives
+// headroom without masking genuinely stuck calls.
+const agentPerTurnDeadline = 30 * time.Second
 
 // Per-tool deadline cap (min with remaining budget).
 const agentPerToolDeadline = 5 * time.Second
