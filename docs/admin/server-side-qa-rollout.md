@@ -7,6 +7,32 @@ the follow-on agentic-retrieval loop (plan
 Work the list top-to-bottom. Each flag flip is the last step of its
 stage, not the first.
 
+## Quality-push surgical config (current prod posture as of 2026-04-23)
+
+Based on the Phase-5 benchmark (`benchmarks/qa/reports/
+2026-04-23_quality_push_vs_agentic/report.md`), the following
+subset of the four quality-push features is the recommended
+default:
+
+| Flag | Value | Rationale |
+|------|-------|-----------|
+| `SOURCEBRIDGE_QA_AGENTIC_RETRIEVAL_ENABLED` | `true` | Phase 3: +10% overall over single-shot |
+| `SOURCEBRIDGE_QA_PROMPT_CACHING_ENABLED` | `true` | Pure cost win, 69.5% input-token savings, no quality risk |
+| `SOURCEBRIDGE_QA_QUERY_DECOMPOSITION_ENABLED` | `true` | Architecture-only gate (code-side): +16% on arch; off for other classes |
+| `SOURCEBRIDGE_QA_SMART_CLASSIFIER_ENABLED` | `true` | Safe after commit `913752f` dropped file_candidates from seed context |
+
+**Code-side narrowing** (automatic, no flag):
+- `isDecomposableKind` only returns true for `KindArchitecture`
+  (post-Phase-5 narrowing). Re-enabling for cross_cutting or
+  execution_flow requires a decomposer-prompt revision first.
+- `buildSeedContextBlock` no longer surfaces `file_candidates`;
+  only symbol names and topic terms reach the agent seed as
+  search hints. File paths only enter the conversation via real
+  tool results.
+
+To roll any individual feature back without a code change, flip
+its env flag to `false` and restart the API deployment.
+
 ## Agentic retrieval (new — plan 2026-04-23)
 
 Two flags work together:
