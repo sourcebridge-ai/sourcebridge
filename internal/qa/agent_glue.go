@@ -201,7 +201,8 @@ func buildAgentSeedMessages(in AskInput, kind QuestionKind, summaries []SummaryE
 	system := agentSystemPrompt(kind)
 	seed := []AgentMessage{{Role: AgentRoleSystem, Text: system}}
 
-	hasHints := len(hints.SymbolCandidates) > 0 || len(hints.FileCandidates) > 0 || len(hints.TopicTerms) > 0
+	// Intentionally omits FileCandidates — see buildSeedContextBlock.
+	hasHints := len(hints.SymbolCandidates) > 0 || len(hints.TopicTerms) > 0
 	if len(summaries) > 0 || len(in.PriorMessages) > 0 || in.Code != "" || in.FilePath != "" || hasHints {
 		seed = append(seed, AgentMessage{
 			Role: AgentRoleAssistant,
@@ -287,20 +288,33 @@ func buildSeedContextBlock(in AskInput, summaries []SummaryEvidence, hints Evide
 		}
 		sb.WriteString("\n")
 	}
-	if len(hints.SymbolCandidates) > 0 || len(hints.FileCandidates) > 0 || len(hints.TopicTerms) > 0 {
-		sb.WriteString("# Advisory hints from the classifier\n\n")
-		sb.WriteString("These are best-guess starting points, not authoritative answers — verify with tools before citing.\n\n")
+	// Quality-push Phase 5 post-mortem: earlier versions surfaced
+	// file_candidates here, which ownership questions consistently
+	// over-trusted — the synthesis turn would cite an advisory path
+	// without tool-verifying it, producing confident-sounding but
+	// fabricated references. The judge flagged 7 of 25 ownership
+	// regressions ("plausible file path...fabricated" / "punts...
+	// claiming no handler was found").
+	//
+	// Fix: stop surfacing file paths entirely. Keep symbol-name and
+	// topic-term hints which function as search queries rather than
+	// citation anchors, and reframe the header so the model treats
+	// them as WHAT-TO-SEARCH-FOR, not WHAT-TO-CITE.
+	if len(hints.SymbolCandidates) > 0 || len(hints.TopicTerms) > 0 {
+		sb.WriteString("# Search hints\n\n")
+		sb.WriteString("These are terms to search for, NOT files to cite. " +
+			"Use them as `search_evidence` queries; only cite paths that " +
+			"appear in an actual tool_result handle.\n\n")
 		if len(hints.SymbolCandidates) > 0 {
-			fmt.Fprintf(&sb, "symbol_candidates: %s\n", strings.Join(hints.SymbolCandidates, ", "))
-		}
-		if len(hints.FileCandidates) > 0 {
-			fmt.Fprintf(&sb, "file_candidates: %s\n", strings.Join(hints.FileCandidates, ", "))
+			fmt.Fprintf(&sb, "candidate symbol names: %s\n", strings.Join(hints.SymbolCandidates, ", "))
 		}
 		if len(hints.TopicTerms) > 0 {
-			fmt.Fprintf(&sb, "topic_terms: %s\n", strings.Join(hints.TopicTerms, ", "))
+			fmt.Fprintf(&sb, "topic terms: %s\n", strings.Join(hints.TopicTerms, ", "))
 		}
 		sb.WriteString("\n")
 	}
+	// file_candidates intentionally omitted — see comment above.
+	_ = hints.FileCandidates
 	if len(in.PriorMessages) > 0 {
 		sb.WriteString("# Prior conversation turns\n\n")
 		for i, m := range in.PriorMessages {
