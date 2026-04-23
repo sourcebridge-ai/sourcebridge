@@ -734,6 +734,7 @@ type ComplexityRoot struct {
 		RequirementCount        func(childComplexity int) int
 		Status                  func(childComplexity int) int
 		UnderstandingScore      func(childComplexity int) int
+		UpstreamStatus          func(childComplexity int) int
 	}
 
 	RepositoryUnderstanding struct {
@@ -754,6 +755,14 @@ type ComplexityRoot struct {
 		TotalNodes        func(childComplexity int) int
 		TreeStatus        func(childComplexity int) int
 		UpdatedAt         func(childComplexity int) int
+	}
+
+	RepositoryUpstreamStatus struct {
+		CheckedAt         func(childComplexity int) int
+		ErrorMessage      func(childComplexity int) int
+		IndexedCommitSha  func(childComplexity int) int
+		Status            func(childComplexity int) int
+		UpstreamCommitSha func(childComplexity int) int
 	}
 
 	Requirement struct {
@@ -849,8 +858,18 @@ type ComplexityRoot struct {
 		Line           func(childComplexity int) int
 		RepositoryID   func(childComplexity int) int
 		RepositoryName func(childComplexity int) int
+		Score          func(childComplexity int) int
+		Signals        func(childComplexity int) int
 		Title          func(childComplexity int) int
 		Type           func(childComplexity int) int
+	}
+
+	SearchSignals struct {
+		Exact       func(childComplexity int) int
+		Graph       func(childComplexity int) int
+		Lexical     func(childComplexity int) int
+		Requirement func(childComplexity int) int
+		Semantic    func(childComplexity int) int
 	}
 
 	ServiceHealth struct {
@@ -1067,6 +1086,7 @@ type RepositoryResolver interface {
 
 	UnderstandingScore(ctx context.Context, obj *Repository) (*UnderstandingScore, error)
 	RepositoryUnderstanding(ctx context.Context, obj *Repository, scopeType *KnowledgeScopeType, scopePath *string) (*RepositoryUnderstanding, error)
+	UpstreamStatus(ctx context.Context, obj *Repository) (*RepositoryUpstreamStatus, error)
 }
 
 type executableSchema struct {
@@ -5060,6 +5080,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Repository.UnderstandingScore(childComplexity), true
 
+	case "Repository.upstreamStatus":
+		if e.complexity.Repository.UpstreamStatus == nil {
+			break
+		}
+
+		return e.complexity.Repository.UpstreamStatus(childComplexity), true
+
 	case "RepositoryUnderstanding.cachedNodes":
 		if e.complexity.RepositoryUnderstanding.CachedNodes == nil {
 			break
@@ -5178,6 +5205,41 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.RepositoryUnderstanding.UpdatedAt(childComplexity), true
+
+	case "RepositoryUpstreamStatus.checkedAt":
+		if e.complexity.RepositoryUpstreamStatus.CheckedAt == nil {
+			break
+		}
+
+		return e.complexity.RepositoryUpstreamStatus.CheckedAt(childComplexity), true
+
+	case "RepositoryUpstreamStatus.errorMessage":
+		if e.complexity.RepositoryUpstreamStatus.ErrorMessage == nil {
+			break
+		}
+
+		return e.complexity.RepositoryUpstreamStatus.ErrorMessage(childComplexity), true
+
+	case "RepositoryUpstreamStatus.indexedCommitSha":
+		if e.complexity.RepositoryUpstreamStatus.IndexedCommitSha == nil {
+			break
+		}
+
+		return e.complexity.RepositoryUpstreamStatus.IndexedCommitSha(childComplexity), true
+
+	case "RepositoryUpstreamStatus.status":
+		if e.complexity.RepositoryUpstreamStatus.Status == nil {
+			break
+		}
+
+		return e.complexity.RepositoryUpstreamStatus.Status(childComplexity), true
+
+	case "RepositoryUpstreamStatus.upstreamCommitSha":
+		if e.complexity.RepositoryUpstreamStatus.UpstreamCommitSha == nil {
+			break
+		}
+
+		return e.complexity.RepositoryUpstreamStatus.UpstreamCommitSha(childComplexity), true
 
 	case "Requirement.acceptanceCriteria":
 		if e.complexity.Requirement.AcceptanceCriteria == nil {
@@ -5613,6 +5675,20 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SearchResult.RepositoryName(childComplexity), true
 
+	case "SearchResult.score":
+		if e.complexity.SearchResult.Score == nil {
+			break
+		}
+
+		return e.complexity.SearchResult.Score(childComplexity), true
+
+	case "SearchResult.signals":
+		if e.complexity.SearchResult.Signals == nil {
+			break
+		}
+
+		return e.complexity.SearchResult.Signals(childComplexity), true
+
 	case "SearchResult.title":
 		if e.complexity.SearchResult.Title == nil {
 			break
@@ -5626,6 +5702,41 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.SearchResult.Type(childComplexity), true
+
+	case "SearchSignals.exact":
+		if e.complexity.SearchSignals.Exact == nil {
+			break
+		}
+
+		return e.complexity.SearchSignals.Exact(childComplexity), true
+
+	case "SearchSignals.graph":
+		if e.complexity.SearchSignals.Graph == nil {
+			break
+		}
+
+		return e.complexity.SearchSignals.Graph(childComplexity), true
+
+	case "SearchSignals.lexical":
+		if e.complexity.SearchSignals.Lexical == nil {
+			break
+		}
+
+		return e.complexity.SearchSignals.Lexical(childComplexity), true
+
+	case "SearchSignals.requirement":
+		if e.complexity.SearchSignals.Requirement == nil {
+			break
+		}
+
+		return e.complexity.SearchSignals.Requirement(childComplexity), true
+
+	case "SearchSignals.semantic":
+		if e.complexity.SearchSignals.Semantic == nil {
+			break
+		}
+
+		return e.complexity.SearchSignals.Semantic(childComplexity), true
 
 	case "ServiceHealth.name":
 		if e.complexity.ServiceHealth.Name == nil {
@@ -27537,6 +27648,8 @@ func (ec *executionContext) fieldContext_Mutation_addRepository(ctx context.Cont
 				return ec.fieldContext_Repository_understandingScore(ctx, field)
 			case "repositoryUnderstanding":
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -27748,6 +27861,8 @@ func (ec *executionContext) fieldContext_Mutation_reindexRepository(ctx context.
 				return ec.fieldContext_Repository_understandingScore(ctx, field)
 			case "repositoryUnderstanding":
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -27934,6 +28049,8 @@ func (ec *executionContext) fieldContext_Mutation_updateRepositoryKnowledgeSetti
 				return ec.fieldContext_Repository_understandingScore(ctx, field)
 			case "repositoryUnderstanding":
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -31591,6 +31708,8 @@ func (ec *executionContext) fieldContext_Query_repositories(_ context.Context, f
 				return ec.fieldContext_Repository_understandingScore(ctx, field)
 			case "repositoryUnderstanding":
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -31672,6 +31791,8 @@ func (ec *executionContext) fieldContext_Query_repository(ctx context.Context, f
 				return ec.fieldContext_Repository_understandingScore(ctx, field)
 			case "repositoryUnderstanding":
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -31943,6 +32064,10 @@ func (ec *executionContext) fieldContext_Query_search(ctx context.Context, field
 				return ec.fieldContext_SearchResult_repositoryId(ctx, field)
 			case "repositoryName":
 				return ec.fieldContext_SearchResult_repositoryName(ctx, field)
+			case "score":
+				return ec.fieldContext_SearchResult_score(ctx, field)
+			case "signals":
+				return ec.fieldContext_SearchResult_signals(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type SearchResult", field.Name)
 		},
@@ -35671,6 +35796,59 @@ func (ec *executionContext) fieldContext_Repository_repositoryUnderstanding(ctx 
 	return fc, nil
 }
 
+func (ec *executionContext) _Repository_upstreamStatus(ctx context.Context, field graphql.CollectedField, obj *Repository) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Repository_upstreamStatus(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Repository().UpstreamStatus(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*RepositoryUpstreamStatus)
+	fc.Result = res
+	return ec.marshalORepositoryUpstreamStatus2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryUpstreamStatus(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Repository_upstreamStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Repository",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "status":
+				return ec.fieldContext_RepositoryUpstreamStatus_status(ctx, field)
+			case "upstreamCommitSha":
+				return ec.fieldContext_RepositoryUpstreamStatus_upstreamCommitSha(ctx, field)
+			case "indexedCommitSha":
+				return ec.fieldContext_RepositoryUpstreamStatus_indexedCommitSha(ctx, field)
+			case "checkedAt":
+				return ec.fieldContext_RepositoryUpstreamStatus_checkedAt(ctx, field)
+			case "errorMessage":
+				return ec.fieldContext_RepositoryUpstreamStatus_errorMessage(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RepositoryUpstreamStatus", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _RepositoryUnderstanding_id(ctx context.Context, field graphql.CollectedField, obj *RepositoryUnderstanding) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_RepositoryUnderstanding_id(ctx, field)
 	if err != nil {
@@ -36412,6 +36590,217 @@ func (ec *executionContext) _RepositoryUnderstanding_errorMessage(ctx context.Co
 func (ec *executionContext) fieldContext_RepositoryUnderstanding_errorMessage(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "RepositoryUnderstanding",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryUpstreamStatus_status(ctx context.Context, field graphql.CollectedField, obj *RepositoryUpstreamStatus) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryUpstreamStatus_status(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Status, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(UpstreamStatus)
+	fc.Result = res
+	return ec.marshalNUpstreamStatus2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpstreamStatus(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryUpstreamStatus_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryUpstreamStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UpstreamStatus does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryUpstreamStatus_upstreamCommitSha(ctx context.Context, field graphql.CollectedField, obj *RepositoryUpstreamStatus) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryUpstreamStatus_upstreamCommitSha(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.UpstreamCommitSha, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryUpstreamStatus_upstreamCommitSha(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryUpstreamStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryUpstreamStatus_indexedCommitSha(ctx context.Context, field graphql.CollectedField, obj *RepositoryUpstreamStatus) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryUpstreamStatus_indexedCommitSha(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.IndexedCommitSha, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryUpstreamStatus_indexedCommitSha(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryUpstreamStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryUpstreamStatus_checkedAt(ctx context.Context, field graphql.CollectedField, obj *RepositoryUpstreamStatus) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryUpstreamStatus_checkedAt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.CheckedAt, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(time.Time)
+	fc.Result = res
+	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryUpstreamStatus_checkedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryUpstreamStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryUpstreamStatus_errorMessage(ctx context.Context, field graphql.CollectedField, obj *RepositoryUpstreamStatus) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryUpstreamStatus_errorMessage(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ErrorMessage, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryUpstreamStatus_errorMessage(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryUpstreamStatus",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -39312,6 +39701,305 @@ func (ec *executionContext) fieldContext_SearchResult_repositoryName(_ context.C
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchResult_score(ctx context.Context, field graphql.CollectedField, obj *SearchResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchResult_score(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Score, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchResult_score(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchResult_signals(ctx context.Context, field graphql.CollectedField, obj *SearchResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchResult_signals(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Signals, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*SearchSignals)
+	fc.Result = res
+	return ec.marshalOSearchSignals2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐSearchSignals(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchResult_signals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "exact":
+				return ec.fieldContext_SearchSignals_exact(ctx, field)
+			case "lexical":
+				return ec.fieldContext_SearchSignals_lexical(ctx, field)
+			case "semantic":
+				return ec.fieldContext_SearchSignals_semantic(ctx, field)
+			case "graph":
+				return ec.fieldContext_SearchSignals_graph(ctx, field)
+			case "requirement":
+				return ec.fieldContext_SearchSignals_requirement(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SearchSignals", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchSignals_exact(ctx context.Context, field graphql.CollectedField, obj *SearchSignals) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchSignals_exact(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Exact, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchSignals_exact(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchSignals",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchSignals_lexical(ctx context.Context, field graphql.CollectedField, obj *SearchSignals) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchSignals_lexical(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Lexical, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchSignals_lexical(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchSignals",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchSignals_semantic(ctx context.Context, field graphql.CollectedField, obj *SearchSignals) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchSignals_semantic(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Semantic, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchSignals_semantic(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchSignals",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchSignals_graph(ctx context.Context, field graphql.CollectedField, obj *SearchSignals) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchSignals_graph(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Graph, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchSignals_graph(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchSignals",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SearchSignals_requirement(ctx context.Context, field graphql.CollectedField, obj *SearchSignals) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SearchSignals_requirement(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Requirement, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*float64)
+	fc.Result = res
+	return ec.marshalOFloat2ᚖfloat64(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SearchSignals_requirement(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SearchSignals",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
 		},
 	}
 	return fc, nil
@@ -50952,6 +51640,39 @@ func (ec *executionContext) _Repository(ctx context.Context, sel ast.SelectionSe
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "upstreamStatus":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Repository_upstreamStatus(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -51056,6 +51777,56 @@ func (ec *executionContext) _RepositoryUnderstanding(ctx context.Context, sel as
 			out.Values[i] = ec._RepositoryUnderstanding_errorCode(ctx, field, obj)
 		case "errorMessage":
 			out.Values[i] = ec._RepositoryUnderstanding_errorMessage(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var repositoryUpstreamStatusImplementors = []string{"RepositoryUpstreamStatus"}
+
+func (ec *executionContext) _RepositoryUpstreamStatus(ctx context.Context, sel ast.SelectionSet, obj *RepositoryUpstreamStatus) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, repositoryUpstreamStatusImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RepositoryUpstreamStatus")
+		case "status":
+			out.Values[i] = ec._RepositoryUpstreamStatus_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "upstreamCommitSha":
+			out.Values[i] = ec._RepositoryUpstreamStatus_upstreamCommitSha(ctx, field, obj)
+		case "indexedCommitSha":
+			out.Values[i] = ec._RepositoryUpstreamStatus_indexedCommitSha(ctx, field, obj)
+		case "checkedAt":
+			out.Values[i] = ec._RepositoryUpstreamStatus_checkedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "errorMessage":
+			out.Values[i] = ec._RepositoryUpstreamStatus_errorMessage(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -51693,6 +52464,54 @@ func (ec *executionContext) _SearchResult(ctx context.Context, sel ast.Selection
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "score":
+			out.Values[i] = ec._SearchResult_score(ctx, field, obj)
+		case "signals":
+			out.Values[i] = ec._SearchResult_signals(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var searchSignalsImplementors = []string{"SearchSignals"}
+
+func (ec *executionContext) _SearchSignals(ctx context.Context, sel ast.SelectionSet, obj *SearchSignals) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, searchSignalsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SearchSignals")
+		case "exact":
+			out.Values[i] = ec._SearchSignals_exact(ctx, field, obj)
+		case "lexical":
+			out.Values[i] = ec._SearchSignals_lexical(ctx, field, obj)
+		case "semantic":
+			out.Values[i] = ec._SearchSignals_semantic(ctx, field, obj)
+		case "graph":
+			out.Values[i] = ec._SearchSignals_graph(ctx, field, obj)
+		case "requirement":
+			out.Values[i] = ec._SearchSignals_requirement(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -55702,6 +56521,16 @@ func (ec *executionContext) unmarshalNUpdateRequirementFieldsInput2githubᚗcom�
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNUpstreamStatus2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpstreamStatus(ctx context.Context, v any) (UpstreamStatus, error) {
+	var res UpstreamStatus
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNUpstreamStatus2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpstreamStatus(ctx context.Context, sel ast.SelectionSet, v UpstreamStatus) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) marshalNVersionInfo2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐVersionInfo(ctx context.Context, sel ast.SelectionSet, v VersionInfo) graphql.Marshaler {
 	return ec._VersionInfo(ctx, sel, &v)
 }
@@ -56387,6 +57216,13 @@ func (ec *executionContext) marshalORepositoryUnderstanding2ᚖgithubᚗcomᚋso
 	return ec._RepositoryUnderstanding(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalORepositoryUpstreamStatus2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryUpstreamStatus(ctx context.Context, sel ast.SelectionSet, v *RepositoryUpstreamStatus) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._RepositoryUpstreamStatus(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalORequirement2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRequirement(ctx context.Context, sel ast.SelectionSet, v *Requirement) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -56408,6 +57244,13 @@ func (ec *executionContext) marshalORestoreConflictResolution2ᚖgithubᚗcomᚋ
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) marshalOSearchSignals2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐSearchSignals(ctx context.Context, sel ast.SelectionSet, v *SearchSignals) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._SearchSignals(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOSimulatedImpactReport2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐSimulatedImpactReport(ctx context.Context, sel ast.SelectionSet, v *SimulatedImpactReport) graphql.Marshaler {

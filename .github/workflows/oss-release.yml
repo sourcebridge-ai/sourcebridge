@@ -14,14 +14,21 @@ env:
 
 jobs:
   build-binaries:
-    runs-on: ubuntu-latest
+    # Each arch runs natively on its own runner. Cross-compiling with
+    # CGO_ENABLED=1 from amd64 → arm64 on ubuntu-latest fails because
+    # Go hands the arm64 assembly in tree-sitter's C deps to the host
+    # x86 assembler (`stp x25, x26, [sp,...]: no such instruction`).
+    # v0.7.0's release workflow hit this. Native runners sidestep it.
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
           - goos: linux
             goarch: amd64
+            runner: ubuntu-latest
           - goos: linux
             goarch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -79,11 +86,24 @@ jobs:
     needs: [build-binaries, build-docker]
     runs-on: ubuntu-latest
     steps:
+      # Only download the binary-archive artifacts. docker/build-push-action
+      # publishes a `*.dockerbuild` provenance artifact alongside the image
+      # push; that artifact is sometimes slow to finalize in the artifacts
+      # API and causes the release job to fail with "Artifact download
+      # failed after 5 retries" even though the Docker image pushed fine.
+      # We don't need the provenance blob for the GitHub release anyway —
+      # only the tarballs end up attached to the release page.
       - uses: actions/download-artifact@v4
         with:
+          pattern: binary-*
           merge-multiple: true
           path: artifacts
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
           generate_release_notes: true
+          # SemVer prerelease tags contain a `-` (e.g. v0.8.0-rc.1,
+          # v0.8.0-beta.2, v1.0.0-alpha). softprops/action-gh-release
+          # doesn't auto-detect from the tag name, so we flag
+          # prerelease explicitly when the ref has a hyphen.
+          prerelease: ${{ contains(github.ref_name, '-') }}

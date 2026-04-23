@@ -171,6 +171,12 @@ type surrealSymbol struct {
 	Signature     string           `json:"signature"`
 	DocComment    string           `json:"doc_comment"`
 	IsTest        bool             `json:"is_test"`
+	// Search / vector fields (added by migration 034). Kept optional so
+	// rows written before the migration survive the round trip.
+	Embedding      []float64 `json:"embedding,omitempty"`
+	EmbeddingModel string    `json:"embedding_model,omitempty"`
+	EmbeddingDim   int       `json:"embedding_dim,omitempty"`
+	EmbeddingHash  string    `json:"embedding_hash,omitempty"`
 }
 
 func (s *surrealSymbol) toStoredSymbol() *graph.StoredSymbol {

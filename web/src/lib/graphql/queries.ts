@@ -96,6 +96,26 @@ export const UNDERSTANDING_SCORE_QUERY = gql`
   }
 `;
 
+// Lightweight liveness probe for the repo page staleness pill. Kept
+// separate from REPOSITORY_QUERY so it can be re-executed on its own
+// cadence (60s while the tab is visible) without re-pulling the full
+// repo+files+modules+understanding payload.
+export const REPOSITORY_UPSTREAM_STATUS_QUERY = gql`
+  query RepositoryUpstreamStatus($id: ID!) {
+    repository(id: $id) {
+      id
+      commitSha
+      upstreamStatus {
+        status
+        upstreamCommitSha
+        indexedCommitSha
+        checkedAt
+        errorMessage
+      }
+    }
+  }
+`;
+
 export const REPOSITORY_QUERY = gql`
   query Repository($id: ID!) {
     repository(id: $id) {
@@ -388,6 +408,14 @@ export const SEARCH_QUERY = gql`
       line
       repositoryId
       repositoryName
+      score
+      signals {
+        exact
+        lexical
+        semantic
+        graph
+        requirement
+      }
     }
   }
 `;

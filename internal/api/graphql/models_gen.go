@@ -739,6 +739,11 @@ type Repository struct {
 	Modules                 []*Module                `json:"modules"`
 	UnderstandingScore      *UnderstandingScore      `json:"understandingScore,omitempty"`
 	RepositoryUnderstanding *RepositoryUnderstanding `json:"repositoryUnderstanding,omitempty"`
+	// Liveness of the stored index vs the canonical remote. Null for repos
+	// that don't have a remote URL (local-path only). The lookup is a
+	// cached `git ls-remote`; UI callers should poll this while the repo
+	// page is visible to surface "N commits behind" signals.
+	UpstreamStatus *RepositoryUpstreamStatus `json:"upstreamStatus,omitempty"`
 }
 
 type RepositoryUnderstanding struct {
@@ -759,6 +764,17 @@ type RepositoryUnderstanding struct {
 	UpdatedAt         time.Time                         `json:"updatedAt"`
 	ErrorCode         *string                           `json:"errorCode,omitempty"`
 	ErrorMessage      *string                           `json:"errorMessage,omitempty"`
+}
+
+// Snapshot of the upstream remote's HEAD for the repo's tracked branch,
+// compared against the repo's stored indexed commit. `checkedAt` is when
+// the server last refreshed its cache (typically within the last ~30s).
+type RepositoryUpstreamStatus struct {
+	Status            UpstreamStatus `json:"status"`
+	UpstreamCommitSha *string        `json:"upstreamCommitSha,omitempty"`
+	IndexedCommitSha  *string        `json:"indexedCommitSha,omitempty"`
+	CheckedAt         time.Time      `json:"checkedAt"`
+	ErrorMessage      *string        `json:"errorMessage,omitempty"`
 }
 
 type Requirement struct {
@@ -858,14 +874,24 @@ type ScopeOrigin struct {
 }
 
 type SearchResult struct {
-	Type           string  `json:"type"`
-	ID             string  `json:"id"`
-	Title          string  `json:"title"`
-	Description    *string `json:"description,omitempty"`
-	FilePath       *string `json:"filePath,omitempty"`
-	Line           *int    `json:"line,omitempty"`
-	RepositoryID   string  `json:"repositoryId"`
-	RepositoryName string  `json:"repositoryName"`
+	Type           string         `json:"type"`
+	ID             string         `json:"id"`
+	Title          string         `json:"title"`
+	Description    *string        `json:"description,omitempty"`
+	FilePath       *string        `json:"filePath,omitempty"`
+	Line           *int           `json:"line,omitempty"`
+	RepositoryID   string         `json:"repositoryId"`
+	RepositoryName string         `json:"repositoryName"`
+	Score          *float64       `json:"score,omitempty"`
+	Signals        *SearchSignals `json:"signals,omitempty"`
+}
+
+type SearchSignals struct {
+	Exact       *float64 `json:"exact,omitempty"`
+	Lexical     *float64 `json:"lexical,omitempty"`
+	Semantic    *float64 `json:"semantic,omitempty"`
+	Graph       *float64 `json:"graph,omitempty"`
+	Requirement *float64 `json:"requirement,omitempty"`
 }
 
 type ServiceHealth struct {
@@ -2366,6 +2392,72 @@ func (e *TrashableType) UnmarshalJSON(b []byte) error {
 }
 
 func (e TrashableType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type UpstreamStatus string
+
+const (
+	// Indexed commit matches upstream HEAD.
+	UpstreamStatusUpToDate UpstreamStatus = "UP_TO_DATE"
+	// Upstream HEAD differs from indexed commit — reindex recommended.
+	UpstreamStatusBehind UpstreamStatus = "BEHIND"
+	// Check has never completed; UI should treat as 'unknown'.
+	UpstreamStatusUnknown UpstreamStatus = "UNKNOWN"
+	// ls-remote failed (network, auth, unreachable host). Soft error.
+	UpstreamStatusUnreachable UpstreamStatus = "UNREACHABLE"
+	// Repo has no remote URL; nothing to compare against.
+	UpstreamStatusUnsupported UpstreamStatus = "UNSUPPORTED"
+)
+
+var AllUpstreamStatus = []UpstreamStatus{
+	UpstreamStatusUpToDate,
+	UpstreamStatusBehind,
+	UpstreamStatusUnknown,
+	UpstreamStatusUnreachable,
+	UpstreamStatusUnsupported,
+}
+
+func (e UpstreamStatus) IsValid() bool {
+	switch e {
+	case UpstreamStatusUpToDate, UpstreamStatusBehind, UpstreamStatusUnknown, UpstreamStatusUnreachable, UpstreamStatusUnsupported:
+		return true
+	}
+	return false
+}
+
+func (e UpstreamStatus) String() string {
+	return string(e)
+}
+
+func (e *UpstreamStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = UpstreamStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid UpstreamStatus", str)
+	}
+	return nil
+}
+
+func (e UpstreamStatus) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *UpstreamStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e UpstreamStatus) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

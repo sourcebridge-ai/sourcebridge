@@ -144,6 +144,130 @@ func TestParseRustFile(t *testing.T) {
 	}
 }
 
+func TestParseRubyFile(t *testing.T) {
+	parser := NewParser()
+	content := readFixture(t, "ruby/auth.rb")
+
+	result, err := parser.ParseFile(context.Background(), "ruby/auth.rb", "ruby", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	funcNames := symbolNames(result.Symbols)
+	t.Logf("Ruby symbols found: %v", funcNames)
+
+	if len(result.Symbols) == 0 {
+		t.Fatal("expected symbols in Ruby file")
+	}
+	// Expect the class + its methods, plus the module-level helper.
+	if !containsName(funcNames, "TokenVerifier") {
+		t.Error("expected to find TokenVerifier class")
+	}
+	if !containsName(funcNames, "verify") || !containsName(funcNames, "issue") {
+		t.Error("expected to find verify and issue methods")
+	}
+	if !containsName(funcNames, "realm_for") {
+		t.Error("expected to find module-level realm_for method")
+	}
+}
+
+func TestParsePHPFile(t *testing.T) {
+	parser := NewParser()
+	content := readFixture(t, "php/Auth.php")
+
+	result, err := parser.ParseFile(context.Background(), "php/Auth.php", "php", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	funcNames := symbolNames(result.Symbols)
+	t.Logf("PHP symbols found: %v", funcNames)
+
+	if len(result.Symbols) == 0 {
+		t.Fatal("expected symbols in PHP file")
+	}
+	if !containsName(funcNames, "HmacTokenVerifier") {
+		t.Error("expected to find HmacTokenVerifier class")
+	}
+	if !containsName(funcNames, "TokenVerifier") {
+		t.Error("expected to find TokenVerifier interface (classified as class)")
+	}
+	if !containsName(funcNames, "verify") || !containsName(funcNames, "issue") {
+		t.Error("expected to find verify and issue methods")
+	}
+	if !containsName(funcNames, "default_verifier") {
+		t.Error("expected to find top-level default_verifier function")
+	}
+}
+
+func TestParseCppFile(t *testing.T) {
+	parser := NewParser()
+	content := readFixture(t, "cpp/auth.cpp")
+
+	result, err := parser.ParseFile(context.Background(), "cpp/auth.cpp", "cpp", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	funcNames := symbolNames(result.Symbols)
+	t.Logf("C++ symbols found: %v", funcNames)
+
+	if len(result.Symbols) == 0 {
+		t.Fatal("expected symbols in C++ file")
+	}
+	// Expect the class, the struct, in-class methods, and the free function.
+	if !containsName(funcNames, "TokenVerifier") {
+		t.Error("expected to find TokenVerifier class")
+	}
+	if !containsName(funcNames, "Credentials") {
+		t.Error("expected to find Credentials struct (classified as class)")
+	}
+	if !containsName(funcNames, "verify") || !containsName(funcNames, "issue") {
+		t.Error("expected to find verify and issue methods")
+	}
+	if !containsName(funcNames, "default_verifier") {
+		t.Error("expected to find top-level default_verifier function")
+	}
+}
+
+func TestParseCSharpFile(t *testing.T) {
+	parser := NewParser()
+	content := readFixture(t, "csharp/Auth.cs")
+
+	result, err := parser.ParseFile(context.Background(), "csharp/Auth.cs", "csharp", content)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	funcNames := symbolNames(result.Symbols)
+	t.Logf("C# symbols found: %v", funcNames)
+
+	if len(result.Symbols) == 0 {
+		t.Fatal("expected symbols in C# file")
+	}
+	if !containsName(funcNames, "HmacTokenVerifier") {
+		t.Error("expected to find HmacTokenVerifier class")
+	}
+	if !containsName(funcNames, "ITokenVerifier") {
+		t.Error("expected to find ITokenVerifier interface (classified as class)")
+	}
+	if !containsName(funcNames, "Credentials") {
+		t.Error("expected to find Credentials struct (classified as class)")
+	}
+	if !containsName(funcNames, "TokenPayload") {
+		t.Error("expected to find TokenPayload record (classified as class)")
+	}
+	if !containsName(funcNames, "AuthFactory") {
+		t.Error("expected to find AuthFactory static class")
+	}
+	if !containsName(funcNames, "Verify") || !containsName(funcNames, "Issue") {
+		t.Error("expected to find Verify and Issue methods")
+	}
+	if !containsName(funcNames, "DefaultVerifier") {
+		t.Error("expected to find static DefaultVerifier method")
+	}
+}
+
 func TestParsePythonTestFile(t *testing.T) {
 	parser := NewParser()
 	content := readFixture(t, "python/tests/test_auth.py")
@@ -231,7 +355,7 @@ func TestExtractModules(t *testing.T) {
 }
 
 func TestLanguageRegistry(t *testing.T) {
-	expected := []string{"go", "python", "typescript", "javascript", "java", "rust"}
+	expected := []string{"go", "python", "typescript", "javascript", "java", "rust", "ruby", "php", "cpp", "csharp"}
 	for _, lang := range expected {
 		config := GetLanguageConfig(lang)
 		if config == nil {

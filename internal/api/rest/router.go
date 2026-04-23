@@ -28,6 +28,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
 	"github.com/sourcebridge/sourcebridge/internal/qa"
+	"github.com/sourcebridge/sourcebridge/internal/search"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 	"github.com/sourcebridge/sourcebridge/internal/trash"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
@@ -158,6 +159,9 @@ type Server struct {
 	trashStore         trash.Store                    // soft-delete recycle bin; nil = feature disabled
 	qaOrchestrator     *qa.Orchestrator               // server-side deep-QA orchestrator; nil = server-side QA disabled
 	workerLanes        *worker.Lanes                  // shared lane registry used by search + qa
+	searchSvc          *search.Service                // hybrid retrieval backbone; always set in NewServer
+	reqBooster         *search.RequirementBooster     // repo-scoped requirement link cache; feeds searchSvc boosters
+	searchMetrics      *search.Metrics                // in-process ring buffer of per-stage latency / success
 }
 
 // qaResolverOrchestrator exposes the server's QA orchestrator to the
@@ -289,6 +293,21 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 
 	slog.Info("backend feature flags", "enabled", s.flags.EnabledNames())
 
+	// Build the hybrid retrieval service. One instance per process,
+	// shared by every transport adapter (MCP, GraphQL, REST, CLI).
+	// Embedder is wired when a worker client is available; absent it,
+	// the vector arm reports unavailable and the fuser degrades.
+	s.searchSvc = search.NewService(s.store)
+	s.searchMetrics = search.NewMetrics(0)
+	s.searchSvc.Metrics = s.searchMetrics
+	if s.worker != nil {
+		emb := search.NewWorkerEmbedder(s.worker, "")
+		cached := search.NewCachedEmbedder(emb, 2048, 5*time.Minute, 5, 30*time.Second)
+		s.searchSvc.WithEmbedder(cached)
+	}
+	s.reqBooster = &search.RequirementBooster{Store: s.store}
+	s.searchSvc.WithRequirementBooster(s.reqBooster)
+
 	s.setupRouter()
 	return s
 }
@@ -361,7 +380,21 @@ func (s *Server) setupRouter() {
 
 	// GraphQL server
 	gqlSrv := handler.NewDefaultServer(graphql.NewExecutableSchema(graphql.Config{
-		Resolvers: &graphql.Resolver{Store: s.store, KnowledgeStore: s.knowledgeStore, Worker: s.worker, Orchestrator: s.orchestrator, Config: s.cfg, EventBus: s.eventBus, Flags: s.flags, GitConfig: s.gitConfigStore, ComprehensionStore: s.comprehensionStore, TrashStore: s.trashStore, QA: s.qaResolverOrchestrator()},
+		Resolvers: &graphql.Resolver{
+			Store:              s.store,
+			KnowledgeStore:     s.knowledgeStore,
+			Worker:             s.worker,
+			Orchestrator:       s.orchestrator,
+			Config:             s.cfg,
+			EventBus:           s.eventBus,
+			Flags:              s.flags,
+			GitConfig:          s.gitConfigStore,
+			ComprehensionStore: s.comprehensionStore,
+			TrashStore:         s.trashStore,
+			SearchSvc:          s.searchSvc,
+			ReqBooster:         s.reqBooster,
+			QA:                 s.qaResolverOrchestrator(),
+		},
 	}))
 
 	// Protected API routes (accepts both JWT and API tokens)
@@ -392,6 +425,11 @@ func (s *Server) setupRouter() {
 		// Server-side deep-QA orchestrator. Default-gated on
 		// QAConfig.ServerSideEnabled — handler returns 503 when off.
 		r.With(aiConcurrencyMiddleware).Post("/api/v1/ask", s.handleAsk)
+
+		// Hybrid retrieval REST endpoint. Same backend as the GraphQL
+		// search(...) field and the MCP search_symbols tool. Useful for
+		// CLI and deep-mode QA clients that don't speak GraphQL.
+		r.Post("/api/v1/search", s.handleSearch)
 	})
 
 	// Admin API routes (requires auth, accepts both JWT and API tokens)
@@ -477,6 +515,7 @@ func (s *Server) setupRouter() {
 		s.mcp = newMCPHandler(s.store, s.knowledgeStore, s.worker, s.cfg.MCP.Repos, sessionTTL, keepalive, s.cfg.MCP.MaxSessions, s.cache)
 		s.mcp.qaOrchestrator = s.qaOrchestrator
 		s.mcp.qaEnabled = s.cfg.QA.ServerSideEnabled
+		s.mcp.searchSvc = s.searchSvc
 		// Wire enterprise extensions if provided via server options
 		if s.mcpPermChecker != nil {
 			s.mcp.permChecker = s.mcpPermChecker
