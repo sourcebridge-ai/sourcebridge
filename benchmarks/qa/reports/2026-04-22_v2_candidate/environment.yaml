@@ -1,0 +1,7 @@
+arm: candidate
+date: 2026-04-23T01:05:23.470028Z
+commit_sha: ae92b38
+server_url: https://sourcebridge.xmojo.net
+mode: deep
+questions_hash: ""
+notes: thor image sha-ae92b38, hybrid search wired, Claude Sonnet 4.5
