@@ -73,16 +73,20 @@ func TestDecomposerFallsBackWhenUnsupported(t *testing.T) {
 }
 
 func TestIsDecomposableKind(t *testing.T) {
-	yes := []QuestionKind{KindArchitecture, KindCrossCutting, KindExecutionFlow}
-	no := []QuestionKind{KindBehavior, KindOwnership, KindDataModel, KindRequirementCoverage, KindRiskReview}
-	for _, k := range yes {
-		if !isDecomposableKind(k) {
-			t.Errorf("expected %s to be decomposable", k)
-		}
+	// Post-Phase-5: architecture is the only class that showed a
+	// decomposition-driven quality win large enough to justify the
+	// latency cost. Keep the gate tight until the decomposer prompt
+	// is revised for cross_cutting and execution_flow.
+	if !isDecomposableKind(KindArchitecture) {
+		t.Error("expected architecture to be decomposable")
 	}
-	for _, k := range no {
+	for _, k := range []QuestionKind{
+		KindCrossCutting, KindExecutionFlow, KindBehavior,
+		KindOwnership, KindDataModel, KindRequirementCoverage,
+		KindRiskReview,
+	} {
 		if isDecomposableKind(k) {
-			t.Errorf("expected %s to NOT be decomposable", k)
+			t.Errorf("expected %s to NOT be decomposable after Phase-5 narrowing", k)
 		}
 	}
 }

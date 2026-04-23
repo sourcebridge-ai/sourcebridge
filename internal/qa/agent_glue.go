@@ -321,17 +321,21 @@ func truncateLine(s string, max int) string {
 	return s[:max-3] + "..."
 }
 
-// isDecomposableKind gates the query-decomposition path. Only
-// classes that benefit from multi-hop split go through it:
-// architecture, cross_cutting, and execution_flow are multi-file
-// / multi-module by nature; ownership and data_model are typically
-// atomic. Keeping the gate narrow keeps the average cost down.
+// isDecomposableKind gates the query-decomposition path.
+//
+// Phase-5 benchmark evidence (2026-04-23 quality push) narrowed the
+// list to architecture only:
+//   - architecture: +16% useful-rate (68% → 84%) — clear win.
+//   - cross_cutting: 0% change. Sub-questions don't split cross-
+//     cutting concerns cleanly enough to justify the latency cost.
+//   - execution_flow: +4%, already strong at 80% baseline. Not
+//     worth the parallel-fanout overhead when the single loop is
+//     already answering well.
+//
+// Follow-up plan: revise the decomposer prompt specifically for
+// cross_cutting before re-enabling that class.
 func isDecomposableKind(kind QuestionKind) bool {
-	switch kind {
-	case KindArchitecture, KindCrossCutting, KindExecutionFlow:
-		return true
-	}
-	return false
+	return kind == KindArchitecture
 }
 
 // extractPathFromArgs pulls the `path` key out of a read_file args
