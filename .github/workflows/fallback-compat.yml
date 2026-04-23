@@ -1,0 +1,54 @@
+name: Fallback Compatibility (Agentic → Single-shot)
+
+# Phase 4.5 of the agentic-retrieval plan. Once agentic is the
+# default path in production, the single-shot code branch is only
+# hit during rollback or a provider-capability probe failure. Without
+# a scheduled test it rots silently and rollback lands on broken
+# code.
+#
+# This job runs the internal/qa fallback-compat test nightly (UTC
+# early-morning so it completes before most contributors are awake
+# and a red signal is ready for triage). The test runs 10 fixture
+# questions through both the agentic and single-shot paths with
+# scripted synthesizers and asserts AskResult shape compatibility —
+# References non-nil, StageTimings non-nil, Mode populated, top-
+# level fields present on both paths.
+#
+# A failure here means the rollback lever is broken. Triage is:
+# inspect recent internal/qa changes, run the test locally, and
+# either fix the drift or file a blocker.
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # 06:17 UTC nightly
+  workflow_dispatch: {}
+  pull_request:
+    branches: [main]
+    paths:
+      - "internal/qa/**"
+      - "internal/api/rest/**"
+      - ".github/workflows/fallback-compat.yml"
+
+env:
+  GO_VERSION: "1.25"
+
+jobs:
+  fallback-compat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Run fallback compatibility test
+        run: go test -run FallbackCompat -v -race ./internal/qa/...
