@@ -1,0 +1,7 @@
+arm: candidate
+date: 2026-04-23T14:19:36.356439Z
+commit_sha: 41f4283
+server_url: https://sourcebridge.xmojo.net
+mode: deep
+questions_hash: ""
+notes: thor image sha-41f4283, ALL quality-push features ON (agentic + prompt_caching + smart_classifier + query_decomposition), Claude Sonnet 4.5 + Haiku 4.5
