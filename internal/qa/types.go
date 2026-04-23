@@ -170,6 +170,12 @@ type AskDiagnostics struct {
 	// Smart classifier used (quality-push Phase 2). True when the
 	// LLM-backed profiler ran and returned a usable result.
 	SmartClassifierUsed bool `json:"smartClassifierUsed,omitempty"`
+	// Decomposition diagnostics (quality-push Phase 4). True when
+	// the question was split into sub-questions and run through
+	// parallel sub-loops. SubQuestionCount is how many the
+	// decomposer produced.
+	DecompositionUsed bool `json:"decompositionUsed,omitempty"`
+	SubQuestionCount  int  `json:"subQuestionCount,omitempty"`
 }
 
 // DurationMs is a duration expressed as integer milliseconds on the wire.

@@ -85,6 +85,16 @@ class ReasoningServiceStub(object):
                 request_serializer=reasoning_dot_v1_dot_reasoning__pb2.ClassifyQuestionRequest.SerializeToString,
                 response_deserializer=reasoning_dot_v1_dot_reasoning__pb2.ClassifyQuestionResponse.FromString,
                 _registered_method=True)
+        self.DecomposeQuestion = channel.unary_unary(
+                '/sourcebridge.reasoning.v1.ReasoningService/DecomposeQuestion',
+                request_serializer=reasoning_dot_v1_dot_reasoning__pb2.DecomposeQuestionRequest.SerializeToString,
+                response_deserializer=reasoning_dot_v1_dot_reasoning__pb2.DecomposeQuestionResponse.FromString,
+                _registered_method=True)
+        self.SynthesizeDecomposedAnswer = channel.unary_unary(
+                '/sourcebridge.reasoning.v1.ReasoningService/SynthesizeDecomposedAnswer',
+                request_serializer=reasoning_dot_v1_dot_reasoning__pb2.SynthesizeDecomposedAnswerRequest.SerializeToString,
+                response_deserializer=reasoning_dot_v1_dot_reasoning__pb2.SynthesizeDecomposedAnswerResponse.FromString,
+                _registered_method=True)
 
 
 class ReasoningServiceServicer(object):
@@ -186,6 +196,29 @@ class ReasoningServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def DecomposeQuestion(self, request, context):
+        """DecomposeQuestion splits a multi-hop question into 3–4 focused
+        sub-questions that the agentic loop can answer in parallel,
+        then hand off to a final synthesis turn. Quality-push Phase 4.
+
+        Fail-open: if this RPC errors, the orchestrator runs the
+        single-loop agentic path on the original question. Aggressively
+        timed out (≤ 3s).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SynthesizeDecomposedAnswer(self, request, context):
+        """SynthesizeDecomposedAnswer takes the original question + the
+        sub-question / sub-answer pairs and produces the final answer.
+        Used as step 3 of Phase-4 decomposition. Citation tags from
+        sub-answers are preserved so the reference resolver sees them.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ReasoningServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -238,6 +271,16 @@ def add_ReasoningServiceServicer_to_server(servicer, server):
                     servicer.ClassifyQuestion,
                     request_deserializer=reasoning_dot_v1_dot_reasoning__pb2.ClassifyQuestionRequest.FromString,
                     response_serializer=reasoning_dot_v1_dot_reasoning__pb2.ClassifyQuestionResponse.SerializeToString,
+            ),
+            'DecomposeQuestion': grpc.unary_unary_rpc_method_handler(
+                    servicer.DecomposeQuestion,
+                    request_deserializer=reasoning_dot_v1_dot_reasoning__pb2.DecomposeQuestionRequest.FromString,
+                    response_serializer=reasoning_dot_v1_dot_reasoning__pb2.DecomposeQuestionResponse.SerializeToString,
+            ),
+            'SynthesizeDecomposedAnswer': grpc.unary_unary_rpc_method_handler(
+                    servicer.SynthesizeDecomposedAnswer,
+                    request_deserializer=reasoning_dot_v1_dot_reasoning__pb2.SynthesizeDecomposedAnswerRequest.FromString,
+                    response_serializer=reasoning_dot_v1_dot_reasoning__pb2.SynthesizeDecomposedAnswerResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -511,6 +554,60 @@ class ReasoningService(object):
             '/sourcebridge.reasoning.v1.ReasoningService/ClassifyQuestion',
             reasoning_dot_v1_dot_reasoning__pb2.ClassifyQuestionRequest.SerializeToString,
             reasoning_dot_v1_dot_reasoning__pb2.ClassifyQuestionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DecomposeQuestion(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sourcebridge.reasoning.v1.ReasoningService/DecomposeQuestion',
+            reasoning_dot_v1_dot_reasoning__pb2.DecomposeQuestionRequest.SerializeToString,
+            reasoning_dot_v1_dot_reasoning__pb2.DecomposeQuestionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SynthesizeDecomposedAnswer(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sourcebridge.reasoning.v1.ReasoningService/SynthesizeDecomposedAnswer',
+            reasoning_dot_v1_dot_reasoning__pb2.SynthesizeDecomposedAnswerRequest.SerializeToString,
+            reasoning_dot_v1_dot_reasoning__pb2.SynthesizeDecomposedAnswerResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -19,16 +19,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ReasoningService_AnalyzeSymbol_FullMethodName           = "/sourcebridge.reasoning.v1.ReasoningService/AnalyzeSymbol"
-	ReasoningService_ExplainRelationship_FullMethodName     = "/sourcebridge.reasoning.v1.ReasoningService/ExplainRelationship"
-	ReasoningService_AnswerQuestion_FullMethodName          = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestion"
-	ReasoningService_AnswerQuestionStream_FullMethodName    = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestionStream"
-	ReasoningService_ReviewFile_FullMethodName              = "/sourcebridge.reasoning.v1.ReasoningService/ReviewFile"
-	ReasoningService_GenerateEmbedding_FullMethodName       = "/sourcebridge.reasoning.v1.ReasoningService/GenerateEmbedding"
-	ReasoningService_SimulateChange_FullMethodName          = "/sourcebridge.reasoning.v1.ReasoningService/SimulateChange"
-	ReasoningService_AnswerQuestionWithTools_FullMethodName = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestionWithTools"
-	ReasoningService_GetProviderCapabilities_FullMethodName = "/sourcebridge.reasoning.v1.ReasoningService/GetProviderCapabilities"
-	ReasoningService_ClassifyQuestion_FullMethodName        = "/sourcebridge.reasoning.v1.ReasoningService/ClassifyQuestion"
+	ReasoningService_AnalyzeSymbol_FullMethodName              = "/sourcebridge.reasoning.v1.ReasoningService/AnalyzeSymbol"
+	ReasoningService_ExplainRelationship_FullMethodName        = "/sourcebridge.reasoning.v1.ReasoningService/ExplainRelationship"
+	ReasoningService_AnswerQuestion_FullMethodName             = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestion"
+	ReasoningService_AnswerQuestionStream_FullMethodName       = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestionStream"
+	ReasoningService_ReviewFile_FullMethodName                 = "/sourcebridge.reasoning.v1.ReasoningService/ReviewFile"
+	ReasoningService_GenerateEmbedding_FullMethodName          = "/sourcebridge.reasoning.v1.ReasoningService/GenerateEmbedding"
+	ReasoningService_SimulateChange_FullMethodName             = "/sourcebridge.reasoning.v1.ReasoningService/SimulateChange"
+	ReasoningService_AnswerQuestionWithTools_FullMethodName    = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestionWithTools"
+	ReasoningService_GetProviderCapabilities_FullMethodName    = "/sourcebridge.reasoning.v1.ReasoningService/GetProviderCapabilities"
+	ReasoningService_ClassifyQuestion_FullMethodName           = "/sourcebridge.reasoning.v1.ReasoningService/ClassifyQuestion"
+	ReasoningService_DecomposeQuestion_FullMethodName          = "/sourcebridge.reasoning.v1.ReasoningService/DecomposeQuestion"
+	ReasoningService_SynthesizeDecomposedAnswer_FullMethodName = "/sourcebridge.reasoning.v1.ReasoningService/SynthesizeDecomposedAnswer"
 )
 
 // ReasoningServiceClient is the client API for ReasoningService service.
@@ -82,6 +84,19 @@ type ReasoningServiceClient interface {
 	// the keyword classifier. Callers should time this call out
 	// aggressively (≤ 2s).
 	ClassifyQuestion(ctx context.Context, in *ClassifyQuestionRequest, opts ...grpc.CallOption) (*ClassifyQuestionResponse, error)
+	// DecomposeQuestion splits a multi-hop question into 3–4 focused
+	// sub-questions that the agentic loop can answer in parallel,
+	// then hand off to a final synthesis turn. Quality-push Phase 4.
+	//
+	// Fail-open: if this RPC errors, the orchestrator runs the
+	// single-loop agentic path on the original question. Aggressively
+	// timed out (≤ 3s).
+	DecomposeQuestion(ctx context.Context, in *DecomposeQuestionRequest, opts ...grpc.CallOption) (*DecomposeQuestionResponse, error)
+	// SynthesizeDecomposedAnswer takes the original question + the
+	// sub-question / sub-answer pairs and produces the final answer.
+	// Used as step 3 of Phase-4 decomposition. Citation tags from
+	// sub-answers are preserved so the reference resolver sees them.
+	SynthesizeDecomposedAnswer(ctx context.Context, in *SynthesizeDecomposedAnswerRequest, opts ...grpc.CallOption) (*SynthesizeDecomposedAnswerResponse, error)
 }
 
 type reasoningServiceClient struct {
@@ -201,6 +216,26 @@ func (c *reasoningServiceClient) ClassifyQuestion(ctx context.Context, in *Class
 	return out, nil
 }
 
+func (c *reasoningServiceClient) DecomposeQuestion(ctx context.Context, in *DecomposeQuestionRequest, opts ...grpc.CallOption) (*DecomposeQuestionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecomposeQuestionResponse)
+	err := c.cc.Invoke(ctx, ReasoningService_DecomposeQuestion_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reasoningServiceClient) SynthesizeDecomposedAnswer(ctx context.Context, in *SynthesizeDecomposedAnswerRequest, opts ...grpc.CallOption) (*SynthesizeDecomposedAnswerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SynthesizeDecomposedAnswerResponse)
+	err := c.cc.Invoke(ctx, ReasoningService_SynthesizeDecomposedAnswer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ReasoningServiceServer is the server API for ReasoningService service.
 // All implementations must embed UnimplementedReasoningServiceServer
 // for forward compatibility.
@@ -252,6 +287,19 @@ type ReasoningServiceServer interface {
 	// the keyword classifier. Callers should time this call out
 	// aggressively (≤ 2s).
 	ClassifyQuestion(context.Context, *ClassifyQuestionRequest) (*ClassifyQuestionResponse, error)
+	// DecomposeQuestion splits a multi-hop question into 3–4 focused
+	// sub-questions that the agentic loop can answer in parallel,
+	// then hand off to a final synthesis turn. Quality-push Phase 4.
+	//
+	// Fail-open: if this RPC errors, the orchestrator runs the
+	// single-loop agentic path on the original question. Aggressively
+	// timed out (≤ 3s).
+	DecomposeQuestion(context.Context, *DecomposeQuestionRequest) (*DecomposeQuestionResponse, error)
+	// SynthesizeDecomposedAnswer takes the original question + the
+	// sub-question / sub-answer pairs and produces the final answer.
+	// Used as step 3 of Phase-4 decomposition. Citation tags from
+	// sub-answers are preserved so the reference resolver sees them.
+	SynthesizeDecomposedAnswer(context.Context, *SynthesizeDecomposedAnswerRequest) (*SynthesizeDecomposedAnswerResponse, error)
 	mustEmbedUnimplementedReasoningServiceServer()
 }
 
@@ -291,6 +339,12 @@ func (UnimplementedReasoningServiceServer) GetProviderCapabilities(context.Conte
 }
 func (UnimplementedReasoningServiceServer) ClassifyQuestion(context.Context, *ClassifyQuestionRequest) (*ClassifyQuestionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClassifyQuestion not implemented")
+}
+func (UnimplementedReasoningServiceServer) DecomposeQuestion(context.Context, *DecomposeQuestionRequest) (*DecomposeQuestionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DecomposeQuestion not implemented")
+}
+func (UnimplementedReasoningServiceServer) SynthesizeDecomposedAnswer(context.Context, *SynthesizeDecomposedAnswerRequest) (*SynthesizeDecomposedAnswerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SynthesizeDecomposedAnswer not implemented")
 }
 func (UnimplementedReasoningServiceServer) mustEmbedUnimplementedReasoningServiceServer() {}
 func (UnimplementedReasoningServiceServer) testEmbeddedByValue()                          {}
@@ -486,6 +540,42 @@ func _ReasoningService_ClassifyQuestion_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReasoningService_DecomposeQuestion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecomposeQuestionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReasoningServiceServer).DecomposeQuestion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReasoningService_DecomposeQuestion_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReasoningServiceServer).DecomposeQuestion(ctx, req.(*DecomposeQuestionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReasoningService_SynthesizeDecomposedAnswer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SynthesizeDecomposedAnswerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReasoningServiceServer).SynthesizeDecomposedAnswer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReasoningService_SynthesizeDecomposedAnswer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReasoningServiceServer).SynthesizeDecomposedAnswer(ctx, req.(*SynthesizeDecomposedAnswerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ReasoningService_ServiceDesc is the grpc.ServiceDesc for ReasoningService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -528,6 +618,14 @@ var ReasoningService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClassifyQuestion",
 			Handler:    _ReasoningService_ClassifyQuestion_Handler,
+		},
+		{
+			MethodName: "DecomposeQuestion",
+			Handler:    _ReasoningService_DecomposeQuestion_Handler,
+		},
+		{
+			MethodName: "SynthesizeDecomposedAnswer",
+			Handler:    _ReasoningService_SynthesizeDecomposedAnswer_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

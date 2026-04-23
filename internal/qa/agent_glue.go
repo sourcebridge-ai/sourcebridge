@@ -111,6 +111,18 @@ func (o *Orchestrator) runAgentic(
 		}
 	}
 
+	// Phase 4 (quality push): query decomposition for multi-hop
+	// classes. When the decomposer agrees the question is splittable,
+	// runDecomposed returns a fully-populated result and we skip the
+	// single-loop path. Otherwise it returns (nil, nil) and we fall
+	// through.
+	if o.config.QueryDecompositionEnabled && isDecomposableKind(kind) {
+		if decomposed, derr := o.runDecomposed(ctx, in, kind, profile, summaries, result); derr == nil && decomposed != nil {
+			decomposed.Diagnostics.StageTimings["qa.ask"] = FromDuration(time.Since(started))
+			return decomposed, nil
+		}
+	}
+
 	seed := buildAgentSeedMessages(in, kind, summaries, profile.EvidenceHints)
 	dispatcher := NewAgentToolDispatcher(o, in.RepositoryID)
 
@@ -307,6 +319,19 @@ func truncateLine(s string, max int) string {
 		return s
 	}
 	return s[:max-3] + "..."
+}
+
+// isDecomposableKind gates the query-decomposition path. Only
+// classes that benefit from multi-hop split go through it:
+// architecture, cross_cutting, and execution_flow are multi-file
+// / multi-module by nature; ownership and data_model are typically
+// atomic. Keeping the gate narrow keeps the average cost down.
+func isDecomposableKind(kind QuestionKind) bool {
+	switch kind {
+	case KindArchitecture, KindCrossCutting, KindExecutionFlow:
+		return true
+	}
+	return false
 }
 
 // extractPathFromArgs pulls the `path` key out of a read_file args

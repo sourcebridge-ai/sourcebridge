@@ -136,9 +136,10 @@ const KindCrossCutting QuestionKind = "cross_cutting"
 
 // ---- Loop entry ------------------------------------------------------
 
-// RunAgentLoop executes the bounded tool-using loop. Returns a
-// well-formed AgentLoopResult even on termination paths; Go errors
-// are reserved for unrecoverable dispatcher misuse.
+// RunAgentLoop executes the bounded tool-using loop with the
+// default wall-clock budget (agentWallClockBudget). See
+// RunAgentLoopWithBudget for the budget-taking variant used by the
+// decomposition path.
 func (o *Orchestrator) RunAgentLoop(
 	ctx context.Context,
 	in AskInput,
@@ -147,11 +148,32 @@ func (o *Orchestrator) RunAgentLoop(
 	synth AgentSynthesizer,
 	dispatcher *AgentToolDispatcher,
 ) (*AgentLoopResult, error) {
+	return o.RunAgentLoopWithBudget(ctx, in, kind, seedMessages, synth, dispatcher, agentWallClockBudget)
+}
+
+// RunAgentLoopWithBudget executes the bounded tool-using loop with
+// a caller-specified wall-clock budget. The decomposition path
+// (quality-push Phase 4) uses this to give each sub-loop a tighter
+// budget than the parent orchestration. Returns a well-formed
+// AgentLoopResult even on termination paths; Go errors are
+// reserved for unrecoverable dispatcher misuse.
+func (o *Orchestrator) RunAgentLoopWithBudget(
+	ctx context.Context,
+	in AskInput,
+	kind QuestionKind,
+	seedMessages []AgentMessage,
+	synth AgentSynthesizer,
+	dispatcher *AgentToolDispatcher,
+	wallClock time.Duration,
+) (*AgentLoopResult, error) {
 	if synth == nil || !synth.SupportsTools() {
 		return nil, errors.New("agent loop called but synthesizer lacks tool support")
 	}
 	if dispatcher == nil {
 		return nil, errors.New("agent loop called with nil dispatcher")
+	}
+	if wallClock <= 0 {
+		wallClock = agentWallClockBudget
 	}
 
 	loopStart := time.Now()
@@ -172,7 +194,7 @@ func (o *Orchestrator) RunAgentLoop(
 
 	for turn := 1; ; turn++ {
 		// Deadline propagation (plan §Deadline Propagation).
-		remaining := agentWallClockBudget - time.Since(loopStart)
+		remaining := wallClock - time.Since(loopStart)
 		if remaining <= 0 {
 			result.TerminationReason = "timeout"
 			break
@@ -302,7 +324,7 @@ func (o *Orchestrator) RunAgentLoop(
 
 			toolCtx, toolCancel := context.WithTimeout(ctx, minDuration(
 				agentPerToolDeadline,
-				agentWallClockBudget-time.Since(loopStart),
+				wallClock-time.Since(loopStart),
 			))
 			execStart := time.Now()
 			toolResult := dispatcher.Dispatch(toolCtx, call)

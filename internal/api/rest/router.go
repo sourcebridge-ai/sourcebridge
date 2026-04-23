@@ -274,10 +274,11 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 	if cfg != nil {
 		askModel := cfg.LLM.AskModel
 		qaOrchCfg := qa.Config{
-			QuestionMaxBytes:       cfg.QA.QuestionMaxBytes,
-			AskModel:               askModel,
-			PromptCachingEnabled:   cfg.QA.PromptCachingEnabled,
-			SmartClassifierEnabled: cfg.QA.SmartClassifierEnabled,
+			QuestionMaxBytes:          cfg.QA.QuestionMaxBytes,
+			AskModel:                  askModel,
+			PromptCachingEnabled:      cfg.QA.PromptCachingEnabled,
+			SmartClassifierEnabled:    cfg.QA.SmartClassifierEnabled,
+			QueryDecompositionEnabled: cfg.QA.QueryDecompositionEnabled,
 		}
 		var reader qa.UnderstandingReader
 		if s.knowledgeStore != nil && s.summaryNodeStore != nil {
@@ -325,12 +326,18 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 				// still honors its own SmartClassifierEnabled flag
 				// at runtime, so wiring here is harmless when off.
 				o = o.WithQuestionProfiler(qa.NewWorkerQuestionProfiler(s.worker))
+				// Quality-push Phase 4: decomposer + synthesizer wire
+				// through to the same worker. Orchestrator honours
+				// QueryDecompositionEnabled at runtime so wiring here
+				// is harmless when the flag is off.
+				o = o.WithDecomposer(qa.NewWorkerDecomposer(s.worker), s.worker)
 				slog.Info("agent synth: wired",
 					"provider", caps.GetProvider(),
 					"model", caps.GetModel(),
 					"enabled", cfg.QA.AgenticRetrievalEnabled,
 					"canary_pct", cfg.QA.AgenticRetrievalCanaryPct,
 					"smart_classifier", cfg.QA.SmartClassifierEnabled,
+					"query_decomposition", cfg.QA.QueryDecompositionEnabled,
 					"prompt_caching", cfg.QA.PromptCachingEnabled)
 			} else {
 				slog.Info("agent synth: provider does not support tool use; agentic disabled",

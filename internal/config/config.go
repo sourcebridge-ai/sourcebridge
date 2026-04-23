@@ -249,6 +249,14 @@ type QAConfig struct {
 	// these so the first turn starts with the right hypothesis.
 	// Default off until the Phase-5 benchmark confirms quality win.
 	SmartClassifierEnabled bool `mapstructure:"smart_classifier_enabled"`
+	// QueryDecompositionEnabled turns on the pre-pass that splits
+	// multi-hop architecture / cross_cutting / execution_flow
+	// questions into 3–4 sub-questions, runs the agentic loop per
+	// sub-question in parallel, and synthesizes the final answer.
+	// Targets the multi-hop punt failure mode (quality-push Phase 4).
+	// Default off until the Phase-5 benchmark confirms quality and
+	// cost tradeoffs.
+	QueryDecompositionEnabled bool `mapstructure:"query_decomposition_enabled"`
 }
 
 // TrashConfig controls the soft-delete recycle bin feature.
@@ -345,6 +353,7 @@ func Defaults() *Config {
 			AgenticRetrievalCanaryPct: 0,
 			PromptCachingEnabled:      true,  // Anthropic-safe default
 			SmartClassifierEnabled:    false, // default-off through quality-push Phase 5
+			QueryDecompositionEnabled: false, // default-off through quality-push Phase 5
 		},
 	}
 }
@@ -418,6 +427,7 @@ func Load() (*Config, error) {
 	v.SetDefault("qa.agentic_retrieval_canary_pct", cfg.QA.AgenticRetrievalCanaryPct)
 	v.SetDefault("qa.prompt_caching_enabled", cfg.QA.PromptCachingEnabled)
 	v.SetDefault("qa.smart_classifier_enabled", cfg.QA.SmartClassifierEnabled)
+	v.SetDefault("qa.query_decomposition_enabled", cfg.QA.QueryDecompositionEnabled)
 
 	// Try reading config file (not required)
 	if err := v.ReadInConfig(); err != nil {

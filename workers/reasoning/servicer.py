@@ -22,6 +22,10 @@ from workers.common.llm.tools import (
     run_agent_turn_anthropic,
 )
 from workers.reasoning.classifier import classify_question
+from workers.reasoning.decomposer import (
+    decompose_question,
+    synthesize_from_sub_answers,
+)
 from workers.reasoning.discussion import discuss_code, discuss_code_stream
 from workers.reasoning.reviewer import review_code
 from workers.reasoning.summarizer import summarize_function
@@ -582,6 +586,85 @@ class ReasoningServicer(reasoning_pb2_grpc.ReasoningServiceServicer):
                 output_tokens=result.output_tokens,
                 operation="classify_question",
             ),
+        )
+
+    async def DecomposeQuestion(  # noqa: N802
+        self,
+        request: reasoning_pb2.DecomposeQuestionRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> reasoning_pb2.DecomposeQuestionResponse:
+        """Split a multi-hop question into sub-questions.
+        Quality-push Phase 4."""
+        provider, _model_override = self._resolve_provider(context)
+        provider_name = getattr(provider, "__class__", type(provider)).__name__.lower()
+        provider_key = "anthropic" if "anthropic" in provider_name else ""
+        if provider_key != "anthropic":
+            return reasoning_pb2.DecomposeQuestionResponse(capability_supported=False)
+
+        try:
+            result = await decompose_question(
+                provider,
+                question=request.question,
+                question_class=request.question_class,
+                max_sub_questions=request.max_sub_questions or 4,
+            )
+        except Exception as exc:
+            log.error("decompose_question_failed", error=str(exc))
+            return reasoning_pb2.DecomposeQuestionResponse(capability_supported=False)
+
+        return reasoning_pb2.DecomposeQuestionResponse(
+            capability_supported=True,
+            sub_questions=list(result.sub_questions),
+            usage=types_pb2.LLMUsage(
+                model=result.model,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                operation="decompose_question",
+            ),
+        )
+
+    async def SynthesizeDecomposedAnswer(  # noqa: N802
+        self,
+        request: reasoning_pb2.SynthesizeDecomposedAnswerRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> reasoning_pb2.SynthesizeDecomposedAnswerResponse:
+        """Join sub-answers into a final answer. Quality-push
+        Phase 4 step 3."""
+        provider, _model_override = self._resolve_provider(context)
+
+        sub_answers = [
+            {
+                "sub_question": sa.sub_question,
+                "sub_answer": sa.sub_answer,
+                "reference_handles": list(sa.reference_handles),
+            }
+            for sa in request.sub_answers
+        ]
+
+        try:
+            result = await synthesize_from_sub_answers(
+                provider,
+                original_question=request.original_question,
+                sub_answers=sub_answers,
+                enable_prompt_caching=bool(request.enable_prompt_caching),
+            )
+        except Exception as exc:
+            log.error("synthesize_decomposed_failed", error=str(exc))
+            await context.abort(
+                grpc.StatusCode.INTERNAL, f"Synthesis failed: {exc}"
+            )
+            return  # type: ignore[return-value]
+
+        return reasoning_pb2.SynthesizeDecomposedAnswerResponse(
+            answer=result.answer,
+            usage=types_pb2.LLMUsage(
+                model=result.model,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                operation="synthesize_decomposed",
+            ),
+            cache_creation_input_tokens=result.cache_creation_input_tokens,
+            cache_read_input_tokens=result.cache_read_input_tokens,
         )
 
     async def GetProviderCapabilities(  # noqa: N802

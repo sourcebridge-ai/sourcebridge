@@ -238,6 +238,23 @@ func (c *Client) ClassifyQuestion(ctx context.Context, req *reasoningv1.Classify
 	return c.Reasoning.ClassifyQuestion(ctx, req)
 }
 
+// DecomposeQuestion runs the Haiku decomposer. Short timeout since
+// the caller falls back to the single-loop path on any failure.
+func (c *Client) DecomposeQuestion(ctx context.Context, req *reasoningv1.DecomposeQuestionRequest) (*reasoningv1.DecomposeQuestionResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	return c.Reasoning.DecomposeQuestion(ctx, req)
+}
+
+// SynthesizeDecomposedAnswer runs the final-synthesis turn for a
+// decomposed query. Uses the discussion timeout because it's a
+// Sonnet call that may take 10–20s on dense sub-answer bodies.
+func (c *Client) SynthesizeDecomposedAnswer(ctx context.Context, req *reasoningv1.SynthesizeDecomposedAnswerRequest) (*reasoningv1.SynthesizeDecomposedAnswerResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, TimeoutDiscussion)
+	defer cancel()
+	return c.Reasoning.SynthesizeDecomposedAnswer(ctx, req)
+}
+
 // AnswerQuestionStream opens a server-streaming discussion RPC. Callers
 // receive AnswerDelta frames as the model generates output, then a
 // terminal frame with `finished=true` carrying the final usage and

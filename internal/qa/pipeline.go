@@ -176,6 +176,11 @@ type Orchestrator struct {
 	// Nil means keyword-only. When non-nil AND SmartClassifierEnabled
 	// is true, runAgentic calls Profile before building seed context.
 	profiler QuestionProfiler
+	// Decomposer + synthesizer for the query-decomposition path
+	// (quality-push Phase 4). Both are optional; when either is nil
+	// decomposition doesn't run.
+	decomposer        Decomposer
+	decompSynthesizer decomposedSynthesizer
 }
 
 // WithAgentSynthesizer installs the tool-use synthesizer. When nil,
@@ -210,6 +215,16 @@ func (o *Orchestrator) WithAgenticCanaryPct(pct int) *Orchestrator {
 // the orchestrator uses the keyword profile. Quality-push Phase 2.
 func (o *Orchestrator) WithQuestionProfiler(p QuestionProfiler) *Orchestrator {
 	o.profiler = p
+	return o
+}
+
+// WithDecomposer installs the query-decomposition Decomposer
+// (quality-push Phase 4). Also takes a synthesizer client so the
+// orchestrator can run the final-answer RPC. Both nil is fine —
+// runAgentic skips the decomposition path.
+func (o *Orchestrator) WithDecomposer(d Decomposer, s decomposedSynthesizer) *Orchestrator {
+	o.decomposer = d
+	o.decompSynthesizer = s
 	return o
 }
 
@@ -270,22 +285,24 @@ func (o *Orchestrator) WithFileReader(f FileReader) *Orchestrator {
 // package boundaries stay clean (internal/qa does not import
 // internal/config).
 type Config struct {
-	QuestionMaxBytes       int
-	AskModel               string
-	MaxAnswerTokens        int
-	PromptCachingEnabled   bool
-	SmartClassifierEnabled bool
+	QuestionMaxBytes           int
+	AskModel                   string
+	MaxAnswerTokens            int
+	PromptCachingEnabled       bool
+	SmartClassifierEnabled     bool
+	QueryDecompositionEnabled  bool
 }
 
 // DefaultConfig returns a Config with reasonable defaults for unit
 // tests. Production callers pass the resolved QAConfig.
 func DefaultConfig() Config {
 	return Config{
-		QuestionMaxBytes:       4096,
-		AskModel:               "",
-		MaxAnswerTokens:        1024,
-		PromptCachingEnabled:   true,
-		SmartClassifierEnabled: false,
+		QuestionMaxBytes:          4096,
+		AskModel:                  "",
+		MaxAnswerTokens:           1024,
+		PromptCachingEnabled:      true,
+		SmartClassifierEnabled:    false,
+		QueryDecompositionEnabled: false,
 	}
 }
 

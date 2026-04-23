@@ -311,6 +311,66 @@ class ClassifyQuestionResponse(_message.Message):
     usage: _types_pb2.LLMUsage
     def __init__(self, capability_supported: bool = ..., question_class: _Optional[str] = ..., needs_call_graph: bool = ..., needs_requirements: bool = ..., needs_tests: bool = ..., needs_summaries: bool = ..., symbol_candidates: _Optional[_Iterable[str]] = ..., file_candidates: _Optional[_Iterable[str]] = ..., topic_terms: _Optional[_Iterable[str]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ...) -> None: ...
 
+class DecomposeQuestionRequest(_message.Message):
+    __slots__ = ("repository_id", "question", "question_class", "max_sub_questions")
+    REPOSITORY_ID_FIELD_NUMBER: _ClassVar[int]
+    QUESTION_FIELD_NUMBER: _ClassVar[int]
+    QUESTION_CLASS_FIELD_NUMBER: _ClassVar[int]
+    MAX_SUB_QUESTIONS_FIELD_NUMBER: _ClassVar[int]
+    repository_id: str
+    question: str
+    question_class: str
+    max_sub_questions: int
+    def __init__(self, repository_id: _Optional[str] = ..., question: _Optional[str] = ..., question_class: _Optional[str] = ..., max_sub_questions: _Optional[int] = ...) -> None: ...
+
+class DecomposeQuestionResponse(_message.Message):
+    __slots__ = ("capability_supported", "sub_questions", "usage")
+    CAPABILITY_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    SUB_QUESTIONS_FIELD_NUMBER: _ClassVar[int]
+    USAGE_FIELD_NUMBER: _ClassVar[int]
+    capability_supported: bool
+    sub_questions: _containers.RepeatedScalarFieldContainer[str]
+    usage: _types_pb2.LLMUsage
+    def __init__(self, capability_supported: bool = ..., sub_questions: _Optional[_Iterable[str]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ...) -> None: ...
+
+class SynthesizeDecomposedAnswerRequest(_message.Message):
+    __slots__ = ("repository_id", "original_question", "sub_answers", "enable_prompt_caching")
+    REPOSITORY_ID_FIELD_NUMBER: _ClassVar[int]
+    ORIGINAL_QUESTION_FIELD_NUMBER: _ClassVar[int]
+    SUB_ANSWERS_FIELD_NUMBER: _ClassVar[int]
+    ENABLE_PROMPT_CACHING_FIELD_NUMBER: _ClassVar[int]
+    repository_id: str
+    original_question: str
+    sub_answers: _containers.RepeatedCompositeFieldContainer[DecomposedSubAnswer]
+    enable_prompt_caching: bool
+    def __init__(self, repository_id: _Optional[str] = ..., original_question: _Optional[str] = ..., sub_answers: _Optional[_Iterable[_Union[DecomposedSubAnswer, _Mapping]]] = ..., enable_prompt_caching: bool = ...) -> None: ...
+
+class DecomposedSubAnswer(_message.Message):
+    __slots__ = ("sub_question", "sub_answer", "reference_handles", "termination_reason", "tool_calls_count")
+    SUB_QUESTION_FIELD_NUMBER: _ClassVar[int]
+    SUB_ANSWER_FIELD_NUMBER: _ClassVar[int]
+    REFERENCE_HANDLES_FIELD_NUMBER: _ClassVar[int]
+    TERMINATION_REASON_FIELD_NUMBER: _ClassVar[int]
+    TOOL_CALLS_COUNT_FIELD_NUMBER: _ClassVar[int]
+    sub_question: str
+    sub_answer: str
+    reference_handles: _containers.RepeatedScalarFieldContainer[str]
+    termination_reason: str
+    tool_calls_count: int
+    def __init__(self, sub_question: _Optional[str] = ..., sub_answer: _Optional[str] = ..., reference_handles: _Optional[_Iterable[str]] = ..., termination_reason: _Optional[str] = ..., tool_calls_count: _Optional[int] = ...) -> None: ...
+
+class SynthesizeDecomposedAnswerResponse(_message.Message):
+    __slots__ = ("answer", "usage", "cache_creation_input_tokens", "cache_read_input_tokens")
+    ANSWER_FIELD_NUMBER: _ClassVar[int]
+    USAGE_FIELD_NUMBER: _ClassVar[int]
+    CACHE_CREATION_INPUT_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    CACHE_READ_INPUT_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    answer: str
+    usage: _types_pb2.LLMUsage
+    cache_creation_input_tokens: int
+    cache_read_input_tokens: int
+    def __init__(self, answer: _Optional[str] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ..., cache_creation_input_tokens: _Optional[int] = ..., cache_read_input_tokens: _Optional[int] = ...) -> None: ...
+
 class GetProviderCapabilitiesRequest(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...

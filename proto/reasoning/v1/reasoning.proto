@@ -62,6 +62,21 @@ service ReasoningService {
   // the keyword classifier. Callers should time this call out
   // aggressively (≤ 2s).
   rpc ClassifyQuestion(ClassifyQuestionRequest) returns (ClassifyQuestionResponse);
+
+  // DecomposeQuestion splits a multi-hop question into 3–4 focused
+  // sub-questions that the agentic loop can answer in parallel,
+  // then hand off to a final synthesis turn. Quality-push Phase 4.
+  //
+  // Fail-open: if this RPC errors, the orchestrator runs the
+  // single-loop agentic path on the original question. Aggressively
+  // timed out (≤ 3s).
+  rpc DecomposeQuestion(DecomposeQuestionRequest) returns (DecomposeQuestionResponse);
+
+  // SynthesizeDecomposedAnswer takes the original question + the
+  // sub-question / sub-answer pairs and produces the final answer.
+  // Used as step 3 of Phase-4 decomposition. Citation tags from
+  // sub-answers are preserved so the reference resolver sees them.
+  rpc SynthesizeDecomposedAnswer(SynthesizeDecomposedAnswerRequest) returns (SynthesizeDecomposedAnswerResponse);
 }
 
 message AnalyzeSymbolRequest {
@@ -304,6 +319,56 @@ message ClassifyQuestionResponse {
   repeated string topic_terms = 9;
   // Usage accounting for telemetry / cost tracking.
   sourcebridge.common.v1.LLMUsage usage = 10;
+}
+
+message DecomposeQuestionRequest {
+  string repository_id = 1;
+  string question = 2;
+  // Hint from the classifier ("architecture", "cross_cutting",
+  // ...). Lets the decomposer tune its split strategy per class.
+  string question_class = 3;
+  // Max sub-questions the decomposer should produce. Default 4.
+  // Zero means default.
+  int32 max_sub_questions = 4;
+}
+
+message DecomposeQuestionResponse {
+  bool capability_supported = 1;
+  // Sub-questions in recommended execution order. Empty when the
+  // decomposer decided the question is already atomic — caller
+  // should run the original question through the single loop.
+  repeated string sub_questions = 2;
+  sourcebridge.common.v1.LLMUsage usage = 3;
+}
+
+message SynthesizeDecomposedAnswerRequest {
+  string repository_id = 1;
+  string original_question = 2;
+  repeated DecomposedSubAnswer sub_answers = 3;
+  bool enable_prompt_caching = 4;
+}
+
+message DecomposedSubAnswer {
+  string sub_question = 1;
+  // The sub-answer text, citation tags intact. Empty when the
+  // sub-loop failed; the synthesizer treats this as "no evidence
+  // on that angle".
+  string sub_answer = 2;
+  // Handles referenced by the sub-answer (stable IDs per
+  // §Source-Handle Contract). The synthesizer unions these for
+  // the final reference list.
+  repeated string reference_handles = 3;
+  // Classification-diagnostic fields: what terminated this sub-loop,
+  // how many tool calls, etc. Currently informational.
+  string termination_reason = 4;
+  int32 tool_calls_count = 5;
+}
+
+message SynthesizeDecomposedAnswerResponse {
+  string answer = 1;
+  sourcebridge.common.v1.LLMUsage usage = 2;
+  int64 cache_creation_input_tokens = 3;
+  int64 cache_read_input_tokens = 4;
 }
 
 message GetProviderCapabilitiesRequest {}
