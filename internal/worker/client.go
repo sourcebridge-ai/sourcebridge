@@ -211,6 +211,24 @@ func (c *Client) AnswerQuestion(ctx context.Context, req *reasoningv1.AnswerQues
 	return c.Reasoning.AnswerQuestion(ctx, req)
 }
 
+// AnswerQuestionWithTools is the agentic-retrieval variant of
+// AnswerQuestion. Each invocation is one turn of the conversation;
+// the orchestrator accumulates history and re-calls.
+func (c *Client) AnswerQuestionWithTools(ctx context.Context, req *reasoningv1.AnswerQuestionWithToolsRequest) (*reasoningv1.AnswerQuestionWithToolsResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, TimeoutDiscussion)
+	defer cancel()
+	return c.Reasoning.AnswerQuestionWithTools(ctx, req)
+}
+
+// GetProviderCapabilities returns the active provider's feature
+// flags. Called once on startup so the orchestrator can gate the
+// agentic path without per-request capability checks.
+func (c *Client) GetProviderCapabilities(ctx context.Context) (*reasoningv1.GetProviderCapabilitiesResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return c.Reasoning.GetProviderCapabilities(ctx, &reasoningv1.GetProviderCapabilitiesRequest{})
+}
+
 // AnswerQuestionStream opens a server-streaming discussion RPC. Callers
 // receive AnswerDelta frames as the model generates output, then a
 // terminal frame with `finished=true` carrying the final usage and

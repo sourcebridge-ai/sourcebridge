@@ -12,6 +12,15 @@ from workers.common.embedding.provider import EmbeddingProvider
 from workers.common.grpc_metadata import resolve_llm_override, resolve_model_override
 from workers.common.llm.config import create_llm_provider_for_request
 from workers.common.llm.provider import LLMProvider
+from workers.common.llm.tools import (
+    AgentMessage,
+    ToolCall,
+    ToolResult,
+    ToolSchema,
+    provider_supports_prompt_caching,
+    provider_supports_tool_use,
+    run_agent_turn_anthropic,
+)
 from workers.reasoning.discussion import discuss_code, discuss_code_stream
 from workers.reasoning.reviewer import review_code
 from workers.reasoning.summarizer import summarize_function
@@ -406,4 +415,125 @@ class ReasoningServicer(reasoning_pb2_grpc.ReasoningServiceServicer):
         return reasoning_pb2.SimulateChangeResponse(
             resolved_symbols=proto_matches,
             symbols_evaluated=len(symbols),
+        )
+
+    # ------------------------------------------------------------------
+    # Agentic retrieval (plan 2026-04-23-agentic-retrieval-for-deep-qa)
+    # ------------------------------------------------------------------
+
+    async def AnswerQuestionWithTools(  # noqa: N802
+        self,
+        request: reasoning_pb2.AnswerQuestionWithToolsRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> reasoning_pb2.AnswerQuestionWithToolsResponse:
+        """Single-turn tool-use call. The orchestrator runs the loop
+        on the Go side; this servicer is stateless.
+        """
+        provider, model_override = self._resolve_provider(context)
+        provider_name = getattr(provider, "__class__", type(provider)).__name__.lower()
+        # Heuristic: AnthropicProvider → "anthropic"; we special-case
+        # on the real provider name.
+        provider_key = "anthropic" if "anthropic" in provider_name else ""
+        model = model_override or getattr(provider, "default_model", "") or getattr(
+            provider, "model", ""
+        )
+
+        if not provider_supports_tool_use(provider_key, model):
+            log.info(
+                "agent_turn_capability_unsupported",
+                provider=provider_key,
+                model=model,
+            )
+            return reasoning_pb2.AnswerQuestionWithToolsResponse(
+                capability_supported=False,
+                turn=reasoning_pb2.AgentMessage(role="assistant"),
+                termination_hint=(
+                    "provider or model does not support structured tool use; "
+                    "orchestrator must fall back to single-shot AnswerQuestion"
+                ),
+            )
+
+        messages = [
+            AgentMessage(
+                role=m.role,
+                text=m.text,
+                tool_calls=[
+                    ToolCall(call_id=c.call_id, name=c.name, args_json=c.args_json)
+                    for c in m.tool_calls
+                ],
+                tool_results=[
+                    ToolResult(
+                        call_id=r.call_id,
+                        ok=r.ok,
+                        data_json=r.data_json,
+                        error=r.error,
+                        hint=r.hint,
+                    )
+                    for r in m.tool_results
+                ],
+            )
+            for m in request.messages
+        ]
+        tools = [
+            ToolSchema(
+                name=t.name,
+                description=t.description,
+                input_schema_json=t.input_schema_json,
+            )
+            for t in request.tools
+        ]
+        max_tokens = request.max_tokens if request.max_tokens > 0 else 2048
+
+        try:
+            turn_resp = await run_agent_turn_anthropic(
+                client=getattr(provider, "client", None),
+                model=model,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+            )
+        except Exception as exc:
+            log.error("agent_turn_failed", error=str(exc))
+            await context.abort(
+                grpc.StatusCode.INTERNAL, f"Agent turn failed: {exc}"
+            )
+            return  # type: ignore[return-value]
+
+        return reasoning_pb2.AnswerQuestionWithToolsResponse(
+            capability_supported=True,
+            turn=reasoning_pb2.AgentMessage(
+                role=turn_resp.turn.role,
+                text=turn_resp.turn.text,
+                tool_calls=[
+                    reasoning_pb2.ToolCall(
+                        call_id=tc.call_id,
+                        name=tc.name,
+                        args_json=tc.args_json,
+                    )
+                    for tc in turn_resp.turn.tool_calls
+                ],
+            ),
+            usage=types_pb2.LLMUsage(
+                model=turn_resp.model,
+                input_tokens=turn_resp.input_tokens,
+                output_tokens=turn_resp.output_tokens,
+                operation="agent_turn",
+            ),
+            termination_hint=turn_resp.termination_hint,
+        )
+
+    async def GetProviderCapabilities(  # noqa: N802
+        self,
+        request: reasoning_pb2.GetProviderCapabilitiesRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> reasoning_pb2.GetProviderCapabilitiesResponse:
+        provider, _ = self._resolve_provider(context)
+        provider_name = getattr(provider, "__class__", type(provider)).__name__.lower()
+        provider_key = "anthropic" if "anthropic" in provider_name else ""
+        model = getattr(provider, "default_model", "") or getattr(provider, "model", "")
+        return reasoning_pb2.GetProviderCapabilitiesResponse(
+            provider=provider_key,
+            model=model,
+            tool_use_supported=provider_supports_tool_use(provider_key, model),
+            prompt_caching_supported=provider_supports_prompt_caching(provider_key),
         )

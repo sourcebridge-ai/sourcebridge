@@ -33,6 +33,24 @@ service ReasoningService {
 
   // SimulateChange resolves symbols affected by a hypothetical change description
   rpc SimulateChange(SimulateChangeRequest) returns (SimulateChangeResponse);
+
+  // AnswerQuestionWithTools is the agentic-retrieval variant of
+  // AnswerQuestion. The caller provides a set of tool schemas the
+  // model may call; the worker returns either a final text answer
+  // (terminal turn) or a list of tool calls the caller must execute
+  // and feed back on the next call. Each call carries the
+  // conversation-so-far so the worker is stateless.
+  //
+  // Providers/models that do not support structured tool use return
+  // `capability_supported = false` in the response; callers must
+  // fall back to AnswerQuestion for those deployments.
+  rpc AnswerQuestionWithTools(AnswerQuestionWithToolsRequest) returns (AnswerQuestionWithToolsResponse);
+
+  // GetProviderCapabilities returns static capability flags for the
+  // active provider/model. The orchestrator calls this on startup
+  // and caches the result so the agentic path can be gated without
+  // a per-request round-trip.
+  rpc GetProviderCapabilities(GetProviderCapabilitiesRequest) returns (GetProviderCapabilitiesResponse);
 }
 
 message AnalyzeSymbolRequest {
@@ -150,4 +168,97 @@ message SimulateChangeResponse {
   string description_embedding_model = 2;              // Which model generated the embeddings
   int32 symbols_evaluated = 3;                         // Total symbols considered
   sourcebridge.common.v1.LLMUsage usage = 4;           // Token/compute usage
+}
+
+// ---------------------------------------------------------------------------
+// Agentic retrieval (plan 2026-04-23-agentic-retrieval-for-deep-qa.md)
+// ---------------------------------------------------------------------------
+
+// ToolSchema describes one tool the model may call. Kept
+// provider-neutral; the worker's provider adapter flattens this into
+// the shape the active SDK expects.
+message ToolSchema {
+  string name = 1;         // e.g. "search_evidence"
+  string description = 2;  // natural-language description for the model
+  string input_schema_json = 3;  // JSON Schema as a string (passed through to the provider)
+}
+
+// AgentMessage is one conversation turn the orchestrator threads
+// through AnswerQuestionWithTools. Messages accumulate across calls;
+// the worker is stateless.
+message AgentMessage {
+  // Role: "system" | "user" | "assistant" | "tool_result"
+  string role = 1;
+  // Plain text content (system / user messages, or the assistant's
+  // final text answer).
+  string text = 2;
+  // Populated only when role == "assistant" and the model emitted
+  // tool calls. Each entry is one tool_use block in the
+  // conversation.
+  repeated ToolCall tool_calls = 3;
+  // Populated only when role == "tool_result". Each entry pairs with
+  // a prior ToolCall by call_id.
+  repeated ToolResult tool_results = 4;
+}
+
+// ToolCall is a model-issued request to run a tool. Args is the raw
+// JSON the LLM emitted; the dispatcher validates against the tool's
+// schema before executing.
+message ToolCall {
+  string call_id = 1;      // provider-assigned id, opaque to the orchestrator
+  string name = 2;         // must match a ToolSchema.name
+  string args_json = 3;    // JSON string of the args object
+}
+
+// ToolResult is the dispatcher's response to a ToolCall. Shape
+// matches the plan's standardized {ok, data, error, hint} envelope.
+message ToolResult {
+  string call_id = 1;      // pairs with ToolCall.call_id
+  bool ok = 2;
+  string data_json = 3;    // JSON string of the tool-specific payload (when ok=true)
+  string error = 4;        // enum string (when ok=false), e.g. "file_not_found"
+  string hint = 5;         // natural-language recovery hint (when ok=false)
+}
+
+message AnswerQuestionWithToolsRequest {
+  string repository_id = 1;
+  // Conversation so far. Orchestrator appends the next turn's
+  // tool_result messages and re-calls with the full history (worker
+  // is stateless).
+  repeated AgentMessage messages = 2;
+  // Tool schemas available on this request. Empty means no tools;
+  // the model produces a text answer only.
+  repeated ToolSchema tools = 3;
+  // Soft cap on the output tokens the model may produce this turn.
+  int32 max_tokens = 4;
+}
+
+message AnswerQuestionWithToolsResponse {
+  // True when the active provider/model supports structured tool
+  // use. When false, the orchestrator falls back to AnswerQuestion
+  // for this request.
+  bool capability_supported = 1;
+  // The single assistant-role message the model produced this turn.
+  // Either text is populated (final answer) or tool_calls is
+  // populated (tool-use turn) — never both.
+  AgentMessage turn = 2;
+  sourcebridge.common.v1.LLMUsage usage = 3;
+  // When the model declined to emit tool calls because a budget /
+  // safety gate fired inside the worker, this explains why. Empty
+  // on the happy path.
+  string termination_hint = 4;
+}
+
+message GetProviderCapabilitiesRequest {}
+
+message GetProviderCapabilitiesResponse {
+  // Active provider name, e.g. "anthropic", "openai", "ollama".
+  string provider = 1;
+  // Active model ID, e.g. "claude-sonnet-4-5".
+  string model = 2;
+  // True when this provider/model supports structured tool use.
+  bool tool_use_supported = 3;
+  // True when the provider supports prompt caching (informational —
+  // affects cost, not correctness).
+  bool prompt_caching_supported = 4;
 }

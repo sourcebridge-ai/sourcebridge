@@ -70,6 +70,16 @@ class ReasoningServiceStub(object):
                 request_serializer=reasoning_dot_v1_dot_reasoning__pb2.SimulateChangeRequest.SerializeToString,
                 response_deserializer=reasoning_dot_v1_dot_reasoning__pb2.SimulateChangeResponse.FromString,
                 _registered_method=True)
+        self.AnswerQuestionWithTools = channel.unary_unary(
+                '/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestionWithTools',
+                request_serializer=reasoning_dot_v1_dot_reasoning__pb2.AnswerQuestionWithToolsRequest.SerializeToString,
+                response_deserializer=reasoning_dot_v1_dot_reasoning__pb2.AnswerQuestionWithToolsResponse.FromString,
+                _registered_method=True)
+        self.GetProviderCapabilities = channel.unary_unary(
+                '/sourcebridge.reasoning.v1.ReasoningService/GetProviderCapabilities',
+                request_serializer=reasoning_dot_v1_dot_reasoning__pb2.GetProviderCapabilitiesRequest.SerializeToString,
+                response_deserializer=reasoning_dot_v1_dot_reasoning__pb2.GetProviderCapabilitiesResponse.FromString,
+                _registered_method=True)
 
 
 class ReasoningServiceServicer(object):
@@ -130,6 +140,32 @@ class ReasoningServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def AnswerQuestionWithTools(self, request, context):
+        """AnswerQuestionWithTools is the agentic-retrieval variant of
+        AnswerQuestion. The caller provides a set of tool schemas the
+        model may call; the worker returns either a final text answer
+        (terminal turn) or a list of tool calls the caller must execute
+        and feed back on the next call. Each call carries the
+        conversation-so-far so the worker is stateless.
+
+        Providers/models that do not support structured tool use return
+        `capability_supported = false` in the response; callers must
+        fall back to AnswerQuestion for those deployments.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetProviderCapabilities(self, request, context):
+        """GetProviderCapabilities returns static capability flags for the
+        active provider/model. The orchestrator calls this on startup
+        and caches the result so the agentic path can be gated without
+        a per-request round-trip.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ReasoningServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -167,6 +203,16 @@ def add_ReasoningServiceServicer_to_server(servicer, server):
                     servicer.SimulateChange,
                     request_deserializer=reasoning_dot_v1_dot_reasoning__pb2.SimulateChangeRequest.FromString,
                     response_serializer=reasoning_dot_v1_dot_reasoning__pb2.SimulateChangeResponse.SerializeToString,
+            ),
+            'AnswerQuestionWithTools': grpc.unary_unary_rpc_method_handler(
+                    servicer.AnswerQuestionWithTools,
+                    request_deserializer=reasoning_dot_v1_dot_reasoning__pb2.AnswerQuestionWithToolsRequest.FromString,
+                    response_serializer=reasoning_dot_v1_dot_reasoning__pb2.AnswerQuestionWithToolsResponse.SerializeToString,
+            ),
+            'GetProviderCapabilities': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetProviderCapabilities,
+                    request_deserializer=reasoning_dot_v1_dot_reasoning__pb2.GetProviderCapabilitiesRequest.FromString,
+                    response_serializer=reasoning_dot_v1_dot_reasoning__pb2.GetProviderCapabilitiesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -359,6 +405,60 @@ class ReasoningService(object):
             '/sourcebridge.reasoning.v1.ReasoningService/SimulateChange',
             reasoning_dot_v1_dot_reasoning__pb2.SimulateChangeRequest.SerializeToString,
             reasoning_dot_v1_dot_reasoning__pb2.SimulateChangeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AnswerQuestionWithTools(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestionWithTools',
+            reasoning_dot_v1_dot_reasoning__pb2.AnswerQuestionWithToolsRequest.SerializeToString,
+            reasoning_dot_v1_dot_reasoning__pb2.AnswerQuestionWithToolsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetProviderCapabilities(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sourcebridge.reasoning.v1.ReasoningService/GetProviderCapabilities',
+            reasoning_dot_v1_dot_reasoning__pb2.GetProviderCapabilitiesRequest.SerializeToString,
+            reasoning_dot_v1_dot_reasoning__pb2.GetProviderCapabilitiesResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -220,6 +220,20 @@ type QAConfig struct {
 	// against the reasoning worker. Default 4 — tuned so embed and
 	// synthesis don't starve each other.
 	SynthesisLane int `mapstructure:"synthesis_lane"`
+	// AgenticRetrievalEnabled turns on the tool-using deep-QA loop
+	// (plan 2026-04-23-agentic-retrieval-for-deep-qa.md). Default
+	// false through Phase 3; flipped after the paired benchmark
+	// report. Orchestrator additionally requires the active
+	// provider/model to support structured tool use — when the
+	// capability check fails, agentic is off regardless of this flag.
+	AgenticRetrievalEnabled bool `mapstructure:"agentic_retrieval_enabled"`
+	// AgenticRetrievalCanaryPct is the percentage of requests the
+	// agentic path handles when `AgenticRetrievalEnabled` is false
+	// and a staged rollout is in progress. 0 = off; 10 / 50 are
+	// Stage A / Stage B; 100 = equivalent to enabling the flag.
+	// Per-request coin flip; only evaluated when the provider
+	// supports tool use.
+	AgenticRetrievalCanaryPct int `mapstructure:"agentic_retrieval_canary_pct"`
 }
 
 // TrashConfig controls the soft-delete recycle bin feature.
@@ -305,13 +319,15 @@ func Defaults() *Config {
 			MaxBatchSize:     500,
 		},
 		QA: QAConfig{
-			ServerSideEnabled:       false, // default-off through Phase 4
-			LocalFastModeSubprocess: true,
-			QuestionMaxBytes:        4096,
-			SessionTokensPerHour:    100_000,
-			RepoTokensPerDay:        1_000_000,
-			DeploymentTokensPerDay:  10_000_000,
-			SynthesisLane:           4,
+			ServerSideEnabled:         false, // default-off through Phase 4
+			LocalFastModeSubprocess:   true,
+			QuestionMaxBytes:          4096,
+			SessionTokensPerHour:      100_000,
+			RepoTokensPerDay:          1_000_000,
+			DeploymentTokensPerDay:    10_000_000,
+			SynthesisLane:             4,
+			AgenticRetrievalEnabled:   false, // default-off through Phase 3
+			AgenticRetrievalCanaryPct: 0,
 		},
 	}
 }
@@ -381,6 +397,8 @@ func Load() (*Config, error) {
 	v.SetDefault("qa.repo_tokens_per_day", cfg.QA.RepoTokensPerDay)
 	v.SetDefault("qa.deployment_tokens_per_day", cfg.QA.DeploymentTokensPerDay)
 	v.SetDefault("qa.synthesis_lane", cfg.QA.SynthesisLane)
+	v.SetDefault("qa.agentic_retrieval_enabled", cfg.QA.AgenticRetrievalEnabled)
+	v.SetDefault("qa.agentic_retrieval_canary_pct", cfg.QA.AgenticRetrievalCanaryPct)
 
 	// Try reading config file (not required)
 	if err := v.ReadInConfig(); err != nil {
@@ -441,6 +459,9 @@ func (c *Config) Validate() error {
 	}
 	if c.QA.SynthesisLane < 0 {
 		return fmt.Errorf("invalid qa.synthesis_lane: %d (must be >= 0)", c.QA.SynthesisLane)
+	}
+	if c.QA.AgenticRetrievalCanaryPct < 0 || c.QA.AgenticRetrievalCanaryPct > 100 {
+		return fmt.Errorf("invalid qa.agentic_retrieval_canary_pct: %d (must be 0..100)", c.QA.AgenticRetrievalCanaryPct)
 	}
 	return nil
 }

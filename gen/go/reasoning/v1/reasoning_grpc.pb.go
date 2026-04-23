@@ -19,13 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ReasoningService_AnalyzeSymbol_FullMethodName        = "/sourcebridge.reasoning.v1.ReasoningService/AnalyzeSymbol"
-	ReasoningService_ExplainRelationship_FullMethodName  = "/sourcebridge.reasoning.v1.ReasoningService/ExplainRelationship"
-	ReasoningService_AnswerQuestion_FullMethodName       = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestion"
-	ReasoningService_AnswerQuestionStream_FullMethodName = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestionStream"
-	ReasoningService_ReviewFile_FullMethodName           = "/sourcebridge.reasoning.v1.ReasoningService/ReviewFile"
-	ReasoningService_GenerateEmbedding_FullMethodName    = "/sourcebridge.reasoning.v1.ReasoningService/GenerateEmbedding"
-	ReasoningService_SimulateChange_FullMethodName       = "/sourcebridge.reasoning.v1.ReasoningService/SimulateChange"
+	ReasoningService_AnalyzeSymbol_FullMethodName           = "/sourcebridge.reasoning.v1.ReasoningService/AnalyzeSymbol"
+	ReasoningService_ExplainRelationship_FullMethodName     = "/sourcebridge.reasoning.v1.ReasoningService/ExplainRelationship"
+	ReasoningService_AnswerQuestion_FullMethodName          = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestion"
+	ReasoningService_AnswerQuestionStream_FullMethodName    = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestionStream"
+	ReasoningService_ReviewFile_FullMethodName              = "/sourcebridge.reasoning.v1.ReasoningService/ReviewFile"
+	ReasoningService_GenerateEmbedding_FullMethodName       = "/sourcebridge.reasoning.v1.ReasoningService/GenerateEmbedding"
+	ReasoningService_SimulateChange_FullMethodName          = "/sourcebridge.reasoning.v1.ReasoningService/SimulateChange"
+	ReasoningService_AnswerQuestionWithTools_FullMethodName = "/sourcebridge.reasoning.v1.ReasoningService/AnswerQuestionWithTools"
+	ReasoningService_GetProviderCapabilities_FullMethodName = "/sourcebridge.reasoning.v1.ReasoningService/GetProviderCapabilities"
 )
 
 // ReasoningServiceClient is the client API for ReasoningService service.
@@ -53,6 +55,22 @@ type ReasoningServiceClient interface {
 	GenerateEmbedding(ctx context.Context, in *GenerateEmbeddingRequest, opts ...grpc.CallOption) (*GenerateEmbeddingResponse, error)
 	// SimulateChange resolves symbols affected by a hypothetical change description
 	SimulateChange(ctx context.Context, in *SimulateChangeRequest, opts ...grpc.CallOption) (*SimulateChangeResponse, error)
+	// AnswerQuestionWithTools is the agentic-retrieval variant of
+	// AnswerQuestion. The caller provides a set of tool schemas the
+	// model may call; the worker returns either a final text answer
+	// (terminal turn) or a list of tool calls the caller must execute
+	// and feed back on the next call. Each call carries the
+	// conversation-so-far so the worker is stateless.
+	//
+	// Providers/models that do not support structured tool use return
+	// `capability_supported = false` in the response; callers must
+	// fall back to AnswerQuestion for those deployments.
+	AnswerQuestionWithTools(ctx context.Context, in *AnswerQuestionWithToolsRequest, opts ...grpc.CallOption) (*AnswerQuestionWithToolsResponse, error)
+	// GetProviderCapabilities returns static capability flags for the
+	// active provider/model. The orchestrator calls this on startup
+	// and caches the result so the agentic path can be gated without
+	// a per-request round-trip.
+	GetProviderCapabilities(ctx context.Context, in *GetProviderCapabilitiesRequest, opts ...grpc.CallOption) (*GetProviderCapabilitiesResponse, error)
 }
 
 type reasoningServiceClient struct {
@@ -142,6 +160,26 @@ func (c *reasoningServiceClient) SimulateChange(ctx context.Context, in *Simulat
 	return out, nil
 }
 
+func (c *reasoningServiceClient) AnswerQuestionWithTools(ctx context.Context, in *AnswerQuestionWithToolsRequest, opts ...grpc.CallOption) (*AnswerQuestionWithToolsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AnswerQuestionWithToolsResponse)
+	err := c.cc.Invoke(ctx, ReasoningService_AnswerQuestionWithTools_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reasoningServiceClient) GetProviderCapabilities(ctx context.Context, in *GetProviderCapabilitiesRequest, opts ...grpc.CallOption) (*GetProviderCapabilitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetProviderCapabilitiesResponse)
+	err := c.cc.Invoke(ctx, ReasoningService_GetProviderCapabilities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ReasoningServiceServer is the server API for ReasoningService service.
 // All implementations must embed UnimplementedReasoningServiceServer
 // for forward compatibility.
@@ -167,6 +205,22 @@ type ReasoningServiceServer interface {
 	GenerateEmbedding(context.Context, *GenerateEmbeddingRequest) (*GenerateEmbeddingResponse, error)
 	// SimulateChange resolves symbols affected by a hypothetical change description
 	SimulateChange(context.Context, *SimulateChangeRequest) (*SimulateChangeResponse, error)
+	// AnswerQuestionWithTools is the agentic-retrieval variant of
+	// AnswerQuestion. The caller provides a set of tool schemas the
+	// model may call; the worker returns either a final text answer
+	// (terminal turn) or a list of tool calls the caller must execute
+	// and feed back on the next call. Each call carries the
+	// conversation-so-far so the worker is stateless.
+	//
+	// Providers/models that do not support structured tool use return
+	// `capability_supported = false` in the response; callers must
+	// fall back to AnswerQuestion for those deployments.
+	AnswerQuestionWithTools(context.Context, *AnswerQuestionWithToolsRequest) (*AnswerQuestionWithToolsResponse, error)
+	// GetProviderCapabilities returns static capability flags for the
+	// active provider/model. The orchestrator calls this on startup
+	// and caches the result so the agentic path can be gated without
+	// a per-request round-trip.
+	GetProviderCapabilities(context.Context, *GetProviderCapabilitiesRequest) (*GetProviderCapabilitiesResponse, error)
 	mustEmbedUnimplementedReasoningServiceServer()
 }
 
@@ -197,6 +251,12 @@ func (UnimplementedReasoningServiceServer) GenerateEmbedding(context.Context, *G
 }
 func (UnimplementedReasoningServiceServer) SimulateChange(context.Context, *SimulateChangeRequest) (*SimulateChangeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SimulateChange not implemented")
+}
+func (UnimplementedReasoningServiceServer) AnswerQuestionWithTools(context.Context, *AnswerQuestionWithToolsRequest) (*AnswerQuestionWithToolsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AnswerQuestionWithTools not implemented")
+}
+func (UnimplementedReasoningServiceServer) GetProviderCapabilities(context.Context, *GetProviderCapabilitiesRequest) (*GetProviderCapabilitiesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetProviderCapabilities not implemented")
 }
 func (UnimplementedReasoningServiceServer) mustEmbedUnimplementedReasoningServiceServer() {}
 func (UnimplementedReasoningServiceServer) testEmbeddedByValue()                          {}
@@ -338,6 +398,42 @@ func _ReasoningService_SimulateChange_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReasoningService_AnswerQuestionWithTools_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AnswerQuestionWithToolsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReasoningServiceServer).AnswerQuestionWithTools(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReasoningService_AnswerQuestionWithTools_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReasoningServiceServer).AnswerQuestionWithTools(ctx, req.(*AnswerQuestionWithToolsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReasoningService_GetProviderCapabilities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetProviderCapabilitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReasoningServiceServer).GetProviderCapabilities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReasoningService_GetProviderCapabilities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReasoningServiceServer).GetProviderCapabilities(ctx, req.(*GetProviderCapabilitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ReasoningService_ServiceDesc is the grpc.ServiceDesc for ReasoningService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -368,6 +464,14 @@ var ReasoningService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SimulateChange",
 			Handler:    _ReasoningService_SimulateChange_Handler,
+		},
+		{
+			MethodName: "AnswerQuestionWithTools",
+			Handler:    _ReasoningService_AnswerQuestionWithTools_Handler,
+		},
+		{
+			MethodName: "GetProviderCapabilities",
+			Handler:    _ReasoningService_GetProviderCapabilities_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

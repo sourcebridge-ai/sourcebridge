@@ -198,3 +198,89 @@ class SimulateChangeResponse(_message.Message):
     symbols_evaluated: int
     usage: _types_pb2.LLMUsage
     def __init__(self, resolved_symbols: _Optional[_Iterable[_Union[SimulatedSymbolMatch, _Mapping]]] = ..., description_embedding_model: _Optional[str] = ..., symbols_evaluated: _Optional[int] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ...) -> None: ...
+
+class ToolSchema(_message.Message):
+    __slots__ = ("name", "description", "input_schema_json")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    INPUT_SCHEMA_JSON_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    description: str
+    input_schema_json: str
+    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., input_schema_json: _Optional[str] = ...) -> None: ...
+
+class AgentMessage(_message.Message):
+    __slots__ = ("role", "text", "tool_calls", "tool_results")
+    ROLE_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    TOOL_CALLS_FIELD_NUMBER: _ClassVar[int]
+    TOOL_RESULTS_FIELD_NUMBER: _ClassVar[int]
+    role: str
+    text: str
+    tool_calls: _containers.RepeatedCompositeFieldContainer[ToolCall]
+    tool_results: _containers.RepeatedCompositeFieldContainer[ToolResult]
+    def __init__(self, role: _Optional[str] = ..., text: _Optional[str] = ..., tool_calls: _Optional[_Iterable[_Union[ToolCall, _Mapping]]] = ..., tool_results: _Optional[_Iterable[_Union[ToolResult, _Mapping]]] = ...) -> None: ...
+
+class ToolCall(_message.Message):
+    __slots__ = ("call_id", "name", "args_json")
+    CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ARGS_JSON_FIELD_NUMBER: _ClassVar[int]
+    call_id: str
+    name: str
+    args_json: str
+    def __init__(self, call_id: _Optional[str] = ..., name: _Optional[str] = ..., args_json: _Optional[str] = ...) -> None: ...
+
+class ToolResult(_message.Message):
+    __slots__ = ("call_id", "ok", "data_json", "error", "hint")
+    CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    OK_FIELD_NUMBER: _ClassVar[int]
+    DATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    HINT_FIELD_NUMBER: _ClassVar[int]
+    call_id: str
+    ok: bool
+    data_json: str
+    error: str
+    hint: str
+    def __init__(self, call_id: _Optional[str] = ..., ok: bool = ..., data_json: _Optional[str] = ..., error: _Optional[str] = ..., hint: _Optional[str] = ...) -> None: ...
+
+class AnswerQuestionWithToolsRequest(_message.Message):
+    __slots__ = ("repository_id", "messages", "tools", "max_tokens")
+    REPOSITORY_ID_FIELD_NUMBER: _ClassVar[int]
+    MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    TOOLS_FIELD_NUMBER: _ClassVar[int]
+    MAX_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    repository_id: str
+    messages: _containers.RepeatedCompositeFieldContainer[AgentMessage]
+    tools: _containers.RepeatedCompositeFieldContainer[ToolSchema]
+    max_tokens: int
+    def __init__(self, repository_id: _Optional[str] = ..., messages: _Optional[_Iterable[_Union[AgentMessage, _Mapping]]] = ..., tools: _Optional[_Iterable[_Union[ToolSchema, _Mapping]]] = ..., max_tokens: _Optional[int] = ...) -> None: ...
+
+class AnswerQuestionWithToolsResponse(_message.Message):
+    __slots__ = ("capability_supported", "turn", "usage", "termination_hint")
+    CAPABILITY_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    TURN_FIELD_NUMBER: _ClassVar[int]
+    USAGE_FIELD_NUMBER: _ClassVar[int]
+    TERMINATION_HINT_FIELD_NUMBER: _ClassVar[int]
+    capability_supported: bool
+    turn: AgentMessage
+    usage: _types_pb2.LLMUsage
+    termination_hint: str
+    def __init__(self, capability_supported: bool = ..., turn: _Optional[_Union[AgentMessage, _Mapping]] = ..., usage: _Optional[_Union[_types_pb2.LLMUsage, _Mapping]] = ..., termination_hint: _Optional[str] = ...) -> None: ...
+
+class GetProviderCapabilitiesRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class GetProviderCapabilitiesResponse(_message.Message):
+    __slots__ = ("provider", "model", "tool_use_supported", "prompt_caching_supported")
+    PROVIDER_FIELD_NUMBER: _ClassVar[int]
+    MODEL_FIELD_NUMBER: _ClassVar[int]
+    TOOL_USE_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    PROMPT_CACHING_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    provider: str
+    model: str
+    tool_use_supported: bool
+    prompt_caching_supported: bool
+    def __init__(self, provider: _Optional[str] = ..., model: _Optional[str] = ..., tool_use_supported: bool = ..., prompt_caching_supported: bool = ...) -> None: ...
