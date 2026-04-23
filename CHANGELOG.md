@@ -4,6 +4,110 @@ All notable changes to SourceBridge are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Theme: **ask smarter, not harder.** A new agentic retrieval loop, a
+server-side deep-QA orchestrator, and a hybrid search backbone plugged into
+the deep pipeline. Measured quality gains on a 120-question parity
+benchmark with LLM-as-judge.
+
+### Added
+
+- **Agentic retrieval loop.** Phases 0–4.5 ship a tool-dispatching agent
+  synthesizer that swaps passive retrieval for an explicit plan → call
+  tools → cite answer loop. Tools include `search_evidence`,
+  `find_tests`, and a query decomposition pre-pass. The agent
+  capability probe runs unconditionally at startup and is wired into
+  the REST server. Paired-benchmark result vs Phase-3 baseline:
+  **+10.00% overall quality**, with another **+3.33%** added by the
+  Phase-5 quality push.
+- **Anthropic prompt caching on the agentic loop** (quality-push Phase 1)
+  — repeated tool-call framing is cached across turns, cutting token
+  cost without changing answer fidelity.
+- **Smart classifier + seed-context routing** (quality-push Phase 2) —
+  the classifier picks a retrieval strategy per question class instead
+  of running the full pipeline for every query.
+- **`find_tests` agent tool** (quality-push Phase 3) — lets the agent
+  pull in the test file that exercises a symbol when the question is
+  about behavior, not structure.
+- **Query decomposition pre-pass** (quality-push Phase 4) — gated to
+  architecture-class questions where sub-question routing actually
+  helped the judges; skipped on everything else to avoid latency
+  churn.
+- **Server-side deep-QA pipeline.** A new `internal/qa` orchestrator
+  runs the deep ask flow on the API side with readiness gating and a
+  CTA fallback when the pipeline can't complete. Exposed as a
+  GraphQL `ask` mutation, a `POST /api/v1/ask` REST endpoint, and an
+  MCP `ask_deep` tool. CLI auto-picks the server path when
+  `/healthz` advertises QA. The old `cli_ask.py` deep mode now prints
+  a deprecation warning.
+- **Deep pipeline uses hybrid search.** The deep-QA path now calls
+  the hybrid `search.Service` (Phases 1–6 from the prior release) as
+  its retriever instead of the legacy grep path — requirements,
+  files, symbols, and signals all flow through one ranked backbone.
+- **QA parity benchmark.** 120 curated questions across architecture,
+  execution flow, domain concepts, and requirements grounding, with
+  an LLM-as-judge runner (`benchmarks/qa/`). Baseline vs candidate
+  arms, per-question judgments, per-arm environment capture, and a
+  rollup report. Seed script + per-question repo-path mapping let
+  the candidate run inside a k8s worker pod or against a remote
+  instance.
+- **Fallback-compat CI lane** — a dedicated workflow that exercises
+  the pipeline with the agentic loop disabled so the fallback path
+  can't regress silently.
+- **Ops docs** — `docs/admin/server-side-qa-rollout.md` with staged
+  canary instructions and rollout decisions finalized (Q5.6 / Q6.1 /
+  Q7.1); `docs/admin/telemetry-collector-qa-fields.md` for the
+  collector-side field additions that QA adoption needs.
+
+### Fixed
+
+- **`find_tests` schema**: Anthropic's API rejects `anyOf` at the
+  `input_schema` root. The tool definition now expresses the variant
+  shape without the root-level union so cloud and local models
+  accept the same schema.
+- **Smart-classifier fabrication**: dropped `file_candidates` from
+  the classifier's seed prompt, which was inviting the model to
+  invent plausible-but-non-existent file paths.
+- **Agentic deadlines** iteratively tuned — **60 s / 30 s** first,
+  then **90 s / 45 s** wall/per-turn after the initial setting
+  truncated legitimate long answers. Decomposition sub-loop budget
+  bumped **30 s → 60 s**.
+- **Agentic `search_evidence` init order** — the tool was being
+  registered before the search service was ready on startup; moved
+  service init before QA wiring so the tool is usable on the first
+  request.
+- **Citation fallback widened** to scan every tool-result turn, not
+  just the final turn, so an answer stitched together from earlier
+  tool calls still carries the evidence citations forward.
+
+### Changed
+
+- **Decomposition gate narrowed to architecture-only** (post-Phase 5).
+  The quality-push evaluation showed decomposition helped
+  architecture questions but hurt execution-flow and concrete
+  questions; the gate now reflects that.
+- **Default prod posture** recorded in
+  `thoughts/shared/plans/` as the surgical config — Phase-5
+  decomposition + architecture gate + agentic loop + hybrid search
+  is the baseline unless overridden.
+- **Q5.1–Q5.6 deep-QA migration series** — `discussCode` context
+  ported into the orchestrator, GraphQL `ask` adapter added,
+  synthesis routed through the LLM job orchestrator, telemetry
+  fields reserved for QA adoption, CLI and REPL re-pointed at the
+  server path.
+
+### Infrastructure
+
+- `.claude/scheduled_tasks.lock` added to `.gitignore`.
+- Judge docs pointed at the canonical
+  `automation/anthropic-api-credentials` secret path used by other
+  benchmarks.
+- QA benchmark reports live in `benchmarks/qa/reports/` alongside
+  the runner output so rollouts can diff arms over time.
+
+---
+
 ## [0.8.0-rc.1] — 2026-04-21
 
 Release candidate for 0.8.0. Theme: **token streaming end-to-end**, first-class
