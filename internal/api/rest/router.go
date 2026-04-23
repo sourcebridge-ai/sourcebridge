@@ -285,6 +285,30 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 		if s.searchSvc != nil {
 			o = o.WithSearcher(&qaSearcher{svc: s.searchSvc})
 		}
+		// Agentic path — only wires when the provider supports tool
+		// use (probed at startup). When the probe fails or returns
+		// unsupported, the orchestrator stays on single-shot
+		// regardless of AgenticRetrievalEnabled.
+		if s.worker != nil && s.worker.IsAvailable() {
+			caps, err := s.worker.GetProviderCapabilities(context.Background())
+			if err != nil {
+				slog.Warn("agent synth: provider capability probe failed; agentic disabled",
+					"error", err)
+			} else if caps.GetToolUseSupported() {
+				agent := qa.NewWorkerAgentSynthesizer(s.worker, true)
+				o = o.WithAgentSynthesizer(agent).
+					WithAgenticEnabled(cfg.QA.AgenticRetrievalEnabled).
+					WithAgenticCanaryPct(cfg.QA.AgenticRetrievalCanaryPct)
+				slog.Info("agent synth: wired",
+					"provider", caps.GetProvider(),
+					"model", caps.GetModel(),
+					"enabled", cfg.QA.AgenticRetrievalEnabled,
+					"canary_pct", cfg.QA.AgenticRetrievalCanaryPct)
+			} else {
+				slog.Info("agent synth: provider does not support tool use; agentic disabled",
+					"provider", caps.GetProvider(), "model", caps.GetModel())
+			}
+		}
 		s.qaOrchestrator = o
 		// Publish the server-side QA state to the telemetry counters
 		// so the public dashboard can track adoption without collecting
