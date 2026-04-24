@@ -885,6 +885,7 @@ func (h *mcpHandler) baseTools() []mcpToolDefinition {
 	}
 	tools = append(tools, h.phase1aToolDefs()...)
 	tools = append(tools, h.getTestsForSymbolToolDef())
+	tools = append(tools, h.getEntryPointsToolDef())
 	return tools
 }
 
@@ -960,6 +961,8 @@ func (h *mcpHandler) handleToolsCallCtx(ctx context.Context, session *mcpSession
 	// Phase 1b tools.
 	case "get_tests_for_symbol":
 		result, toolErr = h.callGetTestsForSymbol(session, params.Arguments)
+	case "get_entry_points":
+		result, toolErr = h.callGetEntryPoints(session, params.Arguments)
 	default:
 		// Try enterprise tool extender
 		if h.toolExtender != nil {

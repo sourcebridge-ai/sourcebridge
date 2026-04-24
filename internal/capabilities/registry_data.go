@@ -100,6 +100,13 @@ var Registry = []Capability{
 		MCPToolNames: []string{"get_tests_for_symbol"},
 		LatencyClass: "fast_read",
 	},
+	{
+		Name:         "entry_points",
+		Description:  "Classify symbols as entry points (main funcs, HTTP routes, Grails controller actions, …) with basic or framework-aware precision.",
+		Editions:     []Edition{EditionOSS, EditionEnterprise},
+		MCPToolNames: []string{"get_entry_points"},
+		LatencyClass: "search",
+	},
 
 	// ---- Requirements + impact ----
 	{
