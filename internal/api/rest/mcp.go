@@ -892,6 +892,7 @@ func (h *mcpHandler) baseTools() []mcpToolDefinition {
 	tools = append(tools, h.getTestsForSymbolToolDef())
 	tools = append(tools, h.getEntryPointsToolDef())
 	tools = append(tools, h.lifecycleToolDefs()...)
+	tools = append(tools, h.compoundToolDefs()...)
 	return tools
 }
 
@@ -976,6 +977,13 @@ func (h *mcpHandler) handleToolsCallCtx(ctx context.Context, session *mcpSession
 		result, toolErr = h.callGetIndexStatus(session, params.Arguments)
 	case "refresh_repository":
 		result, toolErr = h.callRefreshRepository(session, params.Arguments)
+	// Phase 2.1 — compound workflow tools.
+	case "review_diff_against_requirements":
+		result, toolErr = h.callReviewDiffAgainstRequirements(session, params.Arguments)
+	case "impact_summary":
+		result, toolErr = h.callImpactSummary(session, params.Arguments)
+	case "onboard_new_contributor":
+		result, toolErr = h.callOnboardNewContributor(session, params.Arguments)
 	default:
 		// Try enterprise tool extender
 		if h.toolExtender != nil {

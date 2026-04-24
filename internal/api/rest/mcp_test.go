@@ -471,6 +471,8 @@ func TestMCP_ToolsList(t *testing.T) {
 		"get_tests_for_symbol", "get_entry_points",
 		// Phase 3.2 lifecycle tools
 		"index_repository", "get_index_status", "refresh_repository",
+		// Phase 2.1 compound workflow tools
+		"review_diff_against_requirements", "impact_summary", "onboard_new_contributor",
 	}
 	if len(tools) != len(expected) {
 		t.Fatalf("expected %d tools, got %d (names: %v)", len(expected), len(tools), toolNames(tools))

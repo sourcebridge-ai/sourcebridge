@@ -114,6 +114,13 @@ var Registry = []Capability{
 		MCPToolNames: []string{"index_repository", "get_index_status", "refresh_repository"},
 		LatencyClass: "indexing_op",
 	},
+	{
+		Name:         "compound_workflows",
+		Description:  "Server-orchestrated workflow tools: review a diff against linked requirements, summarize impact, onboard a new contributor.",
+		Editions:     []Edition{EditionOSS, EditionEnterprise},
+		MCPToolNames: []string{"review_diff_against_requirements", "impact_summary", "onboard_new_contributor"},
+		LatencyClass: "search",
+	},
 
 	// ---- Requirements + impact ----
 	{
