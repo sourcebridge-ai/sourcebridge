@@ -145,13 +145,21 @@ func (h *mcpHandler) callGetTestsForSymbol(session *mcpSession, args json.RawMes
 		m.MatchSources = append(m.MatchSources, source)
 	}
 
-	// Source 1 — persisted edges.
-	// RelationTests edges aren't reliably populated today. When/if
-	// they land, the GraphStore interface would expose a
-	// GetTestEdges(symbolID) method; for now we check the symbol's
-	// callers for any IsTest=true entries, which functionally
-	// captures "a test method calls this symbol" — the real signal
-	// any persisted edge would carry anyway.
+	// Source 1 — persisted RelationTests edges written at index time.
+	// Populated by internal/indexer/indexer.go#resolveTestLinkage for
+	// every direct call from a test symbol to a non-test symbol.
+	// GraphStore.GetTestsForSymbolPersisted returns the test IDs
+	// keyed on the target symbol.
+	if testIDs := h.store.GetTestsForSymbolPersisted(target.ID); len(testIDs) > 0 {
+		byID := h.store.GetSymbolsByIDs(testIDs)
+		for _, sym := range byID {
+			if sym != nil {
+				addSource(sym, "persisted_edge")
+			}
+		}
+	}
+	// Fallback: IsTest-marked callers (kept as a belt-and-suspenders
+	// signal for languages/patterns where the persisted edge misses).
 	callerIDs := h.store.GetCallers(target.ID)
 	if len(callerIDs) > 0 {
 		byID := h.store.GetSymbolsByIDs(callerIDs)
