@@ -60,10 +60,14 @@ func (s *Server) registerEnterpriseRoutes(r chi.Router) {
 	})
 
 	// Wire compliance collectors. The repo collector walks each
-	// in-scope repo's clone via the existing QA locator.
+	// in-scope repo's clone; the GitHub collector queries the live
+	// REST API for branch protection + Dependabot evidence. Both
+	// are safe when unconfigured — nil resolvers yield no-ops.
 	if s.store != nil {
 		locator := newQARepoLocator(s.store, s.cfg.Storage.RepoCachePath)
-		ectx.SetComplianceCollectors(routes.NewComplianceRepoCollectors(locator))
+		collectors := routes.NewComplianceRepoCollectors(locator)
+		collectors = append(collectors, routes.NewComplianceGitHubCollector(newComplianceGitHubResolver(s.store)))
+		ectx.SetComplianceCollectors(collectors)
 	}
 
 	// Optional LLM prose-enricher for control findings. Enabled only
