@@ -742,7 +742,7 @@ func (h *mcpHandler) handleToolsList(_ *mcpSession, msg jsonRPCRequest) jsonRPCR
 }
 
 func (h *mcpHandler) baseTools() []mcpToolDefinition {
-	return []mcpToolDefinition{
+	tools := []mcpToolDefinition{
 		{
 			Name:        "search_symbols",
 			Description: "Search for code symbols (functions, classes, types, variables) in a repository.",
@@ -832,6 +832,25 @@ func (h *mcpHandler) baseTools() []mcpToolDefinition {
 			},
 		},
 	}
+	return append(tools, h.phase1aToolDefs()...)
+}
+
+// baseToolsWithoutPhase1a returns the pre-Phase-1a tool list — used by
+// the tools/list ordering when we later split by capability registry.
+// Not currently wired; reserved for Phase 3.
+func (h *mcpHandler) baseToolsCore() []mcpToolDefinition {
+	tools := h.baseTools()
+	core := make([]mcpToolDefinition, 0, len(tools))
+	phase1aNames := map[string]bool{
+		"get_callers": true, "get_callees": true, "get_file_imports": true,
+		"get_architecture_diagram": true, "get_recent_changes": true,
+	}
+	for _, t := range tools {
+		if !phase1aNames[t.Name] {
+			core = append(core, t)
+		}
+	}
+	return core
 }
 
 // ---------------------------------------------------------------------------
@@ -874,6 +893,17 @@ func (h *mcpHandler) handleToolsCallCtx(ctx context.Context, session *mcpSession
 		result, toolErr = h.callGetCliffNotes(session, params.Arguments)
 	case "ask_question":
 		result, toolErr = h.callAskQuestion(ctx, session, params.Arguments)
+	// Phase 1a accessor tools (see mcp_accessors.go).
+	case "get_callers":
+		result, toolErr = h.callGetCallers(session, params.Arguments)
+	case "get_callees":
+		result, toolErr = h.callGetCallees(session, params.Arguments)
+	case "get_file_imports":
+		result, toolErr = h.callGetFileImports(session, params.Arguments)
+	case "get_architecture_diagram":
+		result, toolErr = h.callGetArchitectureDiagram(session, params.Arguments)
+	case "get_recent_changes":
+		result, toolErr = h.callGetRecentChanges(session, params.Arguments)
 	default:
 		// Try enterprise tool extender
 		if h.toolExtender != nil {
