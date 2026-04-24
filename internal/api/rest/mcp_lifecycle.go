@@ -4,10 +4,13 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"time"
+
+	"github.com/sourcebridge/sourcebridge/internal/indexing"
 )
 
 // Phase 3.2 — indexing lifecycle tools.
@@ -94,8 +97,9 @@ type indexRepositoryResult struct {
 
 func (h *mcpHandler) callIndexRepository(session *mcpSession, args json.RawMessage) (interface{}, error) {
 	var params struct {
-		PathOrURL string `json:"path_or_url"`
-		Name      string `json:"name"`
+		PathOrURL string  `json:"path_or_url"`
+		Name      string  `json:"name"`
+		Token     *string `json:"access_token,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, errInvalidArguments(err.Error())
@@ -104,15 +108,38 @@ func (h *mcpHandler) callIndexRepository(session *mcpSession, args json.RawMessa
 		return nil, errInvalidArguments("path_or_url is required")
 	}
 
-	// Default name: repo/dir basename
+	// Prefer the shared indexing.Service when wired — full end-to-end
+	// clone + index, remote URLs included. Falls back to the
+	// register-only path on older builds where the service isn't
+	// injected (e.g. test harnesses that bypass router wiring).
+	if h.indexingSvc != nil {
+		repo, err := h.indexingSvc.Import(context.Background(), indexing.ImportSpec{
+			Name:      params.Name,
+			PathOrURL: params.PathOrURL,
+			Token:     params.Token,
+		})
+		if err != nil {
+			return nil, err
+		}
+		msg := "Repository registered and indexing started. Poll get_index_status for progress."
+		if repo.Status == "ready" {
+			msg = "Repository already indexed."
+		}
+		return indexRepositoryResult{
+			RepositoryID:  repo.ID,
+			Name:          repo.Name,
+			Path:          repo.Path,
+			InitialStatus: repo.Status,
+			Message:       msg,
+		}, nil
+	}
+
+	// Fallback — register-only path (kept so tests without the
+	// indexing service still pass).
 	name := params.Name
 	if name == "" {
 		name = filepath.Base(params.PathOrURL)
 	}
-
-	// Dedup: if a repo with the same path or remote URL already
-	// exists, return it. Matches the GraphQL AddRepository dedupe
-	// so both paths converge on the same record.
 	if existing := h.store.GetRepositoryByPath(params.PathOrURL); existing != nil {
 		return indexRepositoryResult{
 			RepositoryID:  existing.ID,
@@ -122,20 +149,14 @@ func (h *mcpHandler) callIndexRepository(session *mcpSession, args json.RawMessa
 			Message:       "Repository already registered with this path.",
 		}, nil
 	}
-
 	repo, err := h.store.CreateRepository(name, params.PathOrURL)
 	if err != nil {
 		return nil, fmt.Errorf("creating repository: %w", err)
 	}
-
-	msg := ""
-	// For remote URLs, indicate the current execution limitation.
+	msg := "Local path registered. Indexing runs on the next scheduled scan; poll get_index_status for progress. (Shared indexing service not wired — full end-to-end path inactive on this deployment.)"
 	if isRemoteURL(params.PathOrURL) {
-		msg = "Remote URL registered. Full clone + index orchestration runs via the GraphQL AddRepository mutation in the current release; poll get_index_status for progress."
-	} else {
-		msg = "Local path registered. Indexing runs on the next scheduled scan or via the GraphQL AddRepository mutation; poll get_index_status for progress."
+		msg = "Remote URL registered. Full clone + index requires the shared indexing service, which isn't wired on this deployment. Call the GraphQL AddRepository mutation instead."
 	}
-
 	return indexRepositoryResult{
 		RepositoryID:  repo.ID,
 		Name:          repo.Name,
@@ -230,27 +251,24 @@ func (h *mcpHandler) callRefreshRepository(session *mcpSession, args json.RawMes
 		strategy = "delta"
 	}
 
-	// Clear any prior error + mark pending. The SetRepositoryError
-	// entrypoint takes a nil error to clear; we use it via the
-	// error-clearing pattern even though the preferred primitive
-	// isn't exposed on the GraphStore interface. Simplest: call
-	// SetRepositoryError with a marker error, then rely on the
-	// reindex path to reset. For now, we set a meta update which
-	// preserves other state and document the limitation.
-	//
-	// The store doesn't currently expose a "set status" primitive
-	// on the GraphStore interface, which is intentional — real
-	// status transitions happen inside StoreIndexResult /
-	// SetRepositoryError during indexing. At the MCP layer we
-	// can only record the intent and let the next index run honor
-	// it. Clients should interpret this tool as "intent to refresh"
-	// rather than "refresh now complete."
+	// Shared indexing service kicks off a real re-index when wired.
+	if h.indexingSvc != nil {
+		if err := h.indexingSvc.Reindex(context.Background(), params.RepositoryID); err != nil {
+			return nil, err
+		}
+		return refreshRepositoryResult{
+			RepositoryID: params.RepositoryID,
+			Status:       "indexing",
+			Strategy:     strategy,
+			Message:      "Re-indexing started. Poll get_index_status for progress.",
+		}, nil
+	}
 
 	return refreshRepositoryResult{
 		RepositoryID: params.RepositoryID,
 		Status:       "pending",
 		Strategy:     strategy,
-		Message:      "Refresh intent recorded. Re-indexing runs on the next scheduled scan or via the GraphQL reindexRepository mutation; poll get_index_status for progress.",
+		Message:      "Refresh intent recorded. Shared indexing service not wired on this deployment — use the GraphQL reindexRepository mutation, or restart with the service enabled.",
 	}, nil
 }
 

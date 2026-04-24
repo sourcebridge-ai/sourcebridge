@@ -19,6 +19,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/auth"
 	"github.com/sourcebridge/sourcebridge/internal/capabilities"
 	"github.com/sourcebridge/sourcebridge/internal/db"
+	"github.com/sourcebridge/sourcebridge/internal/indexing"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/qa"
@@ -267,6 +268,7 @@ type mcpHandler struct {
 	store          graphstore.GraphStore
 	knowledgeStore knowledge.KnowledgeStore
 	worker         mcpWorkerCaller
+	indexingSvc    *indexing.Service    // Phase-3 follow-on — drives end-to-end index_repository / refresh_repository
 	edition        capabilities.Edition // drives tools/list filtering + initialize response
 	allowedRepos   map[string]bool      // nil = all repos allowed
 	sessionTTL     time.Duration
@@ -346,6 +348,9 @@ func newMCPHandlerWithEdition(store graphstore.GraphStore, ks knowledge.Knowledg
 		keepalive:      keepalive,
 		maxSessions:    maxSessions,
 		sessionStore:   ss,
+		// indexingSvc is wired by router.go after construction so
+		// tests without the full Server context can skip it and
+		// exercise the fallback register-only path.
 	}
 	if repos != "" {
 		h.allowedRepos = make(map[string]bool)
