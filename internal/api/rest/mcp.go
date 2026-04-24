@@ -1277,25 +1277,46 @@ func (h *mcpHandler) callAskQuestion(ctx context.Context, session *mcpSession, a
 	// bound to the context. Emit a bracketing set of phase markers
 	// around the orchestrator call so the client can show
 	// "searching…" / "synthesizing…" instead of a 15–30s blank wait.
-	// These are server-side phase hints, not events from the agentic
-	// loop itself — true intra-loop streaming ("tool_call:
-	// search_evidence") requires the Python worker to emit structured
-	// progress events over gRPC, which is a follow-on scope.
+	// These are now REAL events from the agentic loop. When a
+	// ContentEmitter is bound to the context (streamable-HTTP path),
+	// the adapter below attaches a qa.ProgressEmitter so the loop
+	// pushes structured phase events (planning / tool_call /
+	// tool_result / synthesizing / done) to the streaming client.
 	emitter := ContentEmitterFromContext(ctx)
-	emitter.Emit("[ask_question] planning…\n")
-	if mode == qa.ModeFast {
-		emitter.Emit("[ask_question] mode=fast — pinned to provided context\n")
-	} else {
-		emitter.Emit("[ask_question] mode=deep — agentic retrieval + synthesis\n")
+	if emitter != nil {
+		ctx = qa.WithProgressEmitter(ctx, &contentEmitterProgressAdapter{emitter: emitter})
+		// Mode hint up front so the client knows which pipeline is
+		// running before any loop events arrive.
+		if mode == qa.ModeFast {
+			emitter.Emit("[ask_question] mode=fast — pinned to provided context\n")
+		} else {
+			emitter.Emit("[ask_question] mode=deep — agentic retrieval + synthesis\n")
+		}
 	}
 
 	res, err := h.qaOrchestrator.Ask(ctx, in)
 	if err != nil {
-		emitter.Emit("[ask_question] failed\n")
+		if emitter != nil {
+			emitter.Emit("[ask_question] failed\n")
+		}
 		return nil, err
 	}
-	emitter.Emit("[ask_question] done\n")
 	return res, nil
+}
+
+// contentEmitterProgressAdapter bridges qa.ProgressEmitter → MCP
+// ContentEmitter. Each structured ProgressEvent renders to a single
+// line via qa.ProgressEventString and is pushed to the streaming
+// client as a content delta.
+type contentEmitterProgressAdapter struct {
+	emitter *ContentEmitter
+}
+
+func (a *contentEmitterProgressAdapter) Emit(event qa.ProgressEvent) {
+	if a == nil || a.emitter == nil {
+		return
+	}
+	a.emitter.Emit(qa.ProgressEventString(event))
 }
 
 // ContentEmitter is present on the context (i.e. the request came in

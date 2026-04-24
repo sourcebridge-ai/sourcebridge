@@ -104,10 +104,10 @@ func withTermination(reason string) progressOption {
 	return func(e *ProgressEvent) { e.TerminationReason = reason }
 }
 
-// progressEventString is a convenience for adapters that want to
+// ProgressEventString is a convenience for adapters that want to
 // render an event to a single line of text. Used by the MCP relay
 // to push a human-readable delta to ContentEmitter.
-func progressEventString(e ProgressEvent) string {
+func ProgressEventString(e ProgressEvent) string {
 	switch e.Phase {
 	case "tool_call":
 		if e.ToolName != "" {

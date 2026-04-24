@@ -385,6 +385,12 @@ func (o *Orchestrator) RunAgentLoopWithBudget(
 	// Strip citation tags from user-visible answer.
 	result.Answer = stripCitationTags(result.RawAnswer)
 
+	// Progress: loop terminated. TerminationReason carries the
+	// structural outcome (answer / timeout / budget / worker_error
+	// / cancelled) so clients can distinguish "done because the
+	// agent produced an answer" from "done because we timed out."
+	emitProgress(ctx, loopStart, "done", withTermination(result.TerminationReason))
+
 	return result, nil
 }
 
