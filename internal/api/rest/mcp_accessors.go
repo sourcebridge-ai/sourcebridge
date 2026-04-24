@@ -169,7 +169,7 @@ func (h *mcpHandler) resolveSymbol(p symbolRefParams) (*graph.StoredSymbol, erro
 	}
 
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("symbol %q not found in %s", p.SymbolName, p.FilePath)
+		return nil, errSymbolNotFound(p.SymbolName, p.FilePath)
 	}
 	if len(candidates) == 1 {
 		return candidates[0], nil

@@ -73,8 +73,9 @@ type mcpContent struct {
 }
 
 type mcpToolResult struct {
-	Content []mcpContent `json:"content"`
-	IsError bool         `json:"isError,omitempty"`
+	Content []mcpContent           `json:"content"`
+	IsError bool                   `json:"isError,omitempty"`
+	Meta    map[string]interface{} `json:"_meta,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -975,6 +976,7 @@ func (h *mcpHandler) handleToolsCallCtx(ctx context.Context, session *mcpSession
 		return successResponse(msg.ID, mcpToolResult{
 			Content: []mcpContent{{Type: "text", Text: toolErr.Error()}},
 			IsError: true,
+			Meta:    toolErrorMeta(toolErr),
 		})
 	}
 
