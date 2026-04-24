@@ -886,6 +886,7 @@ func (h *mcpHandler) baseTools() []mcpToolDefinition {
 	tools = append(tools, h.phase1aToolDefs()...)
 	tools = append(tools, h.getTestsForSymbolToolDef())
 	tools = append(tools, h.getEntryPointsToolDef())
+	tools = append(tools, h.lifecycleToolDefs()...)
 	return tools
 }
 
@@ -963,6 +964,13 @@ func (h *mcpHandler) handleToolsCallCtx(ctx context.Context, session *mcpSession
 		result, toolErr = h.callGetTestsForSymbol(session, params.Arguments)
 	case "get_entry_points":
 		result, toolErr = h.callGetEntryPoints(session, params.Arguments)
+	// Phase 3.2 — indexing lifecycle tools.
+	case "index_repository":
+		result, toolErr = h.callIndexRepository(session, params.Arguments)
+	case "get_index_status":
+		result, toolErr = h.callGetIndexStatus(session, params.Arguments)
+	case "refresh_repository":
+		result, toolErr = h.callRefreshRepository(session, params.Arguments)
 	default:
 		// Try enterprise tool extender
 		if h.toolExtender != nil {

@@ -107,6 +107,13 @@ var Registry = []Capability{
 		MCPToolNames: []string{"get_entry_points"},
 		LatencyClass: "search",
 	},
+	{
+		Name:         "indexing_lifecycle",
+		Description:  "Agent-driveable indexing lifecycle: register a repo, poll its status, and trigger re-indexing.",
+		Editions:     []Edition{EditionOSS, EditionEnterprise},
+		MCPToolNames: []string{"index_repository", "get_index_status", "refresh_repository"},
+		LatencyClass: "indexing_op",
+	},
 
 	// ---- Requirements + impact ----
 	{
