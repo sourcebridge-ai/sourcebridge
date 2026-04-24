@@ -260,6 +260,20 @@ func (h *graphStoreHostServices) GetRepoCoverage(repoID string) float64 {
 	return float64(linked) / float64(total)
 }
 
+// RepoDisplayInfo returns the repo's display name + remote URL so
+// the compliance report renderer can show human-friendly repo
+// references instead of internal UUIDs.
+func (h *graphStoreHostServices) RepoDisplayInfo(repoID string) (string, string, bool) {
+	if h == nil || h.store == nil {
+		return "", "", false
+	}
+	repo := h.store.GetRepository(repoID)
+	if repo == nil {
+		return "", "", false
+	}
+	return repo.Name, repo.RemoteURL, true
+}
+
 func (h *graphStoreHostServices) TriggerReindex(repoID string) error {
 	repo := h.store.GetRepository(repoID)
 	if repo == nil {
