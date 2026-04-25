@@ -198,7 +198,7 @@ func writeTable(w io.Writer, t *ast.TableContent) error {
 func writeStaleBanner(w io.Writer, s *ast.StaleBannerContent) error {
 	syms := strings.Join(s.TriggeringSymbols, ", ")
 	line := fmt.Sprintf(
-		"> **This page may be out of date.** Recent changes to `%s` (commit `%s`) may affect this content.",
+		"> ⚠️ **This page may be out of date.** Recent changes to `%s` (commit `%s`) may affect this content.",
 		syms, s.TriggeringCommit,
 	)
 	if s.RefreshURL != "" {
