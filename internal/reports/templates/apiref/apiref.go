@@ -112,9 +112,14 @@ func (t *Template) Generate(ctx context.Context, input templates.GenerateInput) 
 		LastChange: ast.BlockChange{Timestamp: now, Source: "sourcebridge"},
 	})
 
+	// Build allSymbolNames in package-sort order so the manifest's symbols list
+	// is deterministic across runs (map iteration order is not guaranteed).
 	var allSymbolNames []string
-	for _, symsForPkg := range byPkg {
-		for _, s := range symsForPkg {
+	for _, pkg := range pkgs {
+		pkgSymsSorted := make([]templates.Symbol, len(byPkg[pkg]))
+		copy(pkgSymsSorted, byPkg[pkg])
+		sort.Slice(pkgSymsSorted, func(i, j int) bool { return pkgSymsSorted[i].Name < pkgSymsSorted[j].Name })
+		for _, s := range pkgSymsSorted {
 			allSymbolNames = append(allSymbolNames, s.Package+"."+s.Name)
 		}
 	}

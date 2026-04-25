@@ -7,8 +7,8 @@ sourcebridge:
         paths:
             - '**/*.go'
         symbols:
-            - internal/billing.Charge
             - internal/auth.Middleware
+            - internal/billing.Charge
         dependency_scope: direct
 ---
 <!-- sourcebridge:block id="b195d13b5c4ff" kind="heading" owner="generated" -->

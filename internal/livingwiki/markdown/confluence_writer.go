@@ -76,6 +76,324 @@ import (
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Inline markdown ↔ XHTML conversion
+// ─────────────────────────────────────────────────────────────────────────────
+
+// inlineMarkdownToXHTML converts the common inline markdown constructs in s to
+// their Confluence XHTML equivalents.  It handles, in order:
+//
+//   - `code`           → <code>code</code>
+//   - **bold** / __bold__  → <strong>bold</strong>
+//   - *italic* / _italic_  → <em>italic</em>  (single delimiter, not inside words)
+//   - [text](url)      → <a href="url">text</a>
+//   - Bare URLs (http/https) → <a href="url">url</a>
+//
+// Citation handles of the form (path:start-end) are left unchanged; they are
+// plain-text references whose link rendering is handled separately.
+//
+// The function escapes all literal text segments with xmlEscape before writing
+// them so the output is valid XHTML.
+func inlineMarkdownToXHTML(s string) string {
+	var out strings.Builder
+	inlineMarkdownToXHTMLInto(&out, s)
+	return out.String()
+}
+
+// inlineMarkdownToXHTMLInto is the recursive implementation that writes into out.
+// Splitting into a helper avoids allocating a builder for each recursive call.
+func inlineMarkdownToXHTMLInto(out *strings.Builder, s string) {
+	for len(s) > 0 {
+		// Find the earliest of our recognised delimiters.
+		type candidate struct {
+			idx   int
+			kind  string
+		}
+		best := candidate{idx: len(s) + 1}
+
+		if i := strings.Index(s, "`"); i >= 0 && i < best.idx {
+			best = candidate{i, "backtick"}
+		}
+		if i := strings.Index(s, "["); i >= 0 && i < best.idx {
+			// Pre-validate: must look like [text](url) with a recognisable URL scheme.
+			if _, _, _, valid := parseMdLinkAt(s, i); valid {
+				best = candidate{i, "link"}
+			}
+		}
+		if i, delim := findBoldDelimFrom(s, 0); i >= 0 && i < best.idx {
+			_ = delim
+			best = candidate{i, "bold"}
+		}
+		if i, _ := findItalicDelimFrom(s, 0); i >= 0 && i < best.idx {
+			best = candidate{i, "italic"}
+		}
+		if i := findBareURL(s); i >= 0 && i < best.idx {
+			best = candidate{i, "url"}
+		}
+
+		if best.idx > len(s) {
+			// Nothing found — emit remainder as escaped text.
+			out.WriteString(xmlEscape(s))
+			return
+		}
+
+		// Flush literal text before the match.
+		out.WriteString(xmlEscape(s[:best.idx]))
+		s = s[best.idx:]
+
+		switch best.kind {
+		case "backtick":
+			s = s[1:] // skip opening `
+			end := strings.Index(s, "`")
+			if end < 0 {
+				out.WriteString("`")
+				continue
+			}
+			out.WriteString("<code>")
+			out.WriteString(xmlEscape(s[:end]))
+			out.WriteString("</code>")
+			s = s[end+1:]
+
+		case "link":
+			textStart, textEnd, urlEnd, _ := parseMdLinkAt(s, 0)
+			textPart := s[textStart:textEnd]
+			url := s[textEnd+2 : urlEnd] // s[textEnd+2:urlEnd] skips "]("
+			out.WriteString(`<a href="`)
+			out.WriteString(xmlEscape(url))
+			out.WriteString(`">`)
+			out.WriteString(xmlEscape(textPart))
+			out.WriteString("</a>")
+			s = s[urlEnd+1:] // skip past closing ')'
+
+		case "bold":
+			_, delim := findBoldDelimFrom(s, 0)
+			s = s[len(delim):]
+			end := strings.Index(s, delim)
+			if end < 0 {
+				out.WriteString(xmlEscape(delim))
+				continue
+			}
+			out.WriteString("<strong>")
+			out.WriteString(xmlEscape(s[:end]))
+			out.WriteString("</strong>")
+			s = s[end+len(delim):]
+
+		case "italic":
+			_, delim := findItalicDelimFrom(s, 0)
+			s = s[len(delim):]
+			end := strings.Index(s, delim)
+			if end < 0 {
+				out.WriteString(xmlEscape(delim))
+				continue
+			}
+			out.WriteString("<em>")
+			out.WriteString(xmlEscape(s[:end]))
+			out.WriteString("</em>")
+			s = s[end+len(delim):]
+
+		case "url":
+			end := bareURLEnd(s)
+			url := s[:end]
+			out.WriteString(`<a href="`)
+			out.WriteString(xmlEscape(url))
+			out.WriteString(`">`)
+			out.WriteString(xmlEscape(url))
+			out.WriteString("</a>")
+			s = s[end:]
+		}
+	}
+}
+
+// parseMdLinkAt parses a markdown link "[text](url)" that starts at s[at].
+// Returns (textStart, textEnd, urlEnd, valid) where:
+//
+//	textStart = at+1 (byte after '[')
+//	textEnd   = index of ']' in s
+//	urlEnd    = index of ')' that closes the URL (the ')' char is at s[urlEnd])
+//	valid     = true when the URL has a recognisable scheme
+//
+// On failure valid is false and the other values are meaningless.
+func parseMdLinkAt(s string, at int) (textStart, textEnd, urlEnd int, valid bool) {
+	if at >= len(s) || s[at] != '[' {
+		return 0, 0, 0, false
+	}
+	closeText := strings.Index(s[at:], "](")
+	if closeText < 0 {
+		return 0, 0, 0, false
+	}
+	textEnd = at + closeText
+	urlStart := textEnd + 2
+	closeURL := strings.Index(s[urlStart:], ")")
+	if closeURL < 0 {
+		return 0, 0, 0, false
+	}
+	urlEnd = urlStart + closeURL
+	url := s[urlStart:urlEnd]
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") &&
+		!strings.HasPrefix(url, "/") && !strings.HasPrefix(url, "#") {
+		return 0, 0, 0, false
+	}
+	return at + 1, textEnd, urlEnd, true
+}
+
+// findBoldDelimFrom returns the index and delimiter string of the first "**" or
+// "__" in s at or after position from.  Returns (-1,"") if none.
+func findBoldDelimFrom(s string, from int) (int, string) {
+	for _, delim := range []string{"**", "__"} {
+		idx := strings.Index(s[from:], delim)
+		if idx >= 0 {
+			return from + idx, delim
+		}
+	}
+	return -1, ""
+}
+
+// findItalicDelimFrom returns the index and delimiter of the first stand-alone
+// '*' or '_' in s at or after position from.  A delimiter is considered
+// stand-alone when it is not part of a bold delimiter ("**" / "__").
+func findItalicDelimFrom(s string, from int) (int, string) {
+	for i := from; i < len(s); i++ {
+		switch s[i] {
+		case '*':
+			if i+1 < len(s) && s[i+1] == '*' {
+				i++ // skip bold delimiter
+				continue
+			}
+			return i, "*"
+		case '_':
+			if i+1 < len(s) && s[i+1] == '_' {
+				i++
+				continue
+			}
+			// Underscore in the middle of a word (e.g. snake_case) is not italic.
+			if i > 0 && isWordChar(s[i-1]) {
+				continue
+			}
+			return i, "_"
+		}
+	}
+	return -1, ""
+}
+
+func isWordChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// findBareURL returns the index of the first "http://" or "https://" in s
+// that is not immediately preceded by '"' or '(' (which would indicate it is
+// already inside an href attribute or a markdown link).  Returns -1 if none.
+func findBareURL(s string) int {
+	best := -1
+	for _, prefix := range []string{"https://", "http://"} {
+		search := s
+		offset := 0
+		for {
+			idx := strings.Index(search, prefix)
+			if idx < 0 {
+				break
+			}
+			abs := offset + idx
+			// Skip URLs immediately preceded by '"' or '(' (href or md-link).
+			if abs > 0 && (s[abs-1] == '"' || s[abs-1] == '(') {
+				offset = abs + len(prefix)
+				search = s[offset:]
+				continue
+			}
+			if best < 0 || abs < best {
+				best = abs
+			}
+			break
+		}
+	}
+	return best
+}
+
+// bareURLEnd returns the index just past the end of a URL that starts at the
+// beginning of s.  A URL ends at whitespace, '<', '>', '"', or ')'.
+// Trailing sentence punctuation (.,;:!?) is also excluded when it is the last
+// non-whitespace character before one of those terminators or end-of-string.
+func bareURLEnd(s string) int {
+	end := len(s)
+	for i, r := range s {
+		switch r {
+		case ' ', '\t', '\n', '<', '>', '"', ')':
+			end = i
+			goto trim
+		}
+	}
+trim:
+	// Trim trailing punctuation that is unlikely to be part of the URL.
+	for end > 0 {
+		switch s[end-1] {
+		case '.', ',', ';', ':', '!', '?':
+			end--
+		default:
+			return end
+		}
+	}
+	return end
+}
+
+// xhtmlInlineToMarkdown is the reverse of inlineMarkdownToXHTML: it converts
+// common Confluence inline XHTML tags back to markdown syntax for round-trip
+// stability.  It is intentionally simple: only the tags that inlineMarkdownToXHTML
+// emits are handled.
+func xhtmlInlineToMarkdown(s string) string {
+	// <strong>…</strong> → **…**
+	s = reStrong.ReplaceAllStringFunc(s, func(m string) string {
+		inner := reStrong.FindStringSubmatch(m)
+		if len(inner) < 2 {
+			return m
+		}
+		return "**" + xmlUnescape(inner[1]) + "**"
+	})
+	// <em>…</em> → *…*
+	s = reEm.ReplaceAllStringFunc(s, func(m string) string {
+		inner := reEm.FindStringSubmatch(m)
+		if len(inner) < 2 {
+			return m
+		}
+		return "*" + xmlUnescape(inner[1]) + "*"
+	})
+	// <code>…</code> → `…`
+	s = reCode.ReplaceAllStringFunc(s, func(m string) string {
+		inner := reCode.FindStringSubmatch(m)
+		if len(inner) < 2 {
+			return m
+		}
+		return "`" + xmlUnescape(inner[1]) + "`"
+	})
+	// <a href="url">text</a> → [text](url)
+	s = reAnchor.ReplaceAllStringFunc(s, func(m string) string {
+		parts := reAnchor.FindStringSubmatch(m)
+		if len(parts) < 3 {
+			return m
+		}
+		url := xmlUnescape(parts[1])
+		text := xmlUnescape(parts[2])
+		return "[" + text + "](" + url + ")"
+	})
+	// Unescape remaining XML entities.
+	return xmlUnescape(s)
+}
+
+var (
+	reStrong = regexp.MustCompile(`(?s)<strong>(.*?)</strong>`)
+	reEm     = regexp.MustCompile(`(?s)<em>(.*?)</em>`)
+	reCode   = regexp.MustCompile(`(?s)<code>(.*?)</code>`)
+	reAnchor = regexp.MustCompile(`(?s)<a href="([^"]*)">(.*?)</a>`)
+)
+
+// xmlUnescape reverses the five XML entity escapes applied by xmlEscape.
+func xmlUnescape(s string) string {
+	s = strings.ReplaceAll(s, "&amp;", "&")
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	s = strings.ReplaceAll(s, "&quot;", `"`)
+	s = strings.ReplaceAll(s, "&apos;", "'")
+	return s
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Port interface
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -506,15 +824,14 @@ func writeConfluenceParagraph(w io.Writer, content ast.BlockContent) error {
 	if content.Paragraph == nil {
 		return nil
 	}
-	// Markdown is stored as-is inside a paragraph. Confluence renders inline
-	// markdown-style syntax poorly, but the AST's primary audience for this
-	// storage format is the Confluence editor, so we convert inline markup
-	// minimally: just wrap in <p> and escape special characters.
-	// Full markdown→XHTML inline conversion is deferred (A1.P6).
+	// Convert inline markdown constructs to Confluence XHTML inline tags so
+	// Confluence renders them correctly (bold, italic, code, links).
+	// Citation handles (path:start-end) are left as-is.
 	if err := writeOpenTag(w, "p"); err != nil {
 		return err
 	}
-	if err := writeText(w, content.Paragraph.Markdown); err != nil {
+	xhtml := inlineMarkdownToXHTML(content.Paragraph.Markdown)
+	if _, err := fmt.Fprint(w, xhtml); err != nil {
 		return err
 	}
 	if err := writeCloseTag(w, "p"); err != nil {
@@ -901,13 +1218,16 @@ func confluenceParseHeading(rawXHTML string) ast.BlockContent {
 }
 
 func confluenceParseParagraph(rawXHTML string) ast.BlockContent {
-	text := strings.TrimSpace(stripTags(rawXHTML))
-	// Unescape XML entities.
-	text = strings.ReplaceAll(text, "&amp;", "&")
-	text = strings.ReplaceAll(text, "&lt;", "<")
-	text = strings.ReplaceAll(text, "&gt;", ">")
-	text = strings.ReplaceAll(text, "&quot;", `"`)
-	text = strings.ReplaceAll(text, "&apos;", "'")
+	// Strip the outer <p>…</p> wrapper if present.
+	inner := rawXHTML
+	if i := strings.Index(inner, "<p>"); i >= 0 {
+		inner = inner[i+3:]
+		if j := strings.LastIndex(inner, "</p>"); j >= 0 {
+			inner = inner[:j]
+		}
+	}
+	// Reverse the inline XHTML tags back to markdown syntax.
+	text := xhtmlInlineToMarkdown(strings.TrimSpace(inner))
 	return ast.BlockContent{
 		Paragraph: &ast.ParagraphContent{Markdown: text},
 	}
