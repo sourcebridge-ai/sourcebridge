@@ -16,8 +16,15 @@ COPY web/ .
 
 ARG NEXT_PUBLIC_POSTHOG_KEY=""
 ARG NEXT_PUBLIC_POSTHOG_HOST="https://us.i.posthog.com"
+# NEXT_PUBLIC_EDITION is baked into the bundle at build time; the
+# enterprise build script (deploy/build-enterprise.sh) passes
+# `--build-arg NEXT_PUBLIC_EDITION=enterprise` so the Sidebar +
+# AppearanceProvider know to render the enterprise nav (Reports,
+# Compliance, Enterprise admin). OSS builds leave it unset → "oss".
+ARG NEXT_PUBLIC_EDITION=""
 ENV NEXT_PUBLIC_POSTHOG_KEY=${NEXT_PUBLIC_POSTHOG_KEY}
 ENV NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST}
+ENV NEXT_PUBLIC_EDITION=${NEXT_PUBLIC_EDITION}
 
 RUN npm run build && mkdir -p /app/public
 
