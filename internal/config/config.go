@@ -28,6 +28,7 @@ type Config struct {
 	Comprehension ComprehensionConfig `mapstructure:"comprehension"`
 	Trash         TrashConfig         `mapstructure:"trash"`
 	QA            QAConfig            `mapstructure:"qa"`
+	LivingWiki    LivingWikiConfig    `mapstructure:"living_wiki"`
 }
 
 // ComprehensionConfig holds tunables for the LLM job orchestrator and
@@ -272,6 +273,43 @@ type TrashConfig struct {
 	MaxBatchSize     int  `mapstructure:"max_batch_size"`     // SOURCEBRIDGE_TRASH_SWEEP_MAX_BATCH (default 500)
 }
 
+// LivingWikiConfig controls the living-wiki trigger layer (A1.P3).
+//
+// Environment variable prefix: SOURCEBRIDGE_LIVING_WIKI_*
+//
+// Example (config.toml):
+//
+//	[living_wiki]
+//	enabled                    = true
+//	worker_count               = 4
+//	event_timeout              = "5m"
+//	confluence_webhook_secret  = "your-confluence-hmac-secret"
+//	notion_webhook_secret      = "your-notion-secret"
+type LivingWikiConfig struct {
+	// Enabled activates the living-wiki feature. When false, the dispatcher
+	// is not started and webhook endpoints return 501.
+	Enabled bool `mapstructure:"enabled"`
+
+	// WorkerCount is the number of goroutines draining the global overflow
+	// queue inside the Dispatcher. Default 4.
+	WorkerCount int `mapstructure:"worker_count"`
+
+	// EventTimeout is the maximum duration allowed for a single event handler.
+	// Default 5 minutes. Expressed as a Go duration string (e.g. "5m").
+	EventTimeout string `mapstructure:"event_timeout"`
+
+	// ConfluenceWebhookSecret is the HMAC-SHA256 shared secret used to validate
+	// the X-Confluence-Signature header on incoming Confluence webhooks.
+	// When empty, signature validation is skipped (development only).
+	// Set via SOURCEBRIDGE_LIVING_WIKI_CONFLUENCE_WEBHOOK_SECRET.
+	ConfluenceWebhookSecret string `mapstructure:"confluence_webhook_secret"`
+
+	// NotionWebhookSecret is reserved for Notion webhook validation when Notion
+	// ships a richer webhook model. Unused as of early 2026.
+	// Set via SOURCEBRIDGE_LIVING_WIKI_NOTION_WEBHOOK_SECRET.
+	NotionWebhookSecret string `mapstructure:"notion_webhook_secret"`
+}
+
 // Defaults returns a Config with all default values.
 func Defaults() *Config {
 	return &Config{
@@ -355,6 +393,11 @@ func Defaults() *Config {
 			SmartClassifierEnabled:    false, // default-off through quality-push Phase 5
 			QueryDecompositionEnabled: false, // default-off through quality-push Phase 5
 		},
+		LivingWiki: LivingWikiConfig{
+			Enabled:      false, // opt-in; teams enable when ready to ship the wiki
+			WorkerCount:  4,
+			EventTimeout: "5m",
+		},
 	}
 }
 
@@ -428,6 +471,11 @@ func Load() (*Config, error) {
 	v.SetDefault("qa.prompt_caching_enabled", cfg.QA.PromptCachingEnabled)
 	v.SetDefault("qa.smart_classifier_enabled", cfg.QA.SmartClassifierEnabled)
 	v.SetDefault("qa.query_decomposition_enabled", cfg.QA.QueryDecompositionEnabled)
+	v.SetDefault("living_wiki.enabled", cfg.LivingWiki.Enabled)
+	v.SetDefault("living_wiki.worker_count", cfg.LivingWiki.WorkerCount)
+	v.SetDefault("living_wiki.event_timeout", cfg.LivingWiki.EventTimeout)
+	v.SetDefault("living_wiki.confluence_webhook_secret", "")
+	v.SetDefault("living_wiki.notion_webhook_secret", "")
 
 	// Try reading config file (not required)
 	if err := v.ReadInConfig(); err != nil {
