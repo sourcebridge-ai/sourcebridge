@@ -51,6 +51,25 @@ Or in `config.toml`:
 enabled = false
 ```
 
+## Mark an install as a test install
+
+If you run SourceBridge as part of CI, a homelab, a dev environment, or
+any other context where pings shouldn't count toward the public usage
+numbers, set the platform override:
+
+```bash
+export SOURCEBRIDGE_TELEMETRY_PLATFORM=test
+```
+
+The collector auto-flags `platform == "test"` and excludes the install
+from public dashboards. The flag is sticky once set on the collector
+side — even if a later ping reports a real platform, the install stays
+flagged.
+
+This is the cleanest way to keep dev/test deployments out of public
+counts without disabling telemetry entirely (you'll still see your own
+usage data when the dashboard is queried with `?include_test=1`).
+
 ## First-run notice
 
 On first startup, SourceBridge logs a message indicating that telemetry is

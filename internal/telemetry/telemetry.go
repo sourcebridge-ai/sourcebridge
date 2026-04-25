@@ -13,7 +13,8 @@
 // What is collected:
 //   - A random installation ID (UUID, generated once, no PII)
 //   - SourceBridge version and edition (oss/enterprise)
-//   - Platform (OS and architecture)
+//   - Platform (OS and architecture; can be overridden via
+//     SOURCEBRIDGE_TELEMETRY_PLATFORM=test for homelab/dev/CI installs)
 //   - Aggregate counts (repositories indexed, reports generated)
 //   - Active feature flags
 //
@@ -184,7 +185,7 @@ func (t *Tracker) send() {
 		Version:        t.version,
 		Edition:        t.edition,
 		LLMProviderKind: t.llmProviderKind,
-		Platform:       runtime.GOOS + "/" + runtime.GOARCH,
+		Platform:       resolvePlatform(),
 		GoVersion:      runtime.Version(),
 		Uptime:         time.Since(t.startTime).Truncate(time.Second).String(),
 		Timestamp:      time.Now().UTC(),
@@ -244,6 +245,22 @@ func (t *Tracker) loadOrCreateID() string {
 	}
 
 	return id
+}
+
+// resolvePlatform returns the platform string sent to the telemetry
+// collector. Defaults to "<goos>/<goarch>" so production installs
+// report their real platform. The SOURCEBRIDGE_TELEMETRY_PLATFORM env
+// var overrides the default — used by homelab/dev/CI deploys to set
+// it to "test" so the collector's auto-flag rule
+// (`platform == "test"`) excludes those installs from public counts.
+//
+// Setting the override to anything else is permitted but discouraged.
+// Empty / unset → real platform.
+func resolvePlatform() string {
+	if v := strings.TrimSpace(os.Getenv("SOURCEBRIDGE_TELEMETRY_PLATFORM")); v != "" {
+		return v
+	}
+	return runtime.GOOS + "/" + runtime.GOARCH
 }
 
 // isEnabled checks environment variables and returns whether telemetry is on.
