@@ -1,0 +1,863 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 SourceBridge Contributors
+
+package markdown_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/ast"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/manifest"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/markdown"
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+var notionCtx = context.Background()
+
+// notionTestPage is the Notion-writer equivalent of confluenceTestPage.
+func notionTestPage() ast.Page {
+	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
+	return ast.Page{
+		ID: "arch.auth",
+		Manifest: manifest.DependencyManifest{
+			PageID:   "arch.auth",
+			Template: "architecture",
+			Audience: "for-engineers",
+		},
+		Blocks: []ast.Block{
+			{
+				ID:   "b001",
+				Kind: ast.BlockKindHeading,
+				Content: ast.BlockContent{
+					Heading: &ast.HeadingContent{Level: 1, Text: "Auth Package"},
+				},
+				Owner:      ast.OwnerGenerated,
+				LastChange: ast.BlockChange{SHA: "abc123", Timestamp: now, Source: "sourcebridge"},
+			},
+			{
+				ID:   "b002",
+				Kind: ast.BlockKindParagraph,
+				Content: ast.BlockContent{
+					Paragraph: &ast.ParagraphContent{
+						Markdown: "The auth package handles JWT-based authentication.",
+					},
+				},
+				Owner:      ast.OwnerGenerated,
+				LastChange: ast.BlockChange{SHA: "abc123", Timestamp: now, Source: "sourcebridge"},
+			},
+			{
+				ID:   "b003",
+				Kind: ast.BlockKindCode,
+				Content: ast.BlockContent{
+					Code: &ast.CodeContent{
+						Language: "go",
+						Body:     "func Middleware(next http.Handler) http.Handler {}",
+					},
+				},
+				Owner:      ast.OwnerGenerated,
+				LastChange: ast.BlockChange{SHA: "abc123", Timestamp: now, Source: "sourcebridge"},
+			},
+			{
+				ID:   "b004",
+				Kind: ast.BlockKindTable,
+				Content: ast.BlockContent{
+					Table: &ast.TableContent{
+						Headers: []string{"Function", "Description"},
+						Rows: [][]string{
+							{"Middleware", "JWT validation middleware"},
+							{"RequireRole", "Role-based access control"},
+						},
+					},
+				},
+				Owner:      ast.OwnerGenerated,
+				LastChange: ast.BlockChange{SHA: "abc123", Timestamp: now, Source: "sourcebridge"},
+			},
+			{
+				ID:   "b005",
+				Kind: ast.BlockKindCallout,
+				Content: ast.BlockContent{
+					Callout: &ast.CalloutContent{
+						Kind: "warning",
+						Body: "RequireRole must be called after Middleware.",
+					},
+				},
+				Owner:      ast.OwnerGenerated,
+				LastChange: ast.BlockChange{SHA: "abc123", Timestamp: now, Source: "sourcebridge"},
+			},
+		},
+		Provenance: ast.Provenance{
+			GeneratedAt:    now,
+			GeneratedBySHA: "abc123",
+		},
+	}
+}
+
+// decodeNotionBlocks decodes a JSON block array from the WriteNotionBlocks output.
+func decodeNotionBlocks(t *testing.T, data []byte) []map[string]interface{} {
+	t.Helper()
+	var blocks []map[string]interface{}
+	if err := json.Unmarshal(data, &blocks); err != nil {
+		t.Fatalf("decodeNotionBlocks: %v\nJSON:\n%s", err, string(data))
+	}
+	return blocks
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JSON output structure
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestNotion_WriteBlocks_ValidJSON verifies the output is valid JSON.
+func TestNotion_WriteBlocks_ValidJSON(t *testing.T) {
+	var buf bytes.Buffer
+	if err := markdown.WriteNotionBlocks(&buf, notionTestPage()); err != nil {
+		t.Fatalf("WriteNotionBlocks: %v", err)
+	}
+	var blocks []interface{}
+	if err := json.Unmarshal(buf.Bytes(), &blocks); err != nil {
+		t.Errorf("output is not valid JSON: %v\n%s", err, buf.String())
+	}
+}
+
+// TestNotion_WriteBlocks_ContainsManagedMarker verifies the callout managed-
+// page marker is the first block in the output.
+func TestNotion_WriteBlocks_ContainsManagedMarker(t *testing.T) {
+	var buf bytes.Buffer
+	if err := markdown.WriteNotionBlocks(&buf, notionTestPage()); err != nil {
+		t.Fatalf("WriteNotionBlocks: %v", err)
+	}
+	blocks := decodeNotionBlocks(t, buf.Bytes())
+	if len(blocks) == 0 {
+		t.Fatal("no blocks in output")
+	}
+	first := blocks[0]
+	if first["type"] != "callout" {
+		t.Errorf("first block should be callout (managed marker), got %q", first["type"])
+	}
+	// Extract text from callout rich_text.
+	callout, _ := first["callout"].(map[string]interface{})
+	if callout == nil {
+		t.Fatal("callout payload missing")
+	}
+	rt, _ := callout["rich_text"].([]interface{})
+	if len(rt) == 0 {
+		t.Fatal("callout rich_text empty")
+	}
+	rtItem, _ := rt[0].(map[string]interface{})
+	text, _ := rtItem["text"].(map[string]interface{})
+	content, _ := text["content"].(string)
+	if !strings.Contains(content, "auto-generated by SourceBridge") {
+		t.Errorf("managed marker text wrong: %q", content)
+	}
+}
+
+// TestNotion_WriteBlocks_BlockIDs verifies external_id is set on every block.
+func TestNotion_WriteBlocks_BlockIDs(t *testing.T) {
+	page := notionTestPage()
+	var buf bytes.Buffer
+	if err := markdown.WriteNotionBlocks(&buf, page); err != nil {
+		t.Fatalf("WriteNotionBlocks: %v", err)
+	}
+	blocks := decodeNotionBlocks(t, buf.Bytes())
+
+	// Skip first block (managed-marker callout has no external_id).
+	withIDs := 0
+	for _, b := range blocks[1:] {
+		if id, ok := b["external_id"].(string); ok && id != "" {
+			withIDs++
+		}
+	}
+	// We have 5 AST blocks. Tables expand to one block (table + children inline).
+	// So we expect at least 5 external_id fields.
+	if withIDs < 5 {
+		t.Errorf("expected at least 5 blocks with external_id, got %d", withIDs)
+	}
+
+	// Every AST block ID must appear somewhere.
+	raw := buf.String()
+	for _, blk := range page.Blocks {
+		if !strings.Contains(raw, string(blk.ID)) {
+			t.Errorf("block ID %q missing from Notion JSON output", blk.ID)
+		}
+	}
+}
+
+// TestNotion_WriteBlocks_HeadingTypes verifies heading level mapping.
+func TestNotion_WriteBlocks_HeadingTypes(t *testing.T) {
+	page := ast.Page{
+		ID: "test",
+		Blocks: []ast.Block{
+			{ID: "h1", Kind: ast.BlockKindHeading, Content: ast.BlockContent{Heading: &ast.HeadingContent{Level: 1, Text: "H1"}}, Owner: ast.OwnerGenerated},
+			{ID: "h2", Kind: ast.BlockKindHeading, Content: ast.BlockContent{Heading: &ast.HeadingContent{Level: 2, Text: "H2"}}, Owner: ast.OwnerGenerated},
+			{ID: "h3", Kind: ast.BlockKindHeading, Content: ast.BlockContent{Heading: &ast.HeadingContent{Level: 3, Text: "H3"}}, Owner: ast.OwnerGenerated},
+			// Level 4+ should map to heading_3.
+			{ID: "h4", Kind: ast.BlockKindHeading, Content: ast.BlockContent{Heading: &ast.HeadingContent{Level: 4, Text: "H4"}}, Owner: ast.OwnerGenerated},
+		},
+	}
+	blocks := markdown.MarshalNotionBlocks(page)
+	// Skip managed-marker callout (index 0).
+	types := make([]string, 0, len(blocks)-1)
+	for _, b := range blocks[1:] {
+		raw, _ := json.Marshal(b)
+		var m map[string]interface{}
+		_ = json.Unmarshal(raw, &m)
+		types = append(types, m["type"].(string))
+	}
+
+	want := []string{"heading_1", "heading_2", "heading_3", "heading_3"}
+	if len(types) != len(want) {
+		t.Fatalf("block count wrong: got %d, want %d", len(types), len(want))
+	}
+	for i, w := range want {
+		if types[i] != w {
+			t.Errorf("block[%d] type: got %q, want %q", i, types[i], w)
+		}
+	}
+}
+
+// TestNotion_WriteBlocks_CodeBlock verifies code block language and content.
+func TestNotion_WriteBlocks_CodeBlock(t *testing.T) {
+	page := ast.Page{
+		ID: "test",
+		Blocks: []ast.Block{
+			{
+				ID:   "code1",
+				Kind: ast.BlockKindCode,
+				Content: ast.BlockContent{
+					Code: &ast.CodeContent{Language: "go", Body: "fmt.Println(\"hello\")"},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := markdown.WriteNotionBlocks(&buf, page); err != nil {
+		t.Fatalf("WriteNotionBlocks: %v", err)
+	}
+	raw := buf.String()
+	if !strings.Contains(raw, `"type":"code"`) && !strings.Contains(raw, `"type": "code"`) {
+		t.Error("code block type missing")
+	}
+	if !strings.Contains(raw, `"go"`) {
+		t.Error("go language missing from code block")
+	}
+	if !strings.Contains(raw, "Println") {
+		t.Error("code body missing")
+	}
+}
+
+// TestNotion_WriteBlocks_TableStructure verifies tables emit a table parent
+// with row children.
+func TestNotion_WriteBlocks_TableStructure(t *testing.T) {
+	page := ast.Page{
+		ID: "test",
+		Blocks: []ast.Block{
+			{
+				ID:   "tbl1",
+				Kind: ast.BlockKindTable,
+				Content: ast.BlockContent{
+					Table: &ast.TableContent{
+						Headers: []string{"Col A", "Col B"},
+						Rows:    [][]string{{"a1", "b1"}, {"a2", "b2"}},
+					},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+		},
+	}
+	blocks := markdown.MarshalNotionBlocks(page)
+	// blocks[0] is the managed-marker; blocks[1] is the table.
+	if len(blocks) < 2 {
+		t.Fatalf("expected at least 2 blocks, got %d", len(blocks))
+	}
+	raw, _ := json.Marshal(blocks[1])
+	var m map[string]interface{}
+	_ = json.Unmarshal(raw, &m)
+
+	if m["type"] != "table" {
+		t.Errorf("expected table type, got %q", m["type"])
+	}
+
+	// Children should contain rows.
+	children, ok := m["children"].([]interface{})
+	if !ok || len(children) == 0 {
+		t.Fatal("table block has no children (rows)")
+	}
+	// 1 header + 2 data rows = 3.
+	if len(children) != 3 {
+		t.Errorf("expected 3 row children, got %d", len(children))
+	}
+
+	// First child is the header row.
+	firstRow, _ := children[0].(map[string]interface{})
+	if firstRow["type"] != "table_row" {
+		t.Errorf("first child type: got %q, want table_row", firstRow["type"])
+	}
+}
+
+// TestNotion_WriteBlocks_CalloutWarning verifies warning callouts get the
+// warning emoji.
+func TestNotion_WriteBlocks_CalloutWarning(t *testing.T) {
+	page := ast.Page{
+		ID: "test",
+		Blocks: []ast.Block{
+			{
+				ID:   "c1",
+				Kind: ast.BlockKindCallout,
+				Content: ast.BlockContent{
+					Callout: &ast.CalloutContent{Kind: "warning", Body: "Watch out!"},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := markdown.WriteNotionBlocks(&buf, page); err != nil {
+		t.Fatalf("WriteNotionBlocks: %v", err)
+	}
+	raw := buf.String()
+	// Warning emoji in the callout icon.
+	if !strings.Contains(raw, "⚠️") {
+		t.Error("warning emoji missing from warning callout")
+	}
+	if !strings.Contains(raw, "Watch out") {
+		t.Error("callout body missing")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stale banner
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestNotion_WriteBlocks_StaleBannerCallout verifies stale banners emit a
+// callout block with warning emoji.
+func TestNotion_WriteBlocks_StaleBannerCallout(t *testing.T) {
+	page := ast.Page{
+		ID: "arch.auth",
+		Manifest: manifest.DependencyManifest{PageID: "arch.auth"},
+		Blocks: []ast.Block{
+			{
+				ID:   "bstale",
+				Kind: ast.BlockKindStaleBanner,
+				Content: ast.BlockContent{
+					StaleBanner: &ast.StaleBannerContent{
+						TriggeringCommit:  "a1b2c3d",
+						TriggeringSymbols: []string{"auth.RequireRole"},
+						ConditionKind:     "signature_change_in",
+						RefreshURL:        "https://app.sourcebridge.ai/refresh",
+					},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+		},
+	}
+	blocks := markdown.MarshalNotionBlocks(page)
+	// blocks[0] = managed marker; blocks[1] = stale banner.
+	if len(blocks) < 2 {
+		t.Fatalf("expected at least 2 blocks, got %d", len(blocks))
+	}
+	raw, _ := json.Marshal(blocks[1])
+	var m map[string]interface{}
+	_ = json.Unmarshal(raw, &m)
+
+	if m["type"] != "callout" {
+		t.Errorf("stale banner: expected callout type, got %q", m["type"])
+	}
+	rawStr := string(raw)
+	if !strings.Contains(rawStr, "⚠️") {
+		t.Error("stale banner callout missing warning emoji")
+	}
+	if !strings.Contains(rawStr, "out of date") {
+		t.Error("stale banner text missing 'out of date'")
+	}
+	if !strings.Contains(rawStr, "a1b2c3d") {
+		t.Error("triggering commit SHA missing from stale banner")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SinkWriter interface
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestNotion_SinkWriter_WritePage verifies the NotionSinkWriter produces the
+// same output as WriteNotionBlocks.
+func TestNotion_SinkWriter_WritePage(t *testing.T) {
+	page := notionTestPage()
+
+	var buf1 bytes.Buffer
+	if err := markdown.WriteNotionBlocks(&buf1, page); err != nil {
+		t.Fatalf("WriteNotionBlocks: %v", err)
+	}
+
+	var sw markdown.SinkWriter = markdown.NotionSinkWriter{}
+	var buf2 bytes.Buffer
+	if err := sw.WritePage(&buf2, page); err != nil {
+		t.Fatalf("SinkWriter.WritePage: %v", err)
+	}
+
+	if buf1.String() != buf2.String() {
+		t.Error("WriteNotionBlocks and SinkWriter.WritePage produced different output")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Block-level diff scenarios
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestNotion_BlockDiff_NoOp verifies writing an unchanged page succeeds.
+func TestNotion_BlockDiff_NoOp(t *testing.T) {
+	client := markdown.NewMemoryNotionClient()
+	writer := markdown.NewNotionWriter(client, markdown.NotionWriterConfig{})
+	page := notionTestPage()
+
+	if err := writer.WritePage(notionCtx, page); err != nil {
+		t.Fatalf("first WritePage: %v", err)
+	}
+	if err := writer.WritePage(notionCtx, page); err != nil {
+		t.Fatalf("second WritePage (no-op): %v", err)
+	}
+
+	blocks, _, err := client.GetPage(notionCtx, page.ID)
+	if err != nil {
+		t.Fatalf("GetPage: %v", err)
+	}
+	if len(blocks) == 0 {
+		t.Error("page has no blocks after no-op write")
+	}
+}
+
+// TestNotion_BlockDiff_Insert verifies adding a new block is stored.
+func TestNotion_BlockDiff_Insert(t *testing.T) {
+	client := markdown.NewMemoryNotionClient()
+	writer := markdown.NewNotionWriter(client, markdown.NotionWriterConfig{})
+	page := notionTestPage()
+
+	if err := writer.WritePage(notionCtx, page); err != nil {
+		t.Fatalf("initial write: %v", err)
+	}
+
+	now := time.Now()
+	page.Blocks = append(page.Blocks, ast.Block{
+		ID:   "b006",
+		Kind: ast.BlockKindParagraph,
+		Content: ast.BlockContent{
+			Paragraph: &ast.ParagraphContent{Markdown: "Newly inserted paragraph."},
+		},
+		Owner:      ast.OwnerGenerated,
+		LastChange: ast.BlockChange{SHA: "def456", Timestamp: now, Source: "sourcebridge"},
+	})
+
+	if err := writer.WritePage(notionCtx, page); err != nil {
+		t.Fatalf("write after insert: %v", err)
+	}
+
+	blocks, _, err := client.GetPage(notionCtx, page.ID)
+	if err != nil {
+		t.Fatalf("GetPage: %v", err)
+	}
+	found := false
+	for _, b := range blocks {
+		raw, _ := json.Marshal(b)
+		if strings.Contains(string(raw), "Newly inserted paragraph") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("inserted block content missing from stored Notion page")
+	}
+}
+
+// TestNotion_BlockDiff_Update verifies updating a generated block's content.
+func TestNotion_BlockDiff_Update(t *testing.T) {
+	client := markdown.NewMemoryNotionClient()
+	writer := markdown.NewNotionWriter(client, markdown.NotionWriterConfig{})
+	page := notionTestPage()
+
+	if err := writer.WritePage(notionCtx, page); err != nil {
+		t.Fatalf("initial write: %v", err)
+	}
+
+	now := time.Now()
+	page.Blocks[1] = ast.Block{
+		ID:   "b002",
+		Kind: ast.BlockKindParagraph,
+		Content: ast.BlockContent{
+			Paragraph: &ast.ParagraphContent{Markdown: "Updated paragraph content."},
+		},
+		Owner:      ast.OwnerGenerated,
+		LastChange: ast.BlockChange{SHA: "ghi789", Timestamp: now, Source: "sourcebridge"},
+	}
+
+	if err := writer.WritePage(notionCtx, page); err != nil {
+		t.Fatalf("write after update: %v", err)
+	}
+
+	blocks, _, err := client.GetPage(notionCtx, page.ID)
+	if err != nil {
+		t.Fatalf("GetPage: %v", err)
+	}
+	found := false
+	for _, b := range blocks {
+		raw, _ := json.Marshal(b)
+		if strings.Contains(string(raw), "Updated paragraph content") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("updated block content missing from stored Notion page")
+	}
+}
+
+// TestNotion_BlockDiff_Delete verifies removing a block from the page.
+func TestNotion_BlockDiff_Delete(t *testing.T) {
+	client := markdown.NewMemoryNotionClient()
+	writer := markdown.NewNotionWriter(client, markdown.NotionWriterConfig{})
+	page := notionTestPage()
+
+	if err := writer.WritePage(notionCtx, page); err != nil {
+		t.Fatalf("initial write: %v", err)
+	}
+
+	// Remove b005 (callout).
+	page.Blocks = page.Blocks[:4]
+
+	if err := writer.WritePage(notionCtx, page); err != nil {
+		t.Fatalf("write after delete: %v", err)
+	}
+
+	blocks, _, err := client.GetPage(notionCtx, page.ID)
+	if err != nil {
+		t.Fatalf("GetPage: %v", err)
+	}
+	for _, b := range blocks {
+		raw, _ := json.Marshal(b)
+		if strings.Contains(string(raw), "RequireRole must be called after Middleware") {
+			t.Error("deleted block content still present in Notion page")
+		}
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reconciliation: ownership respected
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestNotion_Reconciliation_HumanEditedBlockPreserved verifies that when the
+// orchestrator provides a page with a human-edited block (Owner = OwnerHumanEdited
+// and the human-edited content already set), the writer preserves that content.
+//
+// In production the owner is tracked in the canonical AST by the orchestrator.
+// The writer's role is to render the incoming page faithfully.
+func TestNotion_Reconciliation_HumanEditedBlockPreserved(t *testing.T) {
+	client := markdown.NewMemoryNotionClient()
+	writer := markdown.NewNotionWriter(client, markdown.NotionWriterConfig{})
+
+	// Step 1: Write page with b002 already marked as human-edited.
+	// This simulates the orchestrator composing the page from canonical AST.
+	pageWithHumanEdit := ast.Page{
+		ID: "test.reconcile",
+		Manifest: manifest.DependencyManifest{PageID: "test.reconcile"},
+		Blocks: []ast.Block{
+			{
+				ID:   "b001",
+				Kind: ast.BlockKindParagraph,
+				Content: ast.BlockContent{
+					Paragraph: &ast.ParagraphContent{Markdown: "Auto para 1."},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+			{
+				ID:   "b002",
+				Kind: ast.BlockKindParagraph,
+				Content: ast.BlockContent{
+					Paragraph: &ast.ParagraphContent{Markdown: "Human-edited para 2."},
+				},
+				Owner: ast.OwnerHumanEdited,
+			},
+		},
+	}
+	if err := writer.WritePage(notionCtx, pageWithHumanEdit); err != nil {
+		t.Fatalf("write with human-edited state: %v", err)
+	}
+
+	// Step 2: Regen — the orchestrator knows b002 is human-edited (from canonical
+	// AST), so it includes b002 with OwnerHumanEdited and human-edited content.
+	// b001 gets new auto-generated content.
+	regenPage := ast.Page{
+		ID:       pageWithHumanEdit.ID,
+		Manifest: pageWithHumanEdit.Manifest,
+		Blocks: []ast.Block{
+			{
+				ID:   "b001",
+				Kind: ast.BlockKindParagraph,
+				Content: ast.BlockContent{
+					Paragraph: &ast.ParagraphContent{Markdown: "Updated auto para 1."},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+			{
+				ID:   "b002",
+				Kind: ast.BlockKindParagraph,
+				Content: ast.BlockContent{
+					Paragraph: &ast.ParagraphContent{Markdown: "Human-edited para 2."},
+				},
+				Owner: ast.OwnerHumanEdited, // orchestrator preserves this
+			},
+		},
+	}
+	if err := writer.WritePage(notionCtx, regenPage); err != nil {
+		t.Fatalf("regen write: %v", err)
+	}
+
+	// Step 3: Verify outcomes.
+	blocks, _, err := client.GetPage(notionCtx, regenPage.ID)
+	if err != nil {
+		t.Fatalf("GetPage: %v", err)
+	}
+
+	var allContent strings.Builder
+	for _, b := range blocks {
+		raw, _ := json.Marshal(b)
+		allContent.Write(raw)
+	}
+	out := allContent.String()
+
+	// b002 human edit must be present.
+	if !strings.Contains(out, "Human-edited para 2") {
+		t.Error("human-edited b002 content missing after regen")
+	}
+
+	// b001 should be updated.
+	if !strings.Contains(out, "Updated auto para 1") {
+		t.Error("auto-generated b001 was not updated by regen")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// End-to-end: edit-survives-regen
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestNotion_Integration_EditSurvivesRegen is the plan's end-to-end deliverable:
+//
+//  1. Write a fresh page to Notion (in-memory fake).
+//  2. A Notion user edits n002. The orchestrator detects this, updates the
+//     canonical AST (marking n002 as human-edited), and stores the human-edited
+//     content in the overlay.
+//  3. Source code changes trigger a regen. The orchestrator calls WritePage with
+//     n002 already set to OwnerHumanEdited carrying the human-edited content.
+//     n003 gets new auto-generated content.
+//  4. Assert the human-edited block content is preserved; n003 is updated.
+//
+// This validates: "Enterprise customers can wire [Notion] as a sink, edit a
+// paragraph in Notion, push more code, and see the auto-generated portions
+// update without their edit being touched."
+func TestNotion_Integration_EditSurvivesRegen(t *testing.T) {
+	client := markdown.NewMemoryNotionClient()
+	writer := markdown.NewNotionWriter(client, markdown.NotionWriterConfig{})
+
+	// Step 1: Write a fresh page (cold start).
+	page := ast.Page{
+		ID: "integration.notion",
+		Manifest: manifest.DependencyManifest{PageID: "integration.notion"},
+		Blocks: []ast.Block{
+			{
+				ID:   "n001",
+				Kind: ast.BlockKindHeading,
+				Content: ast.BlockContent{
+					Heading: &ast.HeadingContent{Level: 1, Text: "Integration Test"},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+			{
+				ID:   "n002",
+				Kind: ast.BlockKindParagraph,
+				Content: ast.BlockContent{
+					Paragraph: &ast.ParagraphContent{Markdown: "Original auto-generated content."},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+			{
+				ID:   "n003",
+				Kind: ast.BlockKindParagraph,
+				Content: ast.BlockContent{
+					Paragraph: &ast.ParagraphContent{Markdown: "Another auto-generated paragraph."},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+		},
+	}
+
+	if err := writer.WritePage(notionCtx, page); err != nil {
+		t.Fatalf("step 1 initial write: %v", err)
+	}
+
+	// Step 2: A Notion user edits n002. The orchestrator detects this via
+	// Notion's webhook / read-back, stores it in the overlay, and marks n002
+	// as human-edited in the canonical AST.
+	humanContent := "Human-edited version by a Notion user."
+
+	// Step 3: Source code changes; SourceBridge regenerates.
+	// The orchestrator passes n002 with OwnerHumanEdited and human-edited content.
+	// n003 gets updated auto-generated content.
+	regenPage := ast.Page{
+		ID:       page.ID,
+		Manifest: page.Manifest,
+		Blocks: []ast.Block{
+			{
+				ID:   "n001",
+				Kind: ast.BlockKindHeading,
+				Content: ast.BlockContent{
+					Heading: &ast.HeadingContent{Level: 1, Text: "Integration Test"},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+			{
+				ID:   "n002",
+				Kind: ast.BlockKindParagraph,
+				Content: ast.BlockContent{
+					Paragraph: &ast.ParagraphContent{Markdown: humanContent},
+				},
+				Owner: ast.OwnerHumanEdited, // orchestrator preserves this
+			},
+			{
+				ID:   "n003",
+				Kind: ast.BlockKindParagraph,
+				Content: ast.BlockContent{
+					Paragraph: &ast.ParagraphContent{Markdown: "Updated auto-generated paragraph — should update."},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+		},
+	}
+
+	if err := writer.WritePage(notionCtx, regenPage); err != nil {
+		t.Fatalf("step 3 regen write: %v", err)
+	}
+
+	// Step 4: Assert outcomes.
+	blocks, _, err := client.GetPage(notionCtx, page.ID)
+	if err != nil {
+		t.Fatalf("GetPage: %v", err)
+	}
+
+	var allContent strings.Builder
+	for _, b := range blocks {
+		raw, _ := json.Marshal(b)
+		allContent.Write(raw)
+	}
+	out := allContent.String()
+
+	// n002 must contain the human-edited content.
+	if !strings.Contains(out, humanContent) {
+		t.Error("human-edited n002 content was overwritten — edit did NOT survive regen")
+	}
+
+	// n003 must contain the updated auto-generated content.
+	if !strings.Contains(out, "Updated auto-generated paragraph") {
+		t.Error("auto-generated n003 was not updated by regen")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sink overlay composition
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestNotion_SinkOverlay_ComposedBeforeWrite verifies that composing canonical
+// + overlay before writing produces the overlay content in Notion.
+func TestNotion_SinkOverlay_ComposedBeforeWrite(t *testing.T) {
+	client := markdown.NewMemoryNotionClient()
+	writer := markdown.NewNotionWriter(client, markdown.NotionWriterConfig{})
+
+	canonical := ast.Page{
+		ID: "arch.billing",
+		Manifest: manifest.DependencyManifest{PageID: "arch.billing"},
+		Blocks: []ast.Block{
+			{
+				ID:   "b001",
+				Kind: ast.BlockKindParagraph,
+				Content: ast.BlockContent{
+					Paragraph: &ast.ParagraphContent{Markdown: "Canonical billing paragraph."},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+		},
+	}
+
+	overlay := ast.SinkOverlay{
+		SinkName: "notion-test",
+		PageID:   "arch.billing",
+		Blocks: map[ast.BlockID]ast.BlockContent{
+			"b001": {
+				Paragraph: &ast.ParagraphContent{Markdown: "Notion-specific divergent content."},
+			},
+		},
+		Provenance: map[ast.BlockID]ast.OverlayMeta{
+			"b001": {EditedBy: "pm@example.com", EditedAt: time.Now()},
+		},
+	}
+
+	composed := ast.ComposeForSink(canonical, overlay)
+	if err := writer.WritePage(notionCtx, composed); err != nil {
+		t.Fatalf("WritePage with overlay: %v", err)
+	}
+
+	blocks, _, err := client.GetPage(notionCtx, "arch.billing")
+	if err != nil {
+		t.Fatalf("GetPage: %v", err)
+	}
+
+	var allContent strings.Builder
+	for _, b := range blocks {
+		raw, _ := json.Marshal(b)
+		allContent.Write(raw)
+	}
+	out := allContent.String()
+
+	if !strings.Contains(out, "Notion-specific divergent content") {
+		t.Error("overlay content missing from Notion page")
+	}
+	if strings.Contains(out, "Canonical billing paragraph") {
+		t.Error("canonical content appeared instead of overlay content")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Embed round-trip
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestNotion_WriteBlocks_EmbedRoundTrip verifies embed blocks encode a
+// sourcebridge:// URL and can be decoded back.
+func TestNotion_WriteBlocks_EmbedRoundTrip(t *testing.T) {
+	page := ast.Page{
+		ID: "test",
+		Blocks: []ast.Block{
+			{
+				ID:   "emb1",
+				Kind: ast.BlockKindEmbed,
+				Content: ast.BlockContent{
+					Embed: &ast.EmbedContent{
+						TargetPageID:  "arch.billing",
+						TargetBlockID: "b042",
+					},
+				},
+				Owner: ast.OwnerGenerated,
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := markdown.WriteNotionBlocks(&buf, page); err != nil {
+		t.Fatalf("WriteNotionBlocks: %v", err)
+	}
+	raw := buf.String()
+	if !strings.Contains(raw, "sourcebridge://page/arch.billing/block/b042") {
+		t.Errorf("embed URL not found in output; got: %s", raw)
+	}
+}

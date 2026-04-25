@@ -4,7 +4,6 @@
 package markdown
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/sourcebridge/sourcebridge/internal/livingwiki/ast"
@@ -33,42 +32,37 @@ func (MarkdownWriter) WritePage(w io.Writer, page ast.Page) error {
 	return Write(w, page)
 }
 
-// confluenceWriter is the Confluence storage-XHTML sink adapter.
+// ConfluenceSinkWriter is the Confluence storage-XHTML sink adapter that
+// satisfies the context-free [SinkWriter] interface.
 //
-// TODO(A1.P4): implement
-// Block IDs must be preserved as ac:macro parameters.
-// Pages are reconciled by external_id stored in Confluence metadata.
-// The managed-page marker must be emitted as a Confluence info macro.
-type confluenceWriter struct{}
+// This path renders XHTML without block-level reconciliation. Use
+// [ConfluenceWriter.WritePage] for the full reconciliation cycle when a
+// [ConfluenceClient] is available.
+type ConfluenceSinkWriter struct{}
 
-// WritePage is a stub. It returns an error to prevent accidental use before
-// the full implementation ships in A1.P4.
-func (confluenceWriter) WritePage(_ io.Writer, _ ast.Page) error {
-	return errNotImplemented("confluenceWriter", "A1.P4")
+// WritePage implements [SinkWriter] by rendering the page to Confluence storage
+// XHTML via [WriteXHTML]. No reconciliation is performed.
+func (ConfluenceSinkWriter) WritePage(w io.Writer, page ast.Page) error {
+	return WriteXHTML(w, page)
 }
 
-// notionWriter is the Notion blocks sink adapter.
+// NotionSinkWriter is the Notion blocks sink adapter that satisfies the
+// context-free [SinkWriter] interface.
 //
-// TODO(A1.P4): implement
-// Block IDs must be preserved as the external_id property on each block.
-// Pages are reconciled by a page-level external_id property.
-// The managed-page marker must be emitted as a Notion callout block.
-type notionWriter struct{}
+// This path renders a JSON block array without block-level reconciliation. Use
+// [NotionWriter.WritePage] for the full reconciliation cycle when a
+// [NotionClient] is available.
+type NotionSinkWriter struct{}
 
-// WritePage is a stub. It returns an error to prevent accidental use before
-// the full implementation ships in A1.P4.
-func (notionWriter) WritePage(_ io.Writer, _ ast.Page) error {
-	return errNotImplemented("notionWriter", "A1.P4")
-}
-
-// errNotImplemented returns a descriptive error for unimplemented sink adapters.
-func errNotImplemented(adapter, workstream string) error {
-	return fmt.Errorf("%s: not implemented — see %s", adapter, workstream)
+// WritePage implements [SinkWriter] by rendering the page to a JSON array of
+// Notion block objects via [WriteNotionBlocks]. No reconciliation is performed.
+func (NotionSinkWriter) WritePage(w io.Writer, page ast.Page) error {
+	return WriteNotionBlocks(w, page)
 }
 
 // Compile-time interface checks.
 var (
 	_ SinkWriter = MarkdownWriter{}
-	_ SinkWriter = confluenceWriter{}
-	_ SinkWriter = notionWriter{}
+	_ SinkWriter = ConfluenceSinkWriter{}
+	_ SinkWriter = NotionSinkWriter{}
 )
