@@ -11,6 +11,7 @@ import (
 	"time"
 
 	reasoningv1 "github.com/sourcebridge/sourcebridge/gen/go/reasoning/v1"
+	"github.com/sourcebridge/sourcebridge/internal/citations"
 )
 
 // Decomposition budgets (quality-push Phase 4). These bracket the
@@ -264,21 +265,16 @@ func unionSubAnswerReferences(answers []subAnswer, synthAnswer string) []AskRefe
 
 // handleFromReference extracts the stable handle string from an
 // AskReference. Inverse of the handle-construction in agent_tools.go.
+// Delegates to the shared citations package so the format is canonical.
 func handleFromReference(ref AskReference) string {
 	switch ref.Kind {
 	case RefKindSymbol:
 		if ref.Symbol != nil && ref.Symbol.SymbolID != "" {
-			if len(ref.Symbol.SymbolID) >= 4 && ref.Symbol.SymbolID[:4] == "sym_" {
-				return ref.Symbol.SymbolID
-			}
-			return "sym_" + ref.Symbol.SymbolID
+			return citations.FormatSymbol(ref.Symbol.SymbolID)
 		}
 	case RefKindFileRange:
 		if ref.FileRange != nil && ref.FileRange.FilePath != "" {
-			if ref.FileRange.StartLine > 0 && ref.FileRange.EndLine > 0 {
-				return fmt.Sprintf("%s:%d-%d", ref.FileRange.FilePath, ref.FileRange.StartLine, ref.FileRange.EndLine)
-			}
-			return ref.FileRange.FilePath
+			return citations.FormatFileRange(ref.FileRange.FilePath, ref.FileRange.StartLine, ref.FileRange.EndLine)
 		}
 	case RefKindRequirement:
 		if ref.Requirement != nil {

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/sourcebridge/sourcebridge/internal/citations"
 )
 
 // Tool names — frozen. The Anthropic tool_use protocol dispatches on
@@ -314,7 +316,7 @@ func (d *AgentToolDispatcher) dispatchReadFile(ctx context.Context, call ToolCal
 		end = total
 	}
 	windowLines := lines[start-1 : end]
-	handle := fmt.Sprintf("%s:%d-%d", args.Path, start, end)
+	handle := citations.FormatFileRange(args.Path, start, end)
 	return okResult(call.CallID, readFileResult{
 		Path:      args.Path,
 		Handle:    handle,
@@ -662,15 +664,14 @@ func errResult(callID, code, hint string) ToolResult {
 // buildSearchHitHandle emits the stable, visible handle per
 // §Source-Handle Contract. Symbols → `sym_<id>`; files →
 // `path:start-end`; requirements → the external id verbatim.
+// Delegates to the shared citations package so the format is canonical
+// across QA, compliance, knowledge artifacts, and the IDE plugin.
 func buildSearchHitHandle(h SearchHit) string {
 	switch h.EntityType {
 	case "symbol":
 		return buildSymbolHandle(h.EntityID)
 	case "file":
-		if h.StartLine > 0 && h.EndLine > 0 {
-			return fmt.Sprintf("%s:%d-%d", h.FilePath, h.StartLine, h.EndLine)
-		}
-		return h.FilePath
+		return citations.FormatFileRange(h.FilePath, h.StartLine, h.EndLine)
 	case "requirement":
 		return h.Title // external id typically
 	}
@@ -678,14 +679,7 @@ func buildSearchHitHandle(h SearchHit) string {
 }
 
 func buildSymbolHandle(id string) string {
-	if id == "" {
-		return ""
-	}
-	// Avoid double-prefix when upstream already prefixed.
-	if strings.HasPrefix(id, "sym_") {
-		return id
-	}
-	return "sym_" + id
+	return citations.FormatSymbol(id)
 }
 
 // stableToolNames returns the tool names in stable order — used by

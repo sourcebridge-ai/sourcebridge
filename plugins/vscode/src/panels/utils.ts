@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { citationToFileLocation } from "../citations";
 
 export function escapeHtml(text: string): string {
   return text
@@ -27,13 +28,22 @@ export async function openWorkspaceLocation(
   }
 }
 
+/**
+ * Parse a citation handle or legacy "path:line" reference into a file
+ * location. Understands the full canonical format:
+ *   - "path:startLine-endLine"  → jumps to startLine
+ *   - "path:line"               → jumps to that line (legacy single-line)
+ *   - "path"                    → opens at the top of the file
+ *
+ * Delegates to the shared citation parser so QA, compliance, and
+ * knowledge artifact handles all parse correctly.
+ */
 export function parseFileReference(ref: string): { filePath: string; line?: number } {
-  const match = ref.match(/^(.+?)(?::(\d+))?$/);
-  if (!match) {
-    return { filePath: ref };
+  // Try the canonical citation parser first — handles path:start-end and sym_ prefixes.
+  const loc = citationToFileLocation(ref);
+  if (loc) {
+    return { filePath: loc.filePath, line: loc.line };
   }
-  return {
-    filePath: match[1],
-    line: match[2] ? Number(match[2]) : undefined,
-  };
+  // Fall through: treat as a bare path (no line info, not a recognized citation).
+  return { filePath: ref.trim() };
 }

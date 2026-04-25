@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sourcebridge/sourcebridge/internal/citations"
 	"github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 )
@@ -737,7 +738,7 @@ func (h *mcpHandler) callGetRecentChanges(session *mcpSession, args json.RawMess
 		}
 		return recentChangesResult{
 			RepositoryID: params.RepositoryID,
-			Path:         fmt.Sprintf("%s:%d-%d", sym.FilePath, sym.StartLine, sym.EndLine),
+			Path:         citations.FormatFileRange(sym.FilePath, sym.StartLine, sym.EndLine),
 			Commits:      commits,
 		}, nil
 	}

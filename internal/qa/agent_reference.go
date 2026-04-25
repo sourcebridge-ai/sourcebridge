@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/sourcebridge/sourcebridge/internal/citations"
 )
 
 // Reference emission per §Reference Emission Contract (v5).
@@ -419,18 +421,8 @@ func pickInt(a, b int) int {
 }
 
 // parseHandleRange pulls line numbers from `path:start-end`. Returns
-// zeros when the handle has no line range.
+// zeros when the handle has no line range. Delegates to the shared
+// citations.ParseRange so the format is canonical everywhere.
 func parseHandleRange(handle string) (int, int) {
-	idx := strings.LastIndex(handle, ":")
-	if idx < 0 {
-		return 0, 0
-	}
-	tail := handle[idx+1:]
-	dash := strings.Index(tail, "-")
-	if dash < 0 {
-		return 0, 0
-	}
-	s, _ := strconv.Atoi(tail[:dash])
-	e, _ := strconv.Atoi(tail[dash+1:])
-	return s, e
+	return citations.ParseRange(handle)
 }
