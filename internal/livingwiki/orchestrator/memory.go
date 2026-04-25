@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/sourcebridge/sourcebridge/internal/livingwiki/ast"
 )
@@ -115,18 +116,20 @@ func proposedKey(repoID, prID, pageID string) string {
 	return repoID + "/" + prID + "/" + pageID
 }
 
-// MemoryWikiPR is an in-memory implementation of [WikiPR].
+// MemoryWikiPR is an in-memory implementation of [ExtendedWikiPR].
 // It captures the files and state for test inspection.
 type MemoryWikiPR struct {
-	mu     sync.Mutex
-	id     string
-	branch string
-	title  string
-	body   string
-	files  map[string][]byte
-	opened bool
-	merged bool
-	closed bool
+	mu       sync.Mutex
+	id       string
+	branch   string
+	title    string
+	body     string
+	files    map[string][]byte
+	opened   bool
+	merged   bool
+	closed   bool
+	commits  []Commit    // commits appended via AppendCommitToBranch
+	comments []string    // comments posted via PostComment
 }
 
 // NewMemoryWikiPR returns a MemoryWikiPR with the given ID.
@@ -134,8 +137,9 @@ func NewMemoryWikiPR(id string) *MemoryWikiPR {
 	return &MemoryWikiPR{id: id}
 }
 
-// Compile-time interface check.
+// Compile-time interface checks.
 var _ WikiPR = (*MemoryWikiPR)(nil)
+var _ ExtendedWikiPR = (*MemoryWikiPR)(nil)
 
 func (m *MemoryWikiPR) ID() string { return m.id }
 
@@ -218,6 +222,109 @@ func (m *MemoryWikiPR) Files() map[string][]byte {
 	return out
 }
 
+// AppendCommitToBranch records a new commit and merges its files into the PR's
+// file set. It never force-pushes; each call appends one commit to the internal
+// log.
+func (m *MemoryWikiPR) AppendCommitToBranch(_ context.Context, branch string, files map[string][]byte, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.files == nil {
+		m.files = make(map[string][]byte)
+	}
+	// Merge files into the PR's current file set.
+	filesCopy := make(map[string][]byte, len(files))
+	for k, v := range files {
+		cp := make([]byte, len(v))
+		copy(cp, v)
+		m.files[k] = cp
+		filesCopy[k] = cp
+	}
+	m.commits = append(m.commits, Commit{
+		SHA:            fmt.Sprintf("bot-%d", len(m.commits)+1),
+		CommitterName:  SourceBridgeCommitterName,
+		CommitterEmail: SourceBridgeCommitterEmail,
+		Files:          filesCopy,
+	})
+	_ = branch
+	_ = message
+	return nil
+}
+
+// ListCommitsOnBranch returns commits recorded since the given time.
+// Bot commits are those with CommitterName == SourceBridgeCommitterName.
+func (m *MemoryWikiPR) ListCommitsOnBranch(_ context.Context, _ string, since time.Time) ([]Commit, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []Commit
+	for _, c := range m.commits {
+		// All memory commits have zero time, so return all when since is zero;
+		// when since is set, include commits whose time is at or after since.
+		// Since MemoryWikiPR does not store commit timestamps, we return all
+		// commits regardless of since (they are effectively "all at now").
+		_ = since
+		result = append(result, c)
+	}
+	return result, nil
+}
+
+// PostComment appends a comment to the PR's comment log.
+func (m *MemoryWikiPR) PostComment(_ context.Context, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.comments = append(m.comments, body)
+	return nil
+}
+
+// UpdateDescription replaces the PR description body.
+func (m *MemoryWikiPR) UpdateDescription(_ context.Context, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.body = body
+	return nil
+}
+
+// AddHumanCommit adds a simulated human (non-bot) commit to the PR's commit
+// log. Used by tests to simulate reviewer activity on the PR branch.
+func (m *MemoryWikiPR) AddHumanCommit(sha string, files map[string][]byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	filesCopy := make(map[string][]byte, len(files))
+	for k, v := range files {
+		cp := make([]byte, len(v))
+		copy(cp, v)
+		filesCopy[k] = cp
+	}
+	m.commits = append(m.commits, Commit{
+		SHA:            sha,
+		CommitterName:  "human-reviewer",
+		CommitterEmail: "reviewer@example.com",
+		Files:          filesCopy,
+	})
+}
+
+// CommitCount returns the number of commits recorded on this PR.
+func (m *MemoryWikiPR) CommitCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.commits)
+}
+
+// Comments returns the list of comments posted to this PR.
+func (m *MemoryWikiPR) Comments() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.comments))
+	copy(out, m.comments)
+	return out
+}
+
+// Body returns the current PR description body.
+func (m *MemoryWikiPR) Body() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.body
+}
+
 // FilesystemRepoWriter is a [RepoWriter] that writes files to a local directory.
 // The root directory is the base; file paths from the orchestrator are joined
 // to this root. Suitable for tests and the FilesystemRepoWriter integration test.
@@ -237,4 +344,81 @@ func (f *FilesystemRepoWriter) WriteFiles(_ context.Context, files map[string][]
 	// Import os and path/filepath locally to avoid cluttering the package-level imports.
 	// We use the standard library via the helper below.
 	return writeFilesToDir(f.root, files)
+}
+
+// MemoryExtendedRepoWriter is an in-memory implementation of [ExtendedRepoWriter].
+// It is suitable for tests that need to verify commits written to a branch
+// without a real git repository.
+type MemoryExtendedRepoWriter struct {
+	mu      sync.Mutex
+	commits []Commit
+	files   map[string][]byte
+}
+
+// NewMemoryExtendedRepoWriter creates an empty in-memory ExtendedRepoWriter.
+func NewMemoryExtendedRepoWriter() *MemoryExtendedRepoWriter {
+	return &MemoryExtendedRepoWriter{files: make(map[string][]byte)}
+}
+
+// Compile-time interface check.
+var _ ExtendedRepoWriter = (*MemoryExtendedRepoWriter)(nil)
+
+func (m *MemoryExtendedRepoWriter) WriteFiles(_ context.Context, files map[string][]byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, v := range files {
+		cp := make([]byte, len(v))
+		copy(cp, v)
+		m.files[k] = cp
+	}
+	return nil
+}
+
+func (m *MemoryExtendedRepoWriter) AppendCommitToBranch(_ context.Context, branch string, files map[string][]byte, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	filesCopy := make(map[string][]byte, len(files))
+	for k, v := range files {
+		cp := make([]byte, len(v))
+		copy(cp, v)
+		m.files[k] = cp
+		filesCopy[k] = cp
+	}
+	m.commits = append(m.commits, Commit{
+		SHA:            fmt.Sprintf("writer-commit-%d", len(m.commits)+1),
+		CommitterName:  SourceBridgeCommitterName,
+		CommitterEmail: SourceBridgeCommitterEmail,
+		Files:          filesCopy,
+	})
+	_ = branch
+	_ = message
+	return nil
+}
+
+func (m *MemoryExtendedRepoWriter) ListCommitsOnBranch(_ context.Context, _ string, _ time.Time) ([]Commit, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]Commit, len(m.commits))
+	copy(result, m.commits)
+	return result, nil
+}
+
+// CommitCount returns the number of commits written to this writer.
+func (m *MemoryExtendedRepoWriter) CommitCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.commits)
+}
+
+// Files returns a copy of all files written to this writer.
+func (m *MemoryExtendedRepoWriter) Files() map[string][]byte {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string][]byte, len(m.files))
+	for k, v := range m.files {
+		cp := make([]byte, len(v))
+		copy(cp, v)
+		out[k] = cp
+	}
+	return out
 }

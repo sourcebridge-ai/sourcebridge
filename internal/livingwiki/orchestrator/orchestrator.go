@@ -32,10 +32,9 @@
 //
 // # Incremental path
 //
-// The incremental regeneration path (A1.P2) is not implemented here.
-// The [Orchestrator.GenerateIncremental] method is stubbed and returns
-// ErrIncrementalNotImplemented so callers can plan for it without compiling
-// against a missing symbol.
+// The incremental regeneration path (A1.P2) is implemented in incremental.go.
+// Use [Orchestrator.GenerateIncremental] with an [IncrementalRequest] to run
+// a two-watermark, additive-commit incremental update on an open wiki PR.
 package orchestrator
 
 import (
@@ -269,6 +268,7 @@ type Orchestrator struct {
 	cfg      Config
 	registry TemplateRegistry
 	store    PageStore
+	debounce *repoDebounceTracker // per-repo 60s debounce for incremental regen
 }
 
 // New creates a new Orchestrator. registry and store must be non-nil.
@@ -285,7 +285,7 @@ func New(cfg Config, registry TemplateRegistry, store PageStore) *Orchestrator {
 	if cfg.PRTitle == "" {
 		cfg.PRTitle = "wiki: initial generation (sourcebridge)"
 	}
-	return &Orchestrator{cfg: cfg, registry: registry, store: store}
+	return &Orchestrator{cfg: cfg, registry: registry, store: store, debounce: newRepoDebounceTracker()}
 }
 
 // Generate runs the cold-start generation pipeline for all planned pages.
@@ -405,13 +405,11 @@ func (o *Orchestrator) Discard(ctx context.Context, repoID, prID string) error {
 	return o.store.DeleteProposed(ctx, repoID, prID)
 }
 
-// GenerateIncremental is the stub for A1.P2 incremental regeneration.
-// It always returns [ErrIncrementalNotImplemented].
-//
-// TODO(A1.P2): implement two-watermark incremental generation.
-func (o *Orchestrator) GenerateIncremental(_ context.Context, _ GenerateRequest) (GenerateResult, error) {
-	return GenerateResult{}, ErrIncrementalNotImplemented
-}
+// ErrIncrementalNotImplemented is kept for API compatibility but is no longer
+// returned by GenerateIncremental, which is now fully implemented in A1.P2.
+// Callers that tested for this error should update to use the new
+// [IncrementalResult] return type.
+var _ = ErrIncrementalNotImplemented // prevent "declared and not used" if no callers remain
 
 // pageOutcome is the internal result of generating one page.
 type pageOutcome struct {
