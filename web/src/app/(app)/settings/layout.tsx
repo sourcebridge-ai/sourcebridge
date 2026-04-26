@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BellRing, KeyRound, Palette, ShieldCheck, UserCircle2 } from "lucide-react";
+import { BellRing, BookOpen, KeyRound, Palette, ShieldCheck, UserCircle2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -19,6 +19,7 @@ const SETTINGS_NAV: SettingsNavItem[] = [
   { href: "/settings/notifications", label: "Notifications", icon: BellRing },
   { href: "/settings/tokens", label: "API Tokens", icon: KeyRound },
   { href: "/settings/security", label: "Security", icon: ShieldCheck },
+  { href: "/settings/living-wiki", label: "Living Wiki", icon: BookOpen },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

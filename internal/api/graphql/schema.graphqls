@@ -93,6 +93,9 @@ type Query {
   # Recycle bin (soft-delete) — see docs/user/recycle-bin.md (forthcoming)
   trashedItems(repositoryId: ID, types: [TrashableType!], limit: Int = 50, offset: Int = 0, search: String): TrashConnection!
   trashRetentionDays: Int!
+
+  # Living-wiki settings
+  livingWikiSettings: LivingWikiSettings!
 }
 
 type Mutation {
@@ -171,6 +174,10 @@ type Mutation {
   updateModelCapabilities(input: UpdateModelCapabilitiesInput!): ModelCapabilityProfile!
   deleteModelCapabilities(modelId: String!): Boolean! @deprecated(reason: "Use deleteModelCapabilitiesResult")
   deleteModelCapabilitiesResult(modelId: String!): MutationResult!
+
+  # Living-wiki settings
+  updateLivingWikiSettings(input: UpdateLivingWikiSettingsInput!): LivingWikiSettings!
+  testLivingWikiConnection(provider: String!): LivingWikiConnectionTestResult!
 
   # Recycle bin (soft-delete)
   moveToTrash(type: TrashableType!, id: ID!, reason: String): TrashEntry!
@@ -1476,4 +1483,48 @@ input UpdateModelCapabilitiesInput {
   embeddingModel: Boolean
   source: String
   notes: String
+}
+
+# --- Living-Wiki Settings ---
+
+"""
+LivingWikiSettings is the UI-managed living-wiki configuration.
+
+Secret fields (tokens, webhook secrets) are never returned in plaintext.
+When a secret has been stored, its value is the sentinel string "********".
+A non-sentinel value in an UpdateLivingWikiSettingsInput replaces the stored
+secret; the sentinel value is treated as "do not change".
+"""
+type LivingWikiSettings {
+  enabled: Boolean
+  workerCount: Int
+  eventTimeout: String
+  githubToken: String
+  gitlabToken: String
+  confluenceEmail: String
+  confluenceToken: String
+  notionToken: String
+  confluenceWebhookSecret: String
+  notionWebhookSecret: String
+  updatedAt: Time
+  updatedBy: String
+}
+
+input UpdateLivingWikiSettingsInput {
+  enabled: Boolean
+  workerCount: Int
+  eventTimeout: String
+  githubToken: String
+  gitlabToken: String
+  confluenceEmail: String
+  confluenceToken: String
+  notionToken: String
+  confluenceWebhookSecret: String
+  notionWebhookSecret: String
+}
+
+type LivingWikiConnectionTestResult {
+  provider: String!
+  ok: Boolean!
+  message: String
 }

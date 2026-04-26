@@ -33,6 +33,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/qa"
 	"github.com/sourcebridge/sourcebridge/internal/search"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
+	"github.com/sourcebridge/sourcebridge/internal/settings/livingwiki"
 	"github.com/sourcebridge/sourcebridge/internal/trash"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
 )
@@ -131,6 +132,20 @@ func WithTrashStore(ts trash.Store) ServerOption {
 	return func(s *Server) { s.trashStore = ts }
 }
 
+// WithLivingWikiStore wires the living-wiki settings persistence store. When
+// nil (embedded mode or external SurrealDB unavailable), the GraphQL resolvers
+// return empty settings and the UI shows only env-var-sourced values.
+func WithLivingWikiStore(store livingwiki.Store) ServerOption {
+	return func(s *Server) { s.livingWikiStore = store }
+}
+
+// WithLivingWikiResolver wires the living-wiki settings resolver (UI + env
+// fallback). When nil, the GraphQL TestLivingWikiConnection mutation is
+// unavailable. Pass the resolver created alongside WithLivingWikiStore.
+func WithLivingWikiResolver(r *livingwiki.Resolver) ServerOption {
+	return func(s *Server) { s.livingWikiResolver = r }
+}
+
 // Server is the HTTP API server.
 type Server struct {
 	cfg                *config.Config
@@ -165,6 +180,8 @@ type Server struct {
 	searchSvc          *search.Service                // hybrid retrieval backbone; always set in NewServer
 	reqBooster         *search.RequirementBooster     // repo-scoped requirement link cache; feeds searchSvc boosters
 	searchMetrics      *search.Metrics                // in-process ring buffer of per-stage latency / success
+	livingWikiStore    livingwiki.Store               // living-wiki UI settings store; nil = feature unavailable
+	livingWikiResolver *livingwiki.Resolver           // merged living-wiki config (UI + env); nil = only env applies
 }
 
 // qaResolverOrchestrator exposes the server's QA orchestrator to the
@@ -463,6 +480,8 @@ func (s *Server) setupRouter() {
 			SearchSvc:          s.searchSvc,
 			ReqBooster:         s.reqBooster,
 			QA:                 s.qaResolverOrchestrator(),
+			LivingWikiStore:    s.livingWikiStore,
+			LivingWikiResolver: s.livingWikiResolver,
 		},
 	}))
 

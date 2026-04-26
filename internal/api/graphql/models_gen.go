@@ -658,6 +658,33 @@ type LearningPathStep struct {
 	Evidence      []*KnowledgeEvidence `json:"evidence"`
 }
 
+type LivingWikiConnectionTestResult struct {
+	Provider string  `json:"provider"`
+	Ok       bool    `json:"ok"`
+	Message  *string `json:"message,omitempty"`
+}
+
+// LivingWikiSettings is the UI-managed living-wiki configuration.
+//
+// Secret fields (tokens, webhook secrets) are never returned in plaintext.
+// When a secret has been stored, its value is the sentinel string "********".
+// A non-sentinel value in an UpdateLivingWikiSettingsInput replaces the stored
+// secret; the sentinel value is treated as "do not change".
+type LivingWikiSettings struct {
+	Enabled                 *bool      `json:"enabled,omitempty"`
+	WorkerCount             *int       `json:"workerCount,omitempty"`
+	EventTimeout            *string    `json:"eventTimeout,omitempty"`
+	GithubToken             *string    `json:"githubToken,omitempty"`
+	GitlabToken             *string    `json:"gitlabToken,omitempty"`
+	ConfluenceEmail         *string    `json:"confluenceEmail,omitempty"`
+	ConfluenceToken         *string    `json:"confluenceToken,omitempty"`
+	NotionToken             *string    `json:"notionToken,omitempty"`
+	ConfluenceWebhookSecret *string    `json:"confluenceWebhookSecret,omitempty"`
+	NotionWebhookSecret     *string    `json:"notionWebhookSecret,omitempty"`
+	UpdatedAt               *time.Time `json:"updatedAt,omitempty"`
+	UpdatedBy               *string    `json:"updatedBy,omitempty"`
+}
+
 type ModelCapabilityProfile struct {
 	ID                     *string    `json:"id,omitempty"`
 	ModelID                string     `json:"modelId"`
@@ -1039,6 +1066,19 @@ type UpdateComprehensionSettingsInput struct {
 	GraphragEntityTypes            []string                 `json:"graphragEntityTypes,omitempty"`
 	CacheEnabled                   *bool                    `json:"cacheEnabled,omitempty"`
 	AllowUnsafeCombinations        *bool                    `json:"allowUnsafeCombinations,omitempty"`
+}
+
+type UpdateLivingWikiSettingsInput struct {
+	Enabled                 *bool   `json:"enabled,omitempty"`
+	WorkerCount             *int    `json:"workerCount,omitempty"`
+	EventTimeout            *string `json:"eventTimeout,omitempty"`
+	GithubToken             *string `json:"githubToken,omitempty"`
+	GitlabToken             *string `json:"gitlabToken,omitempty"`
+	ConfluenceEmail         *string `json:"confluenceEmail,omitempty"`
+	ConfluenceToken         *string `json:"confluenceToken,omitempty"`
+	NotionToken             *string `json:"notionToken,omitempty"`
+	ConfluenceWebhookSecret *string `json:"confluenceWebhookSecret,omitempty"`
+	NotionWebhookSecret     *string `json:"notionWebhookSecret,omitempty"`
 }
 
 type UpdateModelCapabilitiesInput struct {

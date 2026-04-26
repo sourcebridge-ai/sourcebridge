@@ -25,6 +25,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
+	"github.com/sourcebridge/sourcebridge/internal/settings/livingwiki"
 	"github.com/sourcebridge/sourcebridge/internal/telemetry"
 	"github.com/sourcebridge/sourcebridge/internal/qa"
 	"github.com/sourcebridge/sourcebridge/internal/trash"
@@ -78,6 +79,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var jobStore llm.JobStore
 	var comprehensionStore comprehension.Store
 	var summaryNodeStore comprehension.SummaryNodeStore
+	var lwStore livingwiki.Store
+	var lwResolver *livingwiki.Resolver
 	if cfg.Storage.SurrealMode == "external" {
 		// Run migrations against the external SurrealDB instance.
 		migrationsDir := migrationsPath()
@@ -191,6 +194,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 		lcs := db.NewSurrealLLMConfigStore(surrealDB)
 		llmConfigStore = &llmConfigAdapter{store: lcs}
 		queueControlStore = &queueControlAdapter{store: db.NewSurrealQueueControlStore(surrealDB)}
+
+		// Living-wiki settings store + resolver (UI > env > default precedence).
+		if cfg.Security.EncryptionKey == "" {
+			slog.Warn("living-wiki: SOURCEBRIDGE_SECURITY_ENCRYPTION_KEY not set; secrets stored in plaintext")
+		}
+		lwStore = db.NewLivingWikiSettingsStore(surrealDB, cfg.Security.EncryptionKey)
+		lwEnv := livingwiki.EnvConfig{
+			Enabled:                 cfg.LivingWiki.Enabled,
+			WorkerCount:             cfg.LivingWiki.WorkerCount,
+			EventTimeout:            cfg.LivingWiki.EventTimeout,
+			ConfluenceWebhookSecret: cfg.LivingWiki.ConfluenceWebhookSecret,
+			NotionWebhookSecret:     cfg.LivingWiki.NotionWebhookSecret,
+		}
+		lwResolver = livingwiki.NewResolver(lwStore, lwEnv, 0)
 		if rec, err := lcs.LoadLLMConfig(); err == nil && rec != nil {
 			if cfg.LLM.Provider == "anthropic" && rec.Provider != "" {
 				// Only override defaults — if env var was explicitly set, it takes priority
@@ -256,6 +273,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		rest.WithSummaryNodeStore(summaryNodeStore),
 		rest.WithCache(cache),
 		rest.WithTrashStore(trashStore),
+		rest.WithLivingWikiStore(lwStore),
+		rest.WithLivingWikiResolver(lwResolver),
 	)
 
 	// Initialize OIDC if configured

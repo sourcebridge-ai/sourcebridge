@@ -17,6 +17,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/qa"
 	"github.com/sourcebridge/sourcebridge/internal/search"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
+	"github.com/sourcebridge/sourcebridge/internal/settings/livingwiki"
 	"github.com/sourcebridge/sourcebridge/internal/trash"
 	"github.com/sourcebridge/sourcebridge/internal/worker"
 )
@@ -40,6 +41,8 @@ type Resolver struct {
 	Flags              featureflags.Flags         // backend startup-time feature flags
 	GitConfig          GitConfigLoader            // reads git credentials from DB (multi-replica safe)
 	ComprehensionStore comprehension.Store        // comprehension settings + model capabilities; nil when unavailable
+	LivingWikiStore    livingwiki.Store           // living-wiki UI settings; nil when unavailable
+	LivingWikiResolver *livingwiki.Resolver       // resolved living-wiki settings (UI + env fallback)
 	TrashStore         trash.Store                // soft-delete recycle bin; nil when the feature is disabled or unavailable
 	QA                 *qa.Orchestrator           // server-side deep-QA orchestrator; nil when server-side QA is disabled
 	SearchSvc          *search.Service            // hybrid retrieval backbone; nil falls back to legacy substring search
