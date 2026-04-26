@@ -21,7 +21,28 @@ func workersDir() string {
 	return filepath.Join(wd, "..", "..", "workers")
 }
 
+// requireUV skips the test if the `uv` CLI is not present on PATH.
+// These tests exercise the Python worker CLI via subprocess, so they need uv.
+// Contributors without a Python/uv environment can still run `go test ./...`
+// because the skip is explicit (not silent).
+func requireUV(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Skip("uv not found on PATH — skipping Python CLI integration test (install uv to enable)")
+	}
+}
+
+// testEnv returns os.Environ() augmented with SOURCEBRIDGE_TEST_MODE=1 and
+// any additional key=value pairs provided by the caller.
+// SOURCEBRIDGE_TEST_MODE activates the FakeLLMProvider so no real LLM API
+// key or running worker is needed.
+func testEnv(extras ...string) []string {
+	env := append(os.Environ(), "SOURCEBRIDGE_TEST_MODE=1")
+	return append(env, extras...)
+}
+
 func TestCLIReviewSecurity(t *testing.T) {
+	requireUV(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -29,7 +50,7 @@ func TestCLIReviewSecurity(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "uv", "run", "python", "cli_review.py",
 		filepath.Join(fixtureDir, "go", "payment", "processor.go"))
 	cmd.Dir = workersDir()
-	cmd.Env = append(os.Environ(), "SOURCEBRIDGE_REVIEW_TEMPLATE=security")
+	cmd.Env = testEnv("SOURCEBRIDGE_REVIEW_TEMPLATE=security")
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -48,6 +69,7 @@ func TestCLIReviewSecurity(t *testing.T) {
 }
 
 func TestCLIReviewSOLID(t *testing.T) {
+	requireUV(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -55,7 +77,7 @@ func TestCLIReviewSOLID(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "uv", "run", "python", "cli_review.py",
 		filepath.Join(fixtureDir, "go", "main.go"))
 	cmd.Dir = workersDir()
-	cmd.Env = append(os.Environ(), "SOURCEBRIDGE_REVIEW_TEMPLATE=solid")
+	cmd.Env = testEnv("SOURCEBRIDGE_REVIEW_TEMPLATE=solid")
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -77,6 +99,7 @@ func TestCLIReviewSOLID(t *testing.T) {
 }
 
 func TestCLIAsk(t *testing.T) {
+	requireUV(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -84,7 +107,7 @@ func TestCLIAsk(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "uv", "run", "python", "cli_ask.py",
 		"what does processPayment do?")
 	cmd.Dir = workersDir()
-	cmd.Env = append(os.Environ(), "SOURCEBRIDGE_REPO_PATH="+fixtureDir)
+	cmd.Env = testEnv("SOURCEBRIDGE_REPO_PATH=" + fixtureDir)
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -106,6 +129,7 @@ func TestCLIAsk(t *testing.T) {
 }
 
 func TestCLIReviewUsageTracking(t *testing.T) {
+	requireUV(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -113,7 +137,7 @@ func TestCLIReviewUsageTracking(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "uv", "run", "python", "cli_review.py",
 		filepath.Join(fixtureDir, "go", "payment", "processor.go"))
 	cmd.Dir = workersDir()
-	cmd.Env = append(os.Environ(), "SOURCEBRIDGE_REVIEW_TEMPLATE=security")
+	cmd.Env = testEnv("SOURCEBRIDGE_REVIEW_TEMPLATE=security")
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -140,6 +164,7 @@ func TestCLIReviewUsageTracking(t *testing.T) {
 }
 
 func TestCLIReviewAllTemplates(t *testing.T) {
+	requireUV(t)
 	templates := []string{"security", "solid", "performance", "reliability", "maintainability"}
 
 	for _, tmpl := range templates {
@@ -151,7 +176,7 @@ func TestCLIReviewAllTemplates(t *testing.T) {
 			cmd := exec.CommandContext(ctx, "uv", "run", "python", "cli_review.py",
 				filepath.Join(fixtureDir, "go", "main.go"))
 			cmd.Dir = workersDir()
-			cmd.Env = append(os.Environ(), fmt.Sprintf("SOURCEBRIDGE_REVIEW_TEMPLATE=%s", tmpl))
+			cmd.Env = testEnv(fmt.Sprintf("SOURCEBRIDGE_REVIEW_TEMPLATE=%s", tmpl))
 
 			output, err := cmd.Output()
 			if err != nil {
@@ -171,6 +196,7 @@ func TestCLIReviewAllTemplates(t *testing.T) {
 }
 
 func TestCLIAskReferences(t *testing.T) {
+	requireUV(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -178,7 +204,7 @@ func TestCLIAskReferences(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "uv", "run", "python", "cli_ask.py",
 		"what does this code do?")
 	cmd.Dir = workersDir()
-	cmd.Env = append(os.Environ(), "SOURCEBRIDGE_REPO_PATH="+fixtureDir)
+	cmd.Env = testEnv("SOURCEBRIDGE_REPO_PATH=" + fixtureDir)
 
 	output, err := cmd.Output()
 	if err != nil {
