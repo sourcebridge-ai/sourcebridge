@@ -30,6 +30,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/webhook"
 	"github.com/sourcebridge/sourcebridge/internal/qa"
 	"github.com/sourcebridge/sourcebridge/internal/search"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
@@ -152,6 +153,16 @@ func WithLivingWikiRepoStore(rs livingwiki.RepoSettingsStore) ServerOption {
 	return func(s *Server) { s.livingWikiRepoStore = rs }
 }
 
+// WithLivingWikiDispatcher wires the living-wiki event dispatcher into the
+// server. When non-nil, setupRouter registers /webhooks/confluence and
+// /webhooks/notion-poll and routes them to the dispatcher. When nil (embedded
+// mode, kill-switch active, or assembly failure), both routes are registered
+// as stubs that return 503 so webhook senders receive a clear signal rather
+// than a 404.
+func WithLivingWikiDispatcher(d *webhook.Dispatcher) ServerOption {
+	return func(s *Server) { s.livingWikiDispatcher = d }
+}
+
 // Server is the HTTP API server.
 type Server struct {
 	cfg                *config.Config
@@ -186,9 +197,10 @@ type Server struct {
 	searchSvc          *search.Service                // hybrid retrieval backbone; always set in NewServer
 	reqBooster         *search.RequirementBooster     // repo-scoped requirement link cache; feeds searchSvc boosters
 	searchMetrics      *search.Metrics                // in-process ring buffer of per-stage latency / success
-	livingWikiStore     livingwiki.Store              // living-wiki UI settings store; nil = feature unavailable
-	livingWikiResolver  *livingwiki.Resolver          // merged living-wiki config (UI + env); nil = only env applies
-	livingWikiRepoStore livingwiki.RepoSettingsStore  // per-repo living-wiki opt-in; nil = feature unavailable
+	livingWikiStore      livingwiki.Store              // living-wiki UI settings store; nil = feature unavailable
+	livingWikiResolver   *livingwiki.Resolver          // merged living-wiki config (UI + env); nil = only env applies
+	livingWikiRepoStore  livingwiki.RepoSettingsStore  // per-repo living-wiki opt-in; nil = feature unavailable
+	livingWikiDispatcher *webhook.Dispatcher           // nil = feature not started or kill-switch active
 }
 
 // qaResolverOrchestrator exposes the server's QA orchestrator to the
@@ -644,6 +656,28 @@ func (s *Server) setupRouter() {
 	// Enterprise routes (no-op in OSS builds, registered when built with -tags enterprise)
 	s.registerEnterpriseRoutes(r)
 
+	// Living-wiki webhook routes.
+	// Always registered so webhook senders receive a deterministic response:
+	//   - Dispatcher present → routes are live, events dispatched.
+	//   - Dispatcher nil     → routes return 503 with a clear body so the
+	//     sender knows living-wiki is disabled, not that the path is wrong.
+	if s.livingWikiDispatcher != nil {
+		var confluenceSecret string
+		if s.livingWikiResolver != nil {
+			if resolved, err := s.livingWikiResolver.Get(); err == nil && resolved != nil {
+				confluenceSecret = resolved.ConfluenceWebhookSecret
+			}
+		}
+		deps := LivingWikiWebhookDeps{
+			Dispatcher:              s.livingWikiDispatcher,
+			ConfluenceWebhookSecret: confluenceSecret,
+		}
+		RegisterLivingWikiRoutes(r, deps)
+		slog.Info("living-wiki webhook routes registered")
+	} else {
+		RegisterLivingWikiDisabledRoutes(r)
+	}
+
 	// GraphQL playground (development only, no auth required)
 	if s.cfg.IsDevelopment() {
 		r.Get("/api/v1/playground", playground.Handler("SourceBridge", "/api/v1/graphql"))
@@ -675,6 +709,20 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		}
 		if err := s.orchestrator.Shutdown(graceful); err != nil {
 			return err
+		}
+	}
+	// Living-wiki dispatcher drain — 30-second budget after HTTP connections
+	// are closed. If the budget is exceeded we log a warning and continue
+	// rather than blocking the process indefinitely.
+	if s.livingWikiDispatcher != nil {
+		const dispatcherDrainTimeout = 30 * time.Second
+		drainCtx, cancel := context.WithTimeout(context.Background(), dispatcherDrainTimeout)
+		defer cancel()
+		if err := s.livingWikiDispatcher.Stop(drainCtx); err != nil {
+			slog.Warn("living-wiki dispatcher did not drain cleanly within timeout",
+				"timeout", dispatcherDrainTimeout,
+				"err", err,
+			)
 		}
 	}
 	return nil

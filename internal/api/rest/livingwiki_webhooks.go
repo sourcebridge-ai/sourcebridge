@@ -92,6 +92,25 @@ func RegisterLivingWikiRoutes(r chi.Router, deps LivingWikiWebhookDeps) {
 	r.Post("/webhooks/notion-poll", h.notionPollWebhook)
 }
 
+// RegisterLivingWikiDisabledRoutes registers 503 stub handlers for the
+// living-wiki webhook paths. Called when the dispatcher is nil (embedded mode,
+// kill-switch active, or assembly failure) so webhook senders receive a
+// deterministic "feature disabled" response rather than a 404.
+//
+// A 503 is correct here: the route exists and is understood by the server, but
+// the feature is currently unavailable. This matches the semantics of service
+// unavailability vs. route not found.
+func RegisterLivingWikiDisabledRoutes(r chi.Router) {
+	const body = `{"error":"living_wiki_disabled","message":"Living wiki feature is not active on this server instance."}`
+	handler := func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = fmt.Fprint(w, body)
+	}
+	r.Post("/webhooks/confluence", handler)
+	r.Post("/webhooks/notion-poll", handler)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Handler struct
 // ─────────────────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +25,9 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/assembly"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/webhook"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
 	"github.com/sourcebridge/sourcebridge/internal/settings/livingwiki"
 	"github.com/sourcebridge/sourcebridge/internal/telemetry"
@@ -261,6 +265,56 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	localAuth := auth.NewLocalAuth(jwtMgr, authPersister)
 
+	// Living-wiki dispatcher construction.
+	//
+	// Kill-switch: check env var before any DB state so operators can disable
+	// the feature instantly in an incident without a config change or restart.
+	var lwDispatcher *webhook.Dispatcher
+	killSwitch := strings.EqualFold(os.Getenv("SOURCEBRIDGE_LIVING_WIKI_KILL_SWITCH"), "true")
+	if killSwitch {
+		slog.Warn("living-wiki kill-switch active (SOURCEBRIDGE_LIVING_WIKI_KILL_SWITCH=true); dispatcher not started")
+	} else if cfg.Storage.SurrealMode == "external" && lwResolver != nil {
+		resolved, resolveErr := lwResolver.Get()
+		if resolveErr != nil {
+			slog.Warn("living-wiki resolver error; dispatcher not started", "error", resolveErr)
+		} else if resolved != nil && resolved.Enabled {
+			broker := credentials.NewResolverBroker(lwResolver)
+
+			// Parse EventTimeout from the config string (e.g. "5m").
+			var eventTimeout time.Duration
+			if cfg.LivingWiki.EventTimeout != "" {
+				if d, err := time.ParseDuration(cfg.LivingWiki.EventTimeout); err == nil {
+					eventTimeout = d
+				}
+			}
+
+			d, assembleErr := assembly.AssembleDispatcher(assembly.AssemblerDeps{
+				SurrealDB:    surrealDB,
+				GraphStore:   store,
+				WorkerClient: workerClient,
+				Broker:       broker,
+				Logger:       &slogLivingWikiLogger{},
+				WorkerCount:  cfg.LivingWiki.WorkerCount,
+				EventTimeout: eventTimeout,
+			})
+			if assembleErr != nil {
+				slog.Error("living-wiki assembly failed; dispatcher not started", "error", assembleErr)
+			} else {
+				if startErr := d.Start(context.Background()); startErr != nil {
+					slog.Error("living-wiki dispatcher failed to start", "error", startErr)
+				} else {
+					lwDispatcher = d
+					slog.Info("living-wiki dispatcher started",
+						"worker_count", cfg.LivingWiki.WorkerCount,
+						"event_timeout", cfg.LivingWiki.EventTimeout,
+					)
+				}
+			}
+		} else {
+			slog.Info("living-wiki globally disabled; dispatcher not started")
+		}
+	}
+
 	// Create HTTP server
 	server := rest.NewServer(cfg, localAuth, jwtMgr, store, workerClient,
 		rest.WithEnterpriseDB(surrealDB.DB()),
@@ -278,6 +332,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		rest.WithLivingWikiStore(lwStore),
 		rest.WithLivingWikiResolver(lwResolver),
 		rest.WithLivingWikiRepoStore(lwRepoStore),
+		rest.WithLivingWikiDispatcher(lwDispatcher),
 	)
 
 	// Initialize OIDC if configured
@@ -542,4 +597,16 @@ func classifyTelemetryLLMProviderKind(provider string) string {
 	default:
 		return "cloud"
 	}
+}
+
+// slogLivingWikiLogger bridges webhook.Logger to the global slog logger.
+type slogLivingWikiLogger struct{}
+
+func (l *slogLivingWikiLogger) Info(msg string, kv ...any) {
+	slog.Info(msg, kv...)
+}
+
+func (l *slogLivingWikiLogger) Error(msg string, err error, kv ...any) {
+	args := append([]any{"error", err}, kv...)
+	slog.Error(msg, args...)
 }
