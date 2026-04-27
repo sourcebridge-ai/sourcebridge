@@ -168,6 +168,7 @@ func (s *LivingWikiSettingsStore) Set(settings *livingwiki.Settings) error {
 
 	sql := `
 		UPSERT type::thing('lw_settings', 'default') SET
+			tenant_id                    = 'default',
 			enabled_set                  = $enabled_set,
 			enabled                      = $enabled,
 			worker_count                 = $worker_count,
