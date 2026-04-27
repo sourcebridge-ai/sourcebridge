@@ -81,6 +81,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var summaryNodeStore comprehension.SummaryNodeStore
 	var lwStore livingwiki.Store
 	var lwResolver *livingwiki.Resolver
+	var lwRepoStore livingwiki.RepoSettingsStore
 	if cfg.Storage.SurrealMode == "external" {
 		// Run migrations against the external SurrealDB instance.
 		migrationsDir := migrationsPath()
@@ -200,6 +201,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			slog.Warn("living-wiki: SOURCEBRIDGE_SECURITY_ENCRYPTION_KEY not set; secrets stored in plaintext")
 		}
 		lwStore = db.NewLivingWikiSettingsStore(surrealDB, cfg.Security.EncryptionKey)
+		lwRepoStore = db.NewLivingWikiRepoSettingsStore(surrealDB)
 		lwEnv := livingwiki.EnvConfig{
 			Enabled:                 cfg.LivingWiki.Enabled,
 			WorkerCount:             cfg.LivingWiki.WorkerCount,
@@ -275,6 +277,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		rest.WithTrashStore(trashStore),
 		rest.WithLivingWikiStore(lwStore),
 		rest.WithLivingWikiResolver(lwResolver),
+		rest.WithLivingWikiRepoStore(lwRepoStore),
 	)
 
 	// Initialize OIDC if configured

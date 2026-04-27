@@ -27,10 +27,12 @@ import (
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/indexer"
 	knowledgepkg "github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/governance"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/requirements"
 	"github.com/sourcebridge/sourcebridge/internal/search"
 	"github.com/sourcebridge/sourcebridge/internal/settings/comprehension"
+	"github.com/sourcebridge/sourcebridge/internal/settings/livingwiki"
 	"github.com/sourcebridge/sourcebridge/internal/version"
 )
 
@@ -2343,6 +2345,295 @@ func (r *mutationResolver) DeleteModelCapabilitiesResult(ctx context.Context, mo
 	return &MutationResult{Success: ok}, nil
 }
 
+// UpdateLivingWikiSettings is the resolver for the updateLivingWikiSettings field.
+func (r *mutationResolver) UpdateLivingWikiSettings(ctx context.Context, input UpdateLivingWikiSettingsInput) (*LivingWikiSettings, error) {
+	if r.LivingWikiStore == nil {
+		return nil, fmt.Errorf("living-wiki settings not configured")
+	}
+
+	// Load current stored settings so we can apply a partial patch.
+	current, err := r.LivingWikiStore.Get()
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply scalar fields.
+	if input.Enabled != nil {
+		current.Enabled = input.Enabled
+	}
+	if input.WorkerCount != nil {
+		current.WorkerCount = *input.WorkerCount
+	}
+	if input.EventTimeout != nil {
+		current.EventTimeout = *input.EventTimeout
+	}
+
+	// Apply secret fields: ignore the sentinel (don't overwrite with "********").
+	// Track whether any credential field was actually rotated for audit logging.
+	credentialRotated := false
+	applySecret := func(stored *string, incoming *string) {
+		if incoming != nil && *incoming != livingwiki.SecretSentinel {
+			*stored = *incoming
+			credentialRotated = true
+		}
+	}
+	applySecret(&current.GitHubToken, input.GithubToken)
+	applySecret(&current.GitLabToken, input.GitlabToken)
+	applySecret(&current.ConfluenceEmail, input.ConfluenceEmail)
+	applySecret(&current.ConfluenceToken, input.ConfluenceToken)
+	applySecret(&current.NotionToken, input.NotionToken)
+	applySecret(&current.ConfluenceWebhookSecret, input.ConfluenceWebhookSecret)
+	applySecret(&current.NotionWebhookSecret, input.NotionWebhookSecret)
+
+	// Stamp audit fields.
+	current.UpdatedAt = time.Now()
+	userID := userIDFromContext(ctx)
+	if userID != "" {
+		current.UpdatedBy = userID
+	}
+
+	if err := r.LivingWikiStore.Set(current); err != nil {
+		return nil, err
+	}
+
+	// Invalidate the resolver cache so next webhook sees new values immediately.
+	if r.LivingWikiResolver != nil {
+		r.LivingWikiResolver.Invalidate()
+	}
+
+	// Append an audit entry when a credential field was rotated.
+	if credentialRotated && r.LivingWikiAuditLog != nil {
+		entry := governance.AuditEntry{
+			BlockID:              "lw_settings:default",
+			SourceSink:           "ui",
+			SourceUser:           userID,
+			TargetCanonicalState: "credential_rotated",
+			RemoteAddr:           remoteAddrFromContext(ctx),
+			Timestamp:            time.Now(),
+		}
+		_ = r.LivingWikiAuditLog.Append(ctx, entry)
+	}
+
+	return mapLivingWikiSettings(livingwiki.MaskSecrets(*current)), nil
+}
+
+// TestLivingWikiConnection is the resolver for the testLivingWikiConnection field.
+func (r *mutationResolver) TestLivingWikiConnection(ctx context.Context, provider string) (*LivingWikiConnectionTestResult, error) {
+	if r.LivingWikiResolver == nil {
+		return &LivingWikiConnectionTestResult{
+			Provider: provider,
+			Ok:       false,
+			Message:  strPtr("living-wiki resolver not configured"),
+		}, nil
+	}
+
+	res, err := r.LivingWikiResolver.Get()
+	if err != nil {
+		return nil, err
+	}
+
+	switch provider {
+	case "github":
+		return testGitHubConnection(ctx, res.GitHubToken)
+	case "gitlab":
+		return testGitLabConnection(ctx, res.GitLabToken)
+	case "confluence":
+		return testConfluenceConnection(ctx, res.ConfluenceEmail, res.ConfluenceToken)
+	case "notion":
+		return testNotionConnection(ctx, res.NotionToken)
+	default:
+		return &LivingWikiConnectionTestResult{
+			Provider: provider,
+			Ok:       false,
+			Message:  strPtr(fmt.Sprintf("unknown provider %q; expected github, gitlab, confluence, or notion", provider)),
+		}, nil
+	}
+}
+
+// UpdateRepositoryLivingWikiSettings resolves Mutation.updateRepositoryLivingWikiSettings.
+// Applies a partial patch to the existing per-repo settings record.
+func (r *mutationResolver) UpdateRepositoryLivingWikiSettings(ctx context.Context, input UpdateRepositoryLivingWikiSettingsInput) (*RepositoryLivingWikiSettings, error) {
+	if r.LivingWikiRepoStore == nil {
+		return nil, fmt.Errorf("living-wiki repo store not configured")
+	}
+
+	// Load current settings (nil = not yet configured → start from defaults).
+	current, err := r.LivingWikiRepoStore.GetRepoSettings(ctx, defaultTenantID, input.RepositoryID)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		current = defaultRepoSettings(input.RepositoryID)
+	}
+
+	// Apply each provided field as a patch.
+	if input.Enabled != nil {
+		current.Enabled = *input.Enabled
+		if !*input.Enabled && current.DisabledAt == nil {
+			now := time.Now()
+			current.DisabledAt = &now
+		} else if *input.Enabled {
+			current.DisabledAt = nil
+		}
+	}
+	if input.Mode != nil {
+		current.Mode = livingwiki.RepoWikiMode(input.Mode.String())
+	}
+	if input.Sinks != nil {
+		current.Sinks = mapSinkInputs(input.Sinks)
+	}
+	if input.ExcludePaths != nil {
+		current.ExcludePaths = input.ExcludePaths
+	}
+	if input.StaleWhenStrategy != nil {
+		current.StaleWhenStrategy = livingwiki.StaleStrategy(input.StaleWhenStrategy.String())
+	}
+	if input.MaxPagesPerJob != nil {
+		current.MaxPagesPerJob = *input.MaxPagesPerJob
+	}
+
+	current.UpdatedAt = time.Now()
+	current.UpdatedBy = userIDFromContext(ctx)
+
+	if err := r.LivingWikiRepoStore.SetRepoSettings(ctx, *current); err != nil {
+		return nil, err
+	}
+	return mapRepoLivingWikiSettings(current), nil
+}
+
+// EnableLivingWikiForRepo resolves Mutation.enableLivingWikiForRepo.
+//
+// Saves the settings (enabled=true) and creates a placeholder llm.Job so the
+// UI can track progress via the activity feed. The kill-switch and global
+// enabled checks gate whether a job is actually queued.
+//
+// R5 wires the actual orchestrator dispatch; for now the job sits in "pending"
+// state and the RunWithContext is a no-op placeholder.
+func (r *mutationResolver) EnableLivingWikiForRepo(ctx context.Context, input EnableLivingWikiForRepoInput) (*EnableLivingWikiResult, error) {
+	if r.LivingWikiRepoStore == nil {
+		return nil, fmt.Errorf("living-wiki repo store not configured")
+	}
+
+	// Validate global living-wiki enabled flag.
+	globalEnabled := r.isLivingWikiGloballyEnabled()
+
+	// Kill-switch check.
+	killSwitch := os.Getenv("SOURCEBRIDGE_LIVING_WIKI_KILL_SWITCH") == "true"
+
+	// Build the settings record.
+	settings := livingwiki.RepositoryLivingWikiSettings{
+		TenantID:          defaultTenantID,
+		RepoID:            input.RepositoryID,
+		Enabled:           true,
+		Mode:              livingwiki.RepoWikiMode(input.Mode.String()),
+		Sinks:             mapSinkInputs(input.Sinks),
+		StaleWhenStrategy: livingwiki.StaleStrategyDirect,
+		MaxPagesPerJob:    50,
+		UpdatedAt:         time.Now(),
+		UpdatedBy:         userIDFromContext(ctx),
+	}
+
+	if err := r.LivingWikiRepoStore.SetRepoSettings(ctx, settings); err != nil {
+		return nil, fmt.Errorf("persist repo settings: %w", err)
+	}
+
+	gql := mapRepoLivingWikiSettings(&settings)
+
+	// Gate: globally disabled.
+	if !globalEnabled {
+		notice := "Living Wiki is not enabled globally. Enable it in the global settings panel, then jobs will start automatically."
+		return &EnableLivingWikiResult{
+			Settings: gql,
+			Notice:   &notice,
+		}, nil
+	}
+
+	// Gate: kill-switch.
+	if killSwitch {
+		notice := "Living wiki is paused via SOURCEBRIDGE_LIVING_WIKI_KILL_SWITCH. Settings are saved but no jobs will run until the kill-switch is unset."
+		return &EnableLivingWikiResult{
+			Settings: gql,
+			Notice:   &notice,
+		}, nil
+	}
+
+	// Happy path: enqueue a placeholder job. R5 will replace this with real
+	// cold-start orchestration logic.
+	if r.Orchestrator == nil {
+		// No orchestrator in test/embedded mode — return settings with no job.
+		notice := "Living Wiki orchestrator is not available. Jobs will run when the server is fully configured."
+		return &EnableLivingWikiResult{
+			Settings: gql,
+			Notice:   &notice,
+		}, nil
+	}
+
+	retryExcluded := input.RetryExcludedOnly != nil && *input.RetryExcludedOnly
+	jobType := "living_wiki_cold_start"
+	if retryExcluded {
+		jobType = "living_wiki_retry_excluded"
+	}
+
+	req := &llm.EnqueueRequest{
+		Subsystem: llm.Subsystem("living_wiki"),
+		JobType:   jobType,
+		TargetKey: fmt.Sprintf("lw:%s:%s", defaultTenantID, input.RepositoryID),
+		RepoID:    input.RepositoryID,
+		Priority:  llm.PriorityInteractive,
+		// RunWithContext is a placeholder — R5 replaces this with the actual
+		// orchestrator dispatch. Until then the job transitions pending→ready
+		// immediately so the UI doesn't show a stuck spinner.
+		RunWithContext: func(runCtx context.Context, rt llm.Runtime) error {
+			rt.ReportProgress(1.0, "queued", "Queued — waiting for R5 orchestrator dispatch")
+			return nil
+		},
+	}
+
+	job, err := r.Orchestrator.Enqueue(req)
+	if err != nil {
+		// Non-fatal: settings are already persisted. Return without a job ID.
+		notice := fmt.Sprintf("Settings saved but job dispatch failed: %s", err.Error())
+		return &EnableLivingWikiResult{
+			Settings: gql,
+			Notice:   &notice,
+		}, nil
+	}
+
+	return &EnableLivingWikiResult{
+		Settings: gql,
+		JobID:    &job.ID,
+	}, nil
+}
+
+// DisableLivingWikiForRepo resolves Mutation.disableLivingWikiForRepo.
+// Soft-disables: sets enabled=false, records DisabledAt, preserves all sinks.
+func (r *mutationResolver) DisableLivingWikiForRepo(ctx context.Context, repositoryID string) (*RepositoryLivingWikiSettings, error) {
+	if r.LivingWikiRepoStore == nil {
+		return nil, fmt.Errorf("living-wiki repo store not configured")
+	}
+
+	current, err := r.LivingWikiRepoStore.GetRepoSettings(ctx, defaultTenantID, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		current = defaultRepoSettings(repositoryID)
+	}
+
+	current.Enabled = false
+	if current.DisabledAt == nil {
+		now := time.Now()
+		current.DisabledAt = &now
+	}
+	current.UpdatedAt = time.Now()
+	current.UpdatedBy = userIDFromContext(ctx)
+
+	if err := r.LivingWikiRepoStore.SetRepoSettings(ctx, *current); err != nil {
+		return nil, err
+	}
+	return mapRepoLivingWikiSettings(current), nil
+}
+
 // MoveToTrash is the resolver for the moveToTrash field.
 func (r *mutationResolver) MoveToTrash(ctx context.Context, typeArg TrashableType, id string, reason *string) (*TrashEntry, error) {
 	return r.Resolver.moveToTrash(ctx, typeArg, id, reason)
@@ -3376,6 +3667,59 @@ func (r *queryResolver) TrashRetentionDays(ctx context.Context) (int, error) {
 	return r.Resolver.trashRetentionDays(), nil
 }
 
+// LivingWikiSettings is the resolver for the livingWikiSettings field.
+func (r *queryResolver) LivingWikiSettings(ctx context.Context) (*LivingWikiSettings, error) {
+	if r.LivingWikiStore == nil {
+		return &LivingWikiSettings{}, nil
+	}
+	s, err := r.LivingWikiStore.Get()
+	if err != nil {
+		return nil, err
+	}
+	return mapLivingWikiSettings(livingwiki.MaskSecrets(*s)), nil
+}
+
+// RepositoryLivingWikiSettings resolves Query.repositoryLivingWikiSettings.
+func (r *queryResolver) RepositoryLivingWikiSettings(ctx context.Context, repositoryID string) (*RepositoryLivingWikiSettings, error) {
+	if r.LivingWikiRepoStore == nil {
+		return nil, nil
+	}
+	s, err := r.LivingWikiRepoStore.GetRepoSettings(ctx, defaultTenantID, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	return mapRepoLivingWikiSettings(s), nil
+}
+
+// RepositoriesUsingSink resolves Query.repositoriesUsingSink.
+func (r *queryResolver) RepositoriesUsingSink(ctx context.Context, integrationName string) ([]*Repository, error) {
+	if r.LivingWikiRepoStore == nil {
+		return []*Repository{}, nil
+	}
+	rows, err := r.LivingWikiRepoStore.RepositoriesUsingSink(ctx, defaultTenantID, integrationName)
+	if err != nil {
+		return nil, err
+	}
+	store := r.getStore(ctx)
+	out := make([]*Repository, 0, len(rows))
+	for _, row := range rows {
+		if store != nil {
+			repo := store.GetRepository(row.RepoID)
+			if repo != nil {
+				out = append(out, mapRepository(repo))
+				continue
+			}
+		}
+		// Repo no longer in graph store — return a minimal placeholder so the
+		// admin query still surfaces the dangling configuration.
+		out = append(out, &Repository{
+			ID:   row.RepoID,
+			Name: row.RepoID,
+		})
+	}
+	return out, nil
+}
+
 // Files is the resolver for the files field.
 func (r *repositoryResolver) Files(ctx context.Context, obj *Repository, limit *int, offset *int, path *string) (*FileConnection, error) {
 	store := r.getStore(ctx)
@@ -3449,6 +3793,24 @@ func (r *repositoryResolver) UpstreamStatus(ctx context.Context, obj *Repository
 	return r.resolveUpstreamStatus(ctx, repo), nil
 }
 
+// LivingWikiSettings resolves Repository.livingWikiSettings.
+func (r *repositoryResolver) LivingWikiSettings(ctx context.Context, obj *Repository) (*RepositoryLivingWikiSettings, error) {
+	if r.LivingWikiRepoStore == nil {
+		return nil, nil
+	}
+	s, err := r.LivingWikiRepoStore.GetRepoSettings(ctx, defaultTenantID, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+	return mapRepoLivingWikiSettings(s), nil
+}
+
+// LastJobResult resolves RepositoryLivingWikiSettings.lastJobResult.
+// Currently returns nil — R8 wires the lw_job_results read path.
+func (r *repositoryLivingWikiSettingsResolver) LastJobResult(ctx context.Context, obj *RepositoryLivingWikiSettings) (*LivingWikiJobResult, error) {
+	return nil, nil
+}
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
@@ -3458,6 +3820,12 @@ func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 // Repository returns RepositoryResolver implementation.
 func (r *Resolver) Repository() RepositoryResolver { return &repositoryResolver{r} }
 
+// RepositoryLivingWikiSettings returns RepositoryLivingWikiSettingsResolver implementation.
+func (r *Resolver) RepositoryLivingWikiSettings() RepositoryLivingWikiSettingsResolver {
+	return &repositoryLivingWikiSettingsResolver{r}
+}
+
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
 type repositoryResolver struct{ *Resolver }
+type repositoryLivingWikiSettingsResolver struct{ *Resolver }

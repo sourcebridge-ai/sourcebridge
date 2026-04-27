@@ -39,3 +39,9 @@ models:
         resolver: true
       upstreamStatus:
         resolver: true
+      livingWikiSettings:
+        resolver: true
+  RepositoryLivingWikiSettings:
+    fields:
+      lastJobResult:
+        resolver: true

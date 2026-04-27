@@ -3,7 +3,10 @@
 
 package livingwiki
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Settings holds the living-wiki configuration as stored in the DB (via the
 // admin UI). Zero/empty values mean "not configured by UI; use env-var or
@@ -107,4 +110,32 @@ type Store interface {
 
 	// Set persists s. Secret fields are encrypted before writing.
 	Set(s *Settings) error
+}
+
+// RepoSettingsStore is the persistence interface for per-repo living-wiki
+// opt-in records. Every method is tenant-scoped (Q5 resolved).
+//
+// Implementations: [RepoSettingsMemStore] (tests) and the SurrealDB store
+// in internal/db.
+type RepoSettingsStore interface {
+	// GetRepoSettings returns the settings for the given repo, or nil if no
+	// row exists yet (default-disabled). A nil return is NOT an error.
+	GetRepoSettings(ctx context.Context, tenantID, repoID string) (*RepositoryLivingWikiSettings, error)
+
+	// SetRepoSettings persists s. Creates or replaces the row identified by
+	// (TenantID, RepoID).
+	SetRepoSettings(ctx context.Context, s RepositoryLivingWikiSettings) error
+
+	// ListEnabledRepos returns all repos with enabled=true for the given
+	// tenant. Used by R6's scheduler tick.
+	ListEnabledRepos(ctx context.Context, tenantID string) ([]RepositoryLivingWikiSettings, error)
+
+	// DeleteRepoSettings hard-deletes the row for the given repo. Intended
+	// for admin cleanup only; normal disable uses SetRepoSettings with
+	// Enabled=false.
+	DeleteRepoSettings(ctx context.Context, tenantID, repoID string) error
+
+	// RepositoriesUsingSink returns all repos that have a sink with the
+	// given integrationName. Used by the admin query.
+	RepositoriesUsingSink(ctx context.Context, tenantID, integrationName string) ([]RepositoryLivingWikiSettings, error)
 }

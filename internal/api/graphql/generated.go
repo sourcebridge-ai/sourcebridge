@@ -42,6 +42,7 @@ type ResolverRoot interface {
 	Mutation() MutationResolver
 	Query() QueryResolver
 	Repository() RepositoryResolver
+	RepositoryLivingWikiSettings() RepositoryLivingWikiSettingsResolver
 }
 
 type DirectiveRoot struct {
@@ -316,6 +317,12 @@ type ComplexityRoot struct {
 		StrategyPreferenceChain        func(childComplexity int) int
 	}
 
+	EnableLivingWikiResult struct {
+		JobID    func(childComplexity int) int
+		Notice   func(childComplexity int) int
+		Settings func(childComplexity int) int
+	}
+
 	ExecutionEntryPoint struct {
 		FilePath  func(childComplexity int) int
 		Kind      func(childComplexity int) int
@@ -573,6 +580,20 @@ type ComplexityRoot struct {
 		Provider func(childComplexity int) int
 	}
 
+	LivingWikiJobResult struct {
+		CompletedAt         func(childComplexity int) int
+		ErrorMessage        func(childComplexity int) int
+		ExcludedPageIds     func(childComplexity int) int
+		ExclusionReasons    func(childComplexity int) int
+		GeneratedPageTitles func(childComplexity int) int
+		JobID               func(childComplexity int) int
+		PagesExcluded       func(childComplexity int) int
+		PagesGenerated      func(childComplexity int) int
+		PagesPlanned        func(childComplexity int) int
+		StartedAt           func(childComplexity int) int
+		Status              func(childComplexity int) int
+	}
+
 	LivingWikiSettings struct {
 		ConfluenceEmail         func(childComplexity int) int
 		ConfluenceToken         func(childComplexity int) int
@@ -616,51 +637,54 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		AddRepository                     func(childComplexity int, input AddRepositoryInput) int
-		AnalyzeSymbol                     func(childComplexity int, repositoryID string, symbolID string) int
-		Ask                               func(childComplexity int, input AskInput) int
-		AutoLinkRequirements              func(childComplexity int, repositoryID string, minConfidence *float64) int
-		BuildRepositoryUnderstanding      func(childComplexity int, input BuildRepositoryUnderstandingInput) int
-		CreateManualLink                  func(childComplexity int, input CreateManualLinkInput) int
-		CreateRequirement                 func(childComplexity int, input CreateRequirementInput) int
-		DeleteModelCapabilities           func(childComplexity int, modelID string) int
-		DeleteModelCapabilitiesResult     func(childComplexity int, modelID string) int
-		DetectContracts                   func(childComplexity int, repoID string) int
-		DetectContractsResult             func(childComplexity int, repoID string) int
-		DiscussCode                       func(childComplexity int, input DiscussCodeInput) int
-		DismissAllDiscoveredRequirements  func(childComplexity int, repositoryID string) int
-		DismissDiscoveredRequirement      func(childComplexity int, id string, reason *string) int
-		EmptyTrash                        func(childComplexity int, repositoryID string, olderThanDays *int) int
-		EnrichRequirement                 func(childComplexity int, requirementID string) int
-		ExplainSystem                     func(childComplexity int, input ExplainSystemInput) int
-		GenerateArchitectureDiagram       func(childComplexity int, input GenerateArchitectureDiagramInput) int
-		GenerateCliffNotes                func(childComplexity int, input GenerateCliffNotesInput) int
-		GenerateCodeTour                  func(childComplexity int, input GenerateCodeTourInput) int
-		GenerateLearningPath              func(childComplexity int, input GenerateLearningPathInput) int
-		GenerateWorkflowStory             func(childComplexity int, input GenerateWorkflowStoryInput) int
-		ImportRequirements                func(childComplexity int, input ImportRequirementsInput) int
-		LinkRepos                         func(childComplexity int, sourceRepoID string, targetRepoID string, linkType *string) int
-		MoveToTrash                       func(childComplexity int, typeArg TrashableType, id string, reason *string) int
-		PermanentlyDelete                 func(childComplexity int, typeArg TrashableType, id string) int
-		PromoteDiscoveredRequirement      func(childComplexity int, id string, title *string, description *string) int
-		RefreshKnowledgeArtifact          func(childComplexity int, id string) int
-		ReindexRepository                 func(childComplexity int, id string) int
-		RemoveRepository                  func(childComplexity int, id string) int
-		RemoveRepositoryResult            func(childComplexity int, id string) int
-		ResetComprehensionSettings        func(childComplexity int, scopeType string, scopeKey *string) int
-		RestoreFromTrash                  func(childComplexity int, typeArg TrashableType, id string, resolveConflict *RestoreConflictResolution, rename *string) int
-		ReviewCode                        func(childComplexity int, input ReviewCodeInput) int
-		SimulateChange                    func(childComplexity int, input SimulateChangeInput) int
-		TestLivingWikiConnection          func(childComplexity int, provider string) int
-		TriggerSpecExtraction             func(childComplexity int, input TriggerSpecExtractionInput) int
-		UnlinkRepos                       func(childComplexity int, linkID string) int
-		UnlinkReposResult                 func(childComplexity int, linkID string) int
-		UpdateComprehensionSettings       func(childComplexity int, input UpdateComprehensionSettingsInput) int
-		UpdateLivingWikiSettings          func(childComplexity int, input UpdateLivingWikiSettingsInput) int
-		UpdateModelCapabilities           func(childComplexity int, input UpdateModelCapabilitiesInput) int
-		UpdateRepositoryKnowledgeSettings func(childComplexity int, input UpdateRepositoryKnowledgeSettingsInput) int
-		UpdateRequirementFields           func(childComplexity int, input UpdateRequirementFieldsInput) int
-		VerifyLink                        func(childComplexity int, linkID string, verified bool) int
+		AddRepository                      func(childComplexity int, input AddRepositoryInput) int
+		AnalyzeSymbol                      func(childComplexity int, repositoryID string, symbolID string) int
+		Ask                                func(childComplexity int, input AskInput) int
+		AutoLinkRequirements               func(childComplexity int, repositoryID string, minConfidence *float64) int
+		BuildRepositoryUnderstanding       func(childComplexity int, input BuildRepositoryUnderstandingInput) int
+		CreateManualLink                   func(childComplexity int, input CreateManualLinkInput) int
+		CreateRequirement                  func(childComplexity int, input CreateRequirementInput) int
+		DeleteModelCapabilities            func(childComplexity int, modelID string) int
+		DeleteModelCapabilitiesResult      func(childComplexity int, modelID string) int
+		DetectContracts                    func(childComplexity int, repoID string) int
+		DetectContractsResult              func(childComplexity int, repoID string) int
+		DisableLivingWikiForRepo           func(childComplexity int, repositoryID string) int
+		DiscussCode                        func(childComplexity int, input DiscussCodeInput) int
+		DismissAllDiscoveredRequirements   func(childComplexity int, repositoryID string) int
+		DismissDiscoveredRequirement       func(childComplexity int, id string, reason *string) int
+		EmptyTrash                         func(childComplexity int, repositoryID string, olderThanDays *int) int
+		EnableLivingWikiForRepo            func(childComplexity int, input EnableLivingWikiForRepoInput) int
+		EnrichRequirement                  func(childComplexity int, requirementID string) int
+		ExplainSystem                      func(childComplexity int, input ExplainSystemInput) int
+		GenerateArchitectureDiagram        func(childComplexity int, input GenerateArchitectureDiagramInput) int
+		GenerateCliffNotes                 func(childComplexity int, input GenerateCliffNotesInput) int
+		GenerateCodeTour                   func(childComplexity int, input GenerateCodeTourInput) int
+		GenerateLearningPath               func(childComplexity int, input GenerateLearningPathInput) int
+		GenerateWorkflowStory              func(childComplexity int, input GenerateWorkflowStoryInput) int
+		ImportRequirements                 func(childComplexity int, input ImportRequirementsInput) int
+		LinkRepos                          func(childComplexity int, sourceRepoID string, targetRepoID string, linkType *string) int
+		MoveToTrash                        func(childComplexity int, typeArg TrashableType, id string, reason *string) int
+		PermanentlyDelete                  func(childComplexity int, typeArg TrashableType, id string) int
+		PromoteDiscoveredRequirement       func(childComplexity int, id string, title *string, description *string) int
+		RefreshKnowledgeArtifact           func(childComplexity int, id string) int
+		ReindexRepository                  func(childComplexity int, id string) int
+		RemoveRepository                   func(childComplexity int, id string) int
+		RemoveRepositoryResult             func(childComplexity int, id string) int
+		ResetComprehensionSettings         func(childComplexity int, scopeType string, scopeKey *string) int
+		RestoreFromTrash                   func(childComplexity int, typeArg TrashableType, id string, resolveConflict *RestoreConflictResolution, rename *string) int
+		ReviewCode                         func(childComplexity int, input ReviewCodeInput) int
+		SimulateChange                     func(childComplexity int, input SimulateChangeInput) int
+		TestLivingWikiConnection           func(childComplexity int, provider string) int
+		TriggerSpecExtraction              func(childComplexity int, input TriggerSpecExtractionInput) int
+		UnlinkRepos                        func(childComplexity int, linkID string) int
+		UnlinkReposResult                  func(childComplexity int, linkID string) int
+		UpdateComprehensionSettings        func(childComplexity int, input UpdateComprehensionSettingsInput) int
+		UpdateLivingWikiSettings           func(childComplexity int, input UpdateLivingWikiSettingsInput) int
+		UpdateModelCapabilities            func(childComplexity int, input UpdateModelCapabilitiesInput) int
+		UpdateRepositoryKnowledgeSettings  func(childComplexity int, input UpdateRepositoryKnowledgeSettingsInput) int
+		UpdateRepositoryLivingWikiSettings func(childComplexity int, input UpdateRepositoryLivingWikiSettingsInput) int
+		UpdateRequirementFields            func(childComplexity int, input UpdateRequirementFieldsInput) int
+		VerifyLink                         func(childComplexity int, linkID string, verified bool) int
 	}
 
 	MutationResult struct {
@@ -684,50 +708,52 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		APIContracts               func(childComplexity int, repoID string) int
-		AiGeneratedFiles           func(childComplexity int, repositoryID string, minScore *float64) int
-		ArchitectureDiagram        func(childComplexity int, repoID string, level DiagramLevel, moduleFilter *string, moduleDepth *int, maxNodes *int) int
-		CodeToRequirements         func(childComplexity int, symbolID string) int
-		ComprehensionSettings      func(childComplexity int, scopeType *string, scopeKey *string) int
-		ComprehensionSettingsList  func(childComplexity int) int
-		CrossRepoRefs              func(childComplexity int, repoID string, refType *CrossRepoRefType, limit *int) int
-		CrossRepoRefsConnection    func(childComplexity int, repoID string, refType *CrossRepoRefType, limit *int) int
-		DiscoveredRequirement      func(childComplexity int, id string) int
-		DiscoveredRequirements     func(childComplexity int, repositoryID string, status *string, confidence *string, limit *int, offset *int) int
-		ExecutionEntryPoints       func(childComplexity int, repositoryID string) int
-		ExecutionPath              func(childComplexity int, input ExecutionPathInput) int
-		Features                   func(childComplexity int) int
-		Health                     func(childComplexity int) int
-		IdeCapabilities            func(childComplexity int) int
-		ImpactReports              func(childComplexity int, repositoryID string, limit *int) int
-		KnowledgeArtifact          func(childComplexity int, id string) int
-		KnowledgeArtifacts         func(childComplexity int, repositoryID string, scopeType *KnowledgeScopeType, scopePath *string) int
-		KnowledgeScopeChildren     func(childComplexity int, repositoryID string, scopeType KnowledgeScopeType, scopePath string, audience *KnowledgeAudience, depth *KnowledgeDepth) int
-		LatestImpactReport         func(childComplexity int, repositoryID string) int
-		LivingWikiSettings         func(childComplexity int) int
-		LlmUsage                   func(childComplexity int, repositoryID *string, limit *int) int
-		ModelCapabilities          func(childComplexity int) int
-		ModelCapability            func(childComplexity int, modelID string) int
-		PlatformStats              func(childComplexity int) int
-		RepoLinks                  func(childComplexity int, repoID string) int
-		Repositories               func(childComplexity int) int
-		Repository                 func(childComplexity int, id string) int
-		RepositoryUnderstanding    func(childComplexity int, repositoryID string, scopeType *KnowledgeScopeType, scopePath *string) int
-		Requirement                func(childComplexity int, id string) int
-		RequirementLinks           func(childComplexity int, requirementID string, limit *int, offset *int) int
-		RequirementLinksConnection func(childComplexity int, requirementID string, limit *int, offset *int) int
-		RequirementToCode          func(childComplexity int, requirementID string) int
-		Requirements               func(childComplexity int, repositoryID string, limit *int, offset *int) int
-		Search                     func(childComplexity int, query string, repositoryID *string, limit *int) int
-		SimulatedImpactReport      func(childComplexity int, id string) int
-		SourceFile                 func(childComplexity int, repositoryID string, filePath string) int
-		SymbolCrossRepoRefs        func(childComplexity int, symbolID string) int
-		Symbols                    func(childComplexity int, repositoryID string, query *string, filePath *string, kind *SymbolKind, limit *int, offset *int) int
-		TraceabilityMatrix         func(childComplexity int, repositoryID string) int
-		TrashRetentionDays         func(childComplexity int) int
-		TrashedItems               func(childComplexity int, repositoryID *string, types []TrashableType, limit *int, offset *int, search *string) int
-		UnderstandingScore         func(childComplexity int, repositoryID string) int
-		Version                    func(childComplexity int) int
+		APIContracts                 func(childComplexity int, repoID string) int
+		AiGeneratedFiles             func(childComplexity int, repositoryID string, minScore *float64) int
+		ArchitectureDiagram          func(childComplexity int, repoID string, level DiagramLevel, moduleFilter *string, moduleDepth *int, maxNodes *int) int
+		CodeToRequirements           func(childComplexity int, symbolID string) int
+		ComprehensionSettings        func(childComplexity int, scopeType *string, scopeKey *string) int
+		ComprehensionSettingsList    func(childComplexity int) int
+		CrossRepoRefs                func(childComplexity int, repoID string, refType *CrossRepoRefType, limit *int) int
+		CrossRepoRefsConnection      func(childComplexity int, repoID string, refType *CrossRepoRefType, limit *int) int
+		DiscoveredRequirement        func(childComplexity int, id string) int
+		DiscoveredRequirements       func(childComplexity int, repositoryID string, status *string, confidence *string, limit *int, offset *int) int
+		ExecutionEntryPoints         func(childComplexity int, repositoryID string) int
+		ExecutionPath                func(childComplexity int, input ExecutionPathInput) int
+		Features                     func(childComplexity int) int
+		Health                       func(childComplexity int) int
+		IdeCapabilities              func(childComplexity int) int
+		ImpactReports                func(childComplexity int, repositoryID string, limit *int) int
+		KnowledgeArtifact            func(childComplexity int, id string) int
+		KnowledgeArtifacts           func(childComplexity int, repositoryID string, scopeType *KnowledgeScopeType, scopePath *string) int
+		KnowledgeScopeChildren       func(childComplexity int, repositoryID string, scopeType KnowledgeScopeType, scopePath string, audience *KnowledgeAudience, depth *KnowledgeDepth) int
+		LatestImpactReport           func(childComplexity int, repositoryID string) int
+		LivingWikiSettings           func(childComplexity int) int
+		LlmUsage                     func(childComplexity int, repositoryID *string, limit *int) int
+		ModelCapabilities            func(childComplexity int) int
+		ModelCapability              func(childComplexity int, modelID string) int
+		PlatformStats                func(childComplexity int) int
+		RepoLinks                    func(childComplexity int, repoID string) int
+		Repositories                 func(childComplexity int) int
+		RepositoriesUsingSink        func(childComplexity int, integrationName string) int
+		Repository                   func(childComplexity int, id string) int
+		RepositoryLivingWikiSettings func(childComplexity int, repositoryID string) int
+		RepositoryUnderstanding      func(childComplexity int, repositoryID string, scopeType *KnowledgeScopeType, scopePath *string) int
+		Requirement                  func(childComplexity int, id string) int
+		RequirementLinks             func(childComplexity int, requirementID string, limit *int, offset *int) int
+		RequirementLinksConnection   func(childComplexity int, requirementID string, limit *int, offset *int) int
+		RequirementToCode            func(childComplexity int, requirementID string) int
+		Requirements                 func(childComplexity int, repositoryID string, limit *int, offset *int) int
+		Search                       func(childComplexity int, query string, repositoryID *string, limit *int) int
+		SimulatedImpactReport        func(childComplexity int, id string) int
+		SourceFile                   func(childComplexity int, repositoryID string, filePath string) int
+		SymbolCrossRepoRefs          func(childComplexity int, symbolID string) int
+		Symbols                      func(childComplexity int, repositoryID string, query *string, filePath *string, kind *SymbolKind, limit *int, offset *int) int
+		TraceabilityMatrix           func(childComplexity int, repositoryID string) int
+		TrashRetentionDays           func(childComplexity int) int
+		TrashedItems                 func(childComplexity int, repositoryID *string, types []TrashableType, limit *int, offset *int, search *string) int
+		UnderstandingScore           func(childComplexity int, repositoryID string) int
+		Version                      func(childComplexity int) int
 	}
 
 	RepoLink struct {
@@ -736,6 +762,13 @@ type ComplexityRoot struct {
 		LinkType     func(childComplexity int) int
 		SourceRepoID func(childComplexity int) int
 		TargetRepoID func(childComplexity int) int
+	}
+
+	RepoWikiSink struct {
+		Audience        func(childComplexity int) int
+		EditPolicy      func(childComplexity int) int
+		IntegrationName func(childComplexity int) int
+		Kind            func(childComplexity int) int
 	}
 
 	Repository struct {
@@ -750,6 +783,7 @@ type ComplexityRoot struct {
 		HasAuth                 func(childComplexity int) int
 		ID                      func(childComplexity int) int
 		LastIndexedAt           func(childComplexity int) int
+		LivingWikiSettings      func(childComplexity int) int
 		Modules                 func(childComplexity int) int
 		Name                    func(childComplexity int) int
 		Path                    func(childComplexity int) int
@@ -759,6 +793,19 @@ type ComplexityRoot struct {
 		Status                  func(childComplexity int) int
 		UnderstandingScore      func(childComplexity int) int
 		UpstreamStatus          func(childComplexity int) int
+	}
+
+	RepositoryLivingWikiSettings struct {
+		Enabled           func(childComplexity int) int
+		ExcludePaths      func(childComplexity int) int
+		LastJobResult     func(childComplexity int) int
+		LastRunAt         func(childComplexity int) int
+		MaxPagesPerJob    func(childComplexity int) int
+		Mode              func(childComplexity int) int
+		Sinks             func(childComplexity int) int
+		StaleWhenStrategy func(childComplexity int) int
+		UpdatedAt         func(childComplexity int) int
+		UpdatedBy         func(childComplexity int) int
 	}
 
 	RepositoryUnderstanding struct {
@@ -1057,6 +1104,9 @@ type MutationResolver interface {
 	DeleteModelCapabilitiesResult(ctx context.Context, modelID string) (*MutationResult, error)
 	UpdateLivingWikiSettings(ctx context.Context, input UpdateLivingWikiSettingsInput) (*LivingWikiSettings, error)
 	TestLivingWikiConnection(ctx context.Context, provider string) (*LivingWikiConnectionTestResult, error)
+	UpdateRepositoryLivingWikiSettings(ctx context.Context, input UpdateRepositoryLivingWikiSettingsInput) (*RepositoryLivingWikiSettings, error)
+	EnableLivingWikiForRepo(ctx context.Context, input EnableLivingWikiForRepoInput) (*EnableLivingWikiResult, error)
+	DisableLivingWikiForRepo(ctx context.Context, repositoryID string) (*RepositoryLivingWikiSettings, error)
 	MoveToTrash(ctx context.Context, typeArg TrashableType, id string, reason *string) (*TrashEntry, error)
 	RestoreFromTrash(ctx context.Context, typeArg TrashableType, id string, resolveConflict *RestoreConflictResolution, rename *string) (*RestoreResult, error)
 	PermanentlyDelete(ctx context.Context, typeArg TrashableType, id string) (bool, error)
@@ -1107,6 +1157,8 @@ type QueryResolver interface {
 	TrashedItems(ctx context.Context, repositoryID *string, types []TrashableType, limit *int, offset *int, search *string) (*TrashConnection, error)
 	TrashRetentionDays(ctx context.Context) (int, error)
 	LivingWikiSettings(ctx context.Context) (*LivingWikiSettings, error)
+	RepositoryLivingWikiSettings(ctx context.Context, repositoryID string) (*RepositoryLivingWikiSettings, error)
+	RepositoriesUsingSink(ctx context.Context, integrationName string) ([]*Repository, error)
 }
 type RepositoryResolver interface {
 	Files(ctx context.Context, obj *Repository, limit *int, offset *int, path *string) (*FileConnection, error)
@@ -1114,6 +1166,10 @@ type RepositoryResolver interface {
 	UnderstandingScore(ctx context.Context, obj *Repository) (*UnderstandingScore, error)
 	RepositoryUnderstanding(ctx context.Context, obj *Repository, scopeType *KnowledgeScopeType, scopePath *string) (*RepositoryUnderstanding, error)
 	UpstreamStatus(ctx context.Context, obj *Repository) (*RepositoryUpstreamStatus, error)
+	LivingWikiSettings(ctx context.Context, obj *Repository) (*RepositoryLivingWikiSettings, error)
+}
+type RepositoryLivingWikiSettingsResolver interface {
+	LastJobResult(ctx context.Context, obj *RepositoryLivingWikiSettings) (*LivingWikiJobResult, error)
 }
 
 type executableSchema struct {
@@ -2422,6 +2478,27 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.EffectiveComprehensionSettings.StrategyPreferenceChain(childComplexity), true
+
+	case "EnableLivingWikiResult.jobId":
+		if e.complexity.EnableLivingWikiResult.JobID == nil {
+			break
+		}
+
+		return e.complexity.EnableLivingWikiResult.JobID(childComplexity), true
+
+	case "EnableLivingWikiResult.notice":
+		if e.complexity.EnableLivingWikiResult.Notice == nil {
+			break
+		}
+
+		return e.complexity.EnableLivingWikiResult.Notice(childComplexity), true
+
+	case "EnableLivingWikiResult.settings":
+		if e.complexity.EnableLivingWikiResult.Settings == nil {
+			break
+		}
+
+		return e.complexity.EnableLivingWikiResult.Settings(childComplexity), true
 
 	case "ExecutionEntryPoint.filePath":
 		if e.complexity.ExecutionEntryPoint.FilePath == nil {
@@ -3739,6 +3816,83 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.LivingWikiConnectionTestResult.Provider(childComplexity), true
 
+	case "LivingWikiJobResult.completedAt":
+		if e.complexity.LivingWikiJobResult.CompletedAt == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.CompletedAt(childComplexity), true
+
+	case "LivingWikiJobResult.errorMessage":
+		if e.complexity.LivingWikiJobResult.ErrorMessage == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.ErrorMessage(childComplexity), true
+
+	case "LivingWikiJobResult.excludedPageIds":
+		if e.complexity.LivingWikiJobResult.ExcludedPageIds == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.ExcludedPageIds(childComplexity), true
+
+	case "LivingWikiJobResult.exclusionReasons":
+		if e.complexity.LivingWikiJobResult.ExclusionReasons == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.ExclusionReasons(childComplexity), true
+
+	case "LivingWikiJobResult.generatedPageTitles":
+		if e.complexity.LivingWikiJobResult.GeneratedPageTitles == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.GeneratedPageTitles(childComplexity), true
+
+	case "LivingWikiJobResult.jobId":
+		if e.complexity.LivingWikiJobResult.JobID == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.JobID(childComplexity), true
+
+	case "LivingWikiJobResult.pagesExcluded":
+		if e.complexity.LivingWikiJobResult.PagesExcluded == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.PagesExcluded(childComplexity), true
+
+	case "LivingWikiJobResult.pagesGenerated":
+		if e.complexity.LivingWikiJobResult.PagesGenerated == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.PagesGenerated(childComplexity), true
+
+	case "LivingWikiJobResult.pagesPlanned":
+		if e.complexity.LivingWikiJobResult.PagesPlanned == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.PagesPlanned(childComplexity), true
+
+	case "LivingWikiJobResult.startedAt":
+		if e.complexity.LivingWikiJobResult.StartedAt == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.StartedAt(childComplexity), true
+
+	case "LivingWikiJobResult.status":
+		if e.complexity.LivingWikiJobResult.Status == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiJobResult.Status(childComplexity), true
+
 	case "LivingWikiSettings.confluenceEmail":
 		if e.complexity.LivingWikiSettings.ConfluenceEmail == nil {
 			break
@@ -4102,6 +4256,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Mutation.DetectContractsResult(childComplexity, args["repoId"].(string)), true
 
+	case "Mutation.disableLivingWikiForRepo":
+		if e.complexity.Mutation.DisableLivingWikiForRepo == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_disableLivingWikiForRepo_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.DisableLivingWikiForRepo(childComplexity, args["repositoryId"].(string)), true
+
 	case "Mutation.discussCode":
 		if e.complexity.Mutation.DiscussCode == nil {
 			break
@@ -4149,6 +4315,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.EmptyTrash(childComplexity, args["repositoryId"].(string), args["olderThanDays"].(*int)), true
+
+	case "Mutation.enableLivingWikiForRepo":
+		if e.complexity.Mutation.EnableLivingWikiForRepo == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_enableLivingWikiForRepo_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.EnableLivingWikiForRepo(childComplexity, args["input"].(EnableLivingWikiForRepoInput)), true
 
 	case "Mutation.enrichRequirement":
 		if e.complexity.Mutation.EnrichRequirement == nil {
@@ -4485,6 +4663,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.UpdateRepositoryKnowledgeSettings(childComplexity, args["input"].(UpdateRepositoryKnowledgeSettingsInput)), true
+
+	case "Mutation.updateRepositoryLivingWikiSettings":
+		if e.complexity.Mutation.UpdateRepositoryLivingWikiSettings == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateRepositoryLivingWikiSettings_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.UpdateRepositoryLivingWikiSettings(childComplexity, args["input"].(UpdateRepositoryLivingWikiSettingsInput)), true
 
 	case "Mutation.updateRequirementFields":
 		if e.complexity.Mutation.UpdateRequirementFields == nil {
@@ -4871,6 +5061,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Query.Repositories(childComplexity), true
 
+	case "Query.repositoriesUsingSink":
+		if e.complexity.Query.RepositoriesUsingSink == nil {
+			break
+		}
+
+		args, err := ec.field_Query_repositoriesUsingSink_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.RepositoriesUsingSink(childComplexity, args["integrationName"].(string)), true
+
 	case "Query.repository":
 		if e.complexity.Query.Repository == nil {
 			break
@@ -4882,6 +5084,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.Repository(childComplexity, args["id"].(string)), true
+
+	case "Query.repositoryLivingWikiSettings":
+		if e.complexity.Query.RepositoryLivingWikiSettings == nil {
+			break
+		}
+
+		args, err := ec.field_Query_repositoryLivingWikiSettings_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.RepositoryLivingWikiSettings(childComplexity, args["repositoryId"].(string)), true
 
 	case "Query.repositoryUnderstanding":
 		if e.complexity.Query.RepositoryUnderstanding == nil {
@@ -5100,6 +5314,34 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.RepoLink.TargetRepoID(childComplexity), true
 
+	case "RepoWikiSink.audience":
+		if e.complexity.RepoWikiSink.Audience == nil {
+			break
+		}
+
+		return e.complexity.RepoWikiSink.Audience(childComplexity), true
+
+	case "RepoWikiSink.editPolicy":
+		if e.complexity.RepoWikiSink.EditPolicy == nil {
+			break
+		}
+
+		return e.complexity.RepoWikiSink.EditPolicy(childComplexity), true
+
+	case "RepoWikiSink.integrationName":
+		if e.complexity.RepoWikiSink.IntegrationName == nil {
+			break
+		}
+
+		return e.complexity.RepoWikiSink.IntegrationName(childComplexity), true
+
+	case "RepoWikiSink.kind":
+		if e.complexity.RepoWikiSink.Kind == nil {
+			break
+		}
+
+		return e.complexity.RepoWikiSink.Kind(childComplexity), true
+
 	case "Repository.branch":
 		if e.complexity.Repository.Branch == nil {
 			break
@@ -5182,6 +5424,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Repository.LastIndexedAt(childComplexity), true
 
+	case "Repository.livingWikiSettings":
+		if e.complexity.Repository.LivingWikiSettings == nil {
+			break
+		}
+
+		return e.complexity.Repository.LivingWikiSettings(childComplexity), true
+
 	case "Repository.modules":
 		if e.complexity.Repository.Modules == nil {
 			break
@@ -5249,6 +5498,76 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Repository.UpstreamStatus(childComplexity), true
+
+	case "RepositoryLivingWikiSettings.enabled":
+		if e.complexity.RepositoryLivingWikiSettings.Enabled == nil {
+			break
+		}
+
+		return e.complexity.RepositoryLivingWikiSettings.Enabled(childComplexity), true
+
+	case "RepositoryLivingWikiSettings.excludePaths":
+		if e.complexity.RepositoryLivingWikiSettings.ExcludePaths == nil {
+			break
+		}
+
+		return e.complexity.RepositoryLivingWikiSettings.ExcludePaths(childComplexity), true
+
+	case "RepositoryLivingWikiSettings.lastJobResult":
+		if e.complexity.RepositoryLivingWikiSettings.LastJobResult == nil {
+			break
+		}
+
+		return e.complexity.RepositoryLivingWikiSettings.LastJobResult(childComplexity), true
+
+	case "RepositoryLivingWikiSettings.lastRunAt":
+		if e.complexity.RepositoryLivingWikiSettings.LastRunAt == nil {
+			break
+		}
+
+		return e.complexity.RepositoryLivingWikiSettings.LastRunAt(childComplexity), true
+
+	case "RepositoryLivingWikiSettings.maxPagesPerJob":
+		if e.complexity.RepositoryLivingWikiSettings.MaxPagesPerJob == nil {
+			break
+		}
+
+		return e.complexity.RepositoryLivingWikiSettings.MaxPagesPerJob(childComplexity), true
+
+	case "RepositoryLivingWikiSettings.mode":
+		if e.complexity.RepositoryLivingWikiSettings.Mode == nil {
+			break
+		}
+
+		return e.complexity.RepositoryLivingWikiSettings.Mode(childComplexity), true
+
+	case "RepositoryLivingWikiSettings.sinks":
+		if e.complexity.RepositoryLivingWikiSettings.Sinks == nil {
+			break
+		}
+
+		return e.complexity.RepositoryLivingWikiSettings.Sinks(childComplexity), true
+
+	case "RepositoryLivingWikiSettings.staleWhenStrategy":
+		if e.complexity.RepositoryLivingWikiSettings.StaleWhenStrategy == nil {
+			break
+		}
+
+		return e.complexity.RepositoryLivingWikiSettings.StaleWhenStrategy(childComplexity), true
+
+	case "RepositoryLivingWikiSettings.updatedAt":
+		if e.complexity.RepositoryLivingWikiSettings.UpdatedAt == nil {
+			break
+		}
+
+		return e.complexity.RepositoryLivingWikiSettings.UpdatedAt(childComplexity), true
+
+	case "RepositoryLivingWikiSettings.updatedBy":
+		if e.complexity.RepositoryLivingWikiSettings.UpdatedBy == nil {
+			break
+		}
+
+		return e.complexity.RepositoryLivingWikiSettings.UpdatedBy(childComplexity), true
 
 	case "RepositoryUnderstanding.cachedNodes":
 		if e.complexity.RepositoryUnderstanding.CachedNodes == nil {
@@ -6426,6 +6745,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputCreateManualLinkInput,
 		ec.unmarshalInputCreateRequirementInput,
 		ec.unmarshalInputDiscussCodeInput,
+		ec.unmarshalInputEnableLivingWikiForRepoInput,
 		ec.unmarshalInputExecutionPathInput,
 		ec.unmarshalInputExplainSystemInput,
 		ec.unmarshalInputGenerateArchitectureDiagramInput,
@@ -6434,6 +6754,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputGenerateLearningPathInput,
 		ec.unmarshalInputGenerateWorkflowStoryInput,
 		ec.unmarshalInputImportRequirementsInput,
+		ec.unmarshalInputRepoWikiSinkInput,
 		ec.unmarshalInputReviewCodeInput,
 		ec.unmarshalInputSimulateChangeInput,
 		ec.unmarshalInputTriggerSpecExtractionInput,
@@ -6441,6 +6762,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputUpdateLivingWikiSettingsInput,
 		ec.unmarshalInputUpdateModelCapabilitiesInput,
 		ec.unmarshalInputUpdateRepositoryKnowledgeSettingsInput,
+		ec.unmarshalInputUpdateRepositoryLivingWikiSettingsInput,
 		ec.unmarshalInputUpdateRequirementFieldsInput,
 	)
 	first := true
@@ -6912,6 +7234,34 @@ func (ec *executionContext) field_Mutation_detectContracts_argsRepoID(
 	return zeroVal, nil
 }
 
+func (ec *executionContext) field_Mutation_disableLivingWikiForRepo_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_disableLivingWikiForRepo_argsRepositoryID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["repositoryId"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_disableLivingWikiForRepo_argsRepositoryID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["repositoryId"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("repositoryId"))
+	if tmp, ok := rawArgs["repositoryId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Mutation_discussCode_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -7067,6 +7417,34 @@ func (ec *executionContext) field_Mutation_emptyTrash_argsOlderThanDays(
 	}
 
 	var zeroVal *int
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_enableLivingWikiForRepo_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_enableLivingWikiForRepo_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_enableLivingWikiForRepo_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (EnableLivingWikiForRepoInput, error) {
+	if _, ok := rawArgs["input"]; !ok {
+		var zeroVal EnableLivingWikiForRepoInput
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNEnableLivingWikiForRepoInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐEnableLivingWikiForRepoInput(ctx, tmp)
+	}
+
+	var zeroVal EnableLivingWikiForRepoInput
 	return zeroVal, nil
 }
 
@@ -8104,6 +8482,34 @@ func (ec *executionContext) field_Mutation_updateRepositoryKnowledgeSettings_arg
 	}
 
 	var zeroVal UpdateRepositoryKnowledgeSettingsInput
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateRepositoryLivingWikiSettings_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_updateRepositoryLivingWikiSettings_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_updateRepositoryLivingWikiSettings_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (UpdateRepositoryLivingWikiSettingsInput, error) {
+	if _, ok := rawArgs["input"]; !ok {
+		var zeroVal UpdateRepositoryLivingWikiSettingsInput
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNUpdateRepositoryLivingWikiSettingsInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpdateRepositoryLivingWikiSettingsInput(ctx, tmp)
+	}
+
+	var zeroVal UpdateRepositoryLivingWikiSettingsInput
 	return zeroVal, nil
 }
 
@@ -9245,6 +9651,62 @@ func (ec *executionContext) field_Query_repoLinks_argsRepoID(
 
 	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("repoId"))
 	if tmp, ok := rawArgs["repoId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_repositoriesUsingSink_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_repositoriesUsingSink_argsIntegrationName(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["integrationName"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_repositoriesUsingSink_argsIntegrationName(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["integrationName"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("integrationName"))
+	if tmp, ok := rawArgs["integrationName"]; ok {
+		return ec.unmarshalNString2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_repositoryLivingWikiSettings_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_repositoryLivingWikiSettings_argsRepositoryID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["repositoryId"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_repositoryLivingWikiSettings_argsRepositoryID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	if _, ok := rawArgs["repositoryId"]; !ok {
+		var zeroVal string
+		return zeroVal, nil
+	}
+
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("repositoryId"))
+	if tmp, ok := rawArgs["repositoryId"]; ok {
 		return ec.unmarshalNID2string(ctx, tmp)
 	}
 
@@ -18581,6 +19043,154 @@ func (ec *executionContext) fieldContext_EffectiveComprehensionSettings_inherite
 	return fc, nil
 }
 
+func (ec *executionContext) _EnableLivingWikiResult_settings(ctx context.Context, field graphql.CollectedField, obj *EnableLivingWikiResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_EnableLivingWikiResult_settings(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Settings, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*RepositoryLivingWikiSettings)
+	fc.Result = res
+	return ec.marshalNRepositoryLivingWikiSettings2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryLivingWikiSettings(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_EnableLivingWikiResult_settings(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EnableLivingWikiResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "enabled":
+				return ec.fieldContext_RepositoryLivingWikiSettings_enabled(ctx, field)
+			case "mode":
+				return ec.fieldContext_RepositoryLivingWikiSettings_mode(ctx, field)
+			case "sinks":
+				return ec.fieldContext_RepositoryLivingWikiSettings_sinks(ctx, field)
+			case "excludePaths":
+				return ec.fieldContext_RepositoryLivingWikiSettings_excludePaths(ctx, field)
+			case "staleWhenStrategy":
+				return ec.fieldContext_RepositoryLivingWikiSettings_staleWhenStrategy(ctx, field)
+			case "maxPagesPerJob":
+				return ec.fieldContext_RepositoryLivingWikiSettings_maxPagesPerJob(ctx, field)
+			case "lastRunAt":
+				return ec.fieldContext_RepositoryLivingWikiSettings_lastRunAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_RepositoryLivingWikiSettings_updatedAt(ctx, field)
+			case "updatedBy":
+				return ec.fieldContext_RepositoryLivingWikiSettings_updatedBy(ctx, field)
+			case "lastJobResult":
+				return ec.fieldContext_RepositoryLivingWikiSettings_lastJobResult(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RepositoryLivingWikiSettings", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EnableLivingWikiResult_jobId(ctx context.Context, field graphql.CollectedField, obj *EnableLivingWikiResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_EnableLivingWikiResult_jobId(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.JobID, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_EnableLivingWikiResult_jobId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EnableLivingWikiResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EnableLivingWikiResult_notice(ctx context.Context, field graphql.CollectedField, obj *EnableLivingWikiResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_EnableLivingWikiResult_notice(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Notice, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_EnableLivingWikiResult_notice(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EnableLivingWikiResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ExecutionEntryPoint_kind(ctx context.Context, field graphql.CollectedField, obj *ExecutionEntryPoint) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_ExecutionEntryPoint_kind(ctx, field)
 	if err != nil {
@@ -27014,6 +27624,484 @@ func (ec *executionContext) fieldContext_LivingWikiConnectionTestResult_message(
 	return fc, nil
 }
 
+func (ec *executionContext) _LivingWikiJobResult_jobId(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_jobId(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.JobID, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_jobId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LivingWikiJobResult_startedAt(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_startedAt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.StartedAt, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(time.Time)
+	fc.Result = res
+	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_startedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LivingWikiJobResult_completedAt(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_completedAt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.CompletedAt, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*time.Time)
+	fc.Result = res
+	return ec.marshalOTime2ᚖtimeᚐTime(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_completedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LivingWikiJobResult_pagesPlanned(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_pagesPlanned(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PagesPlanned, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_pagesPlanned(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LivingWikiJobResult_pagesGenerated(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_pagesGenerated(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PagesGenerated, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_pagesGenerated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LivingWikiJobResult_pagesExcluded(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_pagesExcluded(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PagesExcluded, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_pagesExcluded(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LivingWikiJobResult_excludedPageIds(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_excludedPageIds(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ExcludedPageIds, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_excludedPageIds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LivingWikiJobResult_generatedPageTitles(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_generatedPageTitles(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.GeneratedPageTitles, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_generatedPageTitles(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LivingWikiJobResult_exclusionReasons(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_exclusionReasons(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ExclusionReasons, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_exclusionReasons(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LivingWikiJobResult_status(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_status(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Status, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LivingWikiJobResult_errorMessage(ctx context.Context, field graphql.CollectedField, obj *LivingWikiJobResult) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiJobResult_errorMessage(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ErrorMessage, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiJobResult_errorMessage(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiJobResult",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _LivingWikiSettings_enabled(ctx context.Context, field graphql.CollectedField, obj *LivingWikiSettings) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_LivingWikiSettings_enabled(ctx, field)
 	if err != nil {
@@ -28491,6 +29579,8 @@ func (ec *executionContext) fieldContext_Mutation_addRepository(ctx context.Cont
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
 			case "upstreamStatus":
 				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
+			case "livingWikiSettings":
+				return ec.fieldContext_Repository_livingWikiSettings(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -28704,6 +29794,8 @@ func (ec *executionContext) fieldContext_Mutation_reindexRepository(ctx context.
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
 			case "upstreamStatus":
 				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
+			case "livingWikiSettings":
+				return ec.fieldContext_Repository_livingWikiSettings(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -28892,6 +29984,8 @@ func (ec *executionContext) fieldContext_Mutation_updateRepositoryKnowledgeSetti
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
 			case "upstreamStatus":
 				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
+			case "livingWikiSettings":
+				return ec.fieldContext_Repository_livingWikiSettings(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -31565,6 +32659,223 @@ func (ec *executionContext) fieldContext_Mutation_testLivingWikiConnection(ctx c
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_updateRepositoryLivingWikiSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_updateRepositoryLivingWikiSettings(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().UpdateRepositoryLivingWikiSettings(rctx, fc.Args["input"].(UpdateRepositoryLivingWikiSettingsInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*RepositoryLivingWikiSettings)
+	fc.Result = res
+	return ec.marshalNRepositoryLivingWikiSettings2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryLivingWikiSettings(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_updateRepositoryLivingWikiSettings(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "enabled":
+				return ec.fieldContext_RepositoryLivingWikiSettings_enabled(ctx, field)
+			case "mode":
+				return ec.fieldContext_RepositoryLivingWikiSettings_mode(ctx, field)
+			case "sinks":
+				return ec.fieldContext_RepositoryLivingWikiSettings_sinks(ctx, field)
+			case "excludePaths":
+				return ec.fieldContext_RepositoryLivingWikiSettings_excludePaths(ctx, field)
+			case "staleWhenStrategy":
+				return ec.fieldContext_RepositoryLivingWikiSettings_staleWhenStrategy(ctx, field)
+			case "maxPagesPerJob":
+				return ec.fieldContext_RepositoryLivingWikiSettings_maxPagesPerJob(ctx, field)
+			case "lastRunAt":
+				return ec.fieldContext_RepositoryLivingWikiSettings_lastRunAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_RepositoryLivingWikiSettings_updatedAt(ctx, field)
+			case "updatedBy":
+				return ec.fieldContext_RepositoryLivingWikiSettings_updatedBy(ctx, field)
+			case "lastJobResult":
+				return ec.fieldContext_RepositoryLivingWikiSettings_lastJobResult(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RepositoryLivingWikiSettings", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateRepositoryLivingWikiSettings_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_enableLivingWikiForRepo(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_enableLivingWikiForRepo(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().EnableLivingWikiForRepo(rctx, fc.Args["input"].(EnableLivingWikiForRepoInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*EnableLivingWikiResult)
+	fc.Result = res
+	return ec.marshalNEnableLivingWikiResult2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐEnableLivingWikiResult(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_enableLivingWikiForRepo(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "settings":
+				return ec.fieldContext_EnableLivingWikiResult_settings(ctx, field)
+			case "jobId":
+				return ec.fieldContext_EnableLivingWikiResult_jobId(ctx, field)
+			case "notice":
+				return ec.fieldContext_EnableLivingWikiResult_notice(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EnableLivingWikiResult", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_enableLivingWikiForRepo_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_disableLivingWikiForRepo(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_disableLivingWikiForRepo(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().DisableLivingWikiForRepo(rctx, fc.Args["repositoryId"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*RepositoryLivingWikiSettings)
+	fc.Result = res
+	return ec.marshalNRepositoryLivingWikiSettings2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryLivingWikiSettings(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_disableLivingWikiForRepo(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "enabled":
+				return ec.fieldContext_RepositoryLivingWikiSettings_enabled(ctx, field)
+			case "mode":
+				return ec.fieldContext_RepositoryLivingWikiSettings_mode(ctx, field)
+			case "sinks":
+				return ec.fieldContext_RepositoryLivingWikiSettings_sinks(ctx, field)
+			case "excludePaths":
+				return ec.fieldContext_RepositoryLivingWikiSettings_excludePaths(ctx, field)
+			case "staleWhenStrategy":
+				return ec.fieldContext_RepositoryLivingWikiSettings_staleWhenStrategy(ctx, field)
+			case "maxPagesPerJob":
+				return ec.fieldContext_RepositoryLivingWikiSettings_maxPagesPerJob(ctx, field)
+			case "lastRunAt":
+				return ec.fieldContext_RepositoryLivingWikiSettings_lastRunAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_RepositoryLivingWikiSettings_updatedAt(ctx, field)
+			case "updatedBy":
+				return ec.fieldContext_RepositoryLivingWikiSettings_updatedBy(ctx, field)
+			case "lastJobResult":
+				return ec.fieldContext_RepositoryLivingWikiSettings_lastJobResult(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RepositoryLivingWikiSettings", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_disableLivingWikiForRepo_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_moveToTrash(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Mutation_moveToTrash(ctx, field)
 	if err != nil {
@@ -32695,6 +34006,8 @@ func (ec *executionContext) fieldContext_Query_repositories(_ context.Context, f
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
 			case "upstreamStatus":
 				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
+			case "livingWikiSettings":
+				return ec.fieldContext_Repository_livingWikiSettings(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -32778,6 +34091,8 @@ func (ec *executionContext) fieldContext_Query_repository(ctx context.Context, f
 				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
 			case "upstreamStatus":
 				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
+			case "livingWikiSettings":
+				return ec.fieldContext_Repository_livingWikiSettings(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
 		},
@@ -35593,6 +36908,179 @@ func (ec *executionContext) fieldContext_Query_livingWikiSettings(_ context.Cont
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_repositoryLivingWikiSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_repositoryLivingWikiSettings(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().RepositoryLivingWikiSettings(rctx, fc.Args["repositoryId"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*RepositoryLivingWikiSettings)
+	fc.Result = res
+	return ec.marshalORepositoryLivingWikiSettings2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryLivingWikiSettings(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_repositoryLivingWikiSettings(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "enabled":
+				return ec.fieldContext_RepositoryLivingWikiSettings_enabled(ctx, field)
+			case "mode":
+				return ec.fieldContext_RepositoryLivingWikiSettings_mode(ctx, field)
+			case "sinks":
+				return ec.fieldContext_RepositoryLivingWikiSettings_sinks(ctx, field)
+			case "excludePaths":
+				return ec.fieldContext_RepositoryLivingWikiSettings_excludePaths(ctx, field)
+			case "staleWhenStrategy":
+				return ec.fieldContext_RepositoryLivingWikiSettings_staleWhenStrategy(ctx, field)
+			case "maxPagesPerJob":
+				return ec.fieldContext_RepositoryLivingWikiSettings_maxPagesPerJob(ctx, field)
+			case "lastRunAt":
+				return ec.fieldContext_RepositoryLivingWikiSettings_lastRunAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_RepositoryLivingWikiSettings_updatedAt(ctx, field)
+			case "updatedBy":
+				return ec.fieldContext_RepositoryLivingWikiSettings_updatedBy(ctx, field)
+			case "lastJobResult":
+				return ec.fieldContext_RepositoryLivingWikiSettings_lastJobResult(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RepositoryLivingWikiSettings", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_repositoryLivingWikiSettings_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_repositoriesUsingSink(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_repositoriesUsingSink(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().RepositoriesUsingSink(rctx, fc.Args["integrationName"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*Repository)
+	fc.Result = res
+	return ec.marshalNRepository2ᚕᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_repositoriesUsingSink(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Repository_id(ctx, field)
+			case "name":
+				return ec.fieldContext_Repository_name(ctx, field)
+			case "path":
+				return ec.fieldContext_Repository_path(ctx, field)
+			case "remoteUrl":
+				return ec.fieldContext_Repository_remoteUrl(ctx, field)
+			case "commitSha":
+				return ec.fieldContext_Repository_commitSha(ctx, field)
+			case "branch":
+				return ec.fieldContext_Repository_branch(ctx, field)
+			case "generationModeDefault":
+				return ec.fieldContext_Repository_generationModeDefault(ctx, field)
+			case "hasAuth":
+				return ec.fieldContext_Repository_hasAuth(ctx, field)
+			case "status":
+				return ec.fieldContext_Repository_status(ctx, field)
+			case "fileCount":
+				return ec.fieldContext_Repository_fileCount(ctx, field)
+			case "functionCount":
+				return ec.fieldContext_Repository_functionCount(ctx, field)
+			case "classCount":
+				return ec.fieldContext_Repository_classCount(ctx, field)
+			case "requirementCount":
+				return ec.fieldContext_Repository_requirementCount(ctx, field)
+			case "lastIndexedAt":
+				return ec.fieldContext_Repository_lastIndexedAt(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Repository_createdAt(ctx, field)
+			case "files":
+				return ec.fieldContext_Repository_files(ctx, field)
+			case "modules":
+				return ec.fieldContext_Repository_modules(ctx, field)
+			case "understandingScore":
+				return ec.fieldContext_Repository_understandingScore(ctx, field)
+			case "repositoryUnderstanding":
+				return ec.fieldContext_Repository_repositoryUnderstanding(ctx, field)
+			case "upstreamStatus":
+				return ec.fieldContext_Repository_upstreamStatus(ctx, field)
+			case "livingWikiSettings":
+				return ec.fieldContext_Repository_livingWikiSettings(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Repository", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_repositoriesUsingSink_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query___type(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Query___type(ctx, field)
 	if err != nil {
@@ -35939,6 +37427,182 @@ func (ec *executionContext) fieldContext_RepoLink_createdAt(_ context.Context, f
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepoWikiSink_kind(ctx context.Context, field graphql.CollectedField, obj *RepoWikiSink) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepoWikiSink_kind(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Kind, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(RepoWikiSinkKind)
+	fc.Result = res
+	return ec.marshalNRepoWikiSinkKind2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkKind(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepoWikiSink_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepoWikiSink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type RepoWikiSinkKind does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepoWikiSink_integrationName(ctx context.Context, field graphql.CollectedField, obj *RepoWikiSink) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepoWikiSink_integrationName(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.IntegrationName, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepoWikiSink_integrationName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepoWikiSink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepoWikiSink_audience(ctx context.Context, field graphql.CollectedField, obj *RepoWikiSink) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepoWikiSink_audience(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Audience, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(RepoWikiAudience)
+	fc.Result = res
+	return ec.marshalNRepoWikiAudience2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiAudience(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepoWikiSink_audience(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepoWikiSink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type RepoWikiAudience does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepoWikiSink_editPolicy(ctx context.Context, field graphql.CollectedField, obj *RepoWikiSink) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepoWikiSink_editPolicy(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.EditPolicy, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(RepoWikiEditPolicy)
+	fc.Result = res
+	return ec.marshalNRepoWikiEditPolicy2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiEditPolicy(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepoWikiSink_editPolicy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepoWikiSink",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type RepoWikiEditPolicy does not have child fields")
 		},
 	}
 	return fc, nil
@@ -36899,6 +38563,531 @@ func (ec *executionContext) fieldContext_Repository_upstreamStatus(_ context.Con
 				return ec.fieldContext_RepositoryUpstreamStatus_errorMessage(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type RepositoryUpstreamStatus", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Repository_livingWikiSettings(ctx context.Context, field graphql.CollectedField, obj *Repository) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Repository_livingWikiSettings(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Repository().LivingWikiSettings(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*RepositoryLivingWikiSettings)
+	fc.Result = res
+	return ec.marshalORepositoryLivingWikiSettings2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryLivingWikiSettings(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Repository_livingWikiSettings(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Repository",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "enabled":
+				return ec.fieldContext_RepositoryLivingWikiSettings_enabled(ctx, field)
+			case "mode":
+				return ec.fieldContext_RepositoryLivingWikiSettings_mode(ctx, field)
+			case "sinks":
+				return ec.fieldContext_RepositoryLivingWikiSettings_sinks(ctx, field)
+			case "excludePaths":
+				return ec.fieldContext_RepositoryLivingWikiSettings_excludePaths(ctx, field)
+			case "staleWhenStrategy":
+				return ec.fieldContext_RepositoryLivingWikiSettings_staleWhenStrategy(ctx, field)
+			case "maxPagesPerJob":
+				return ec.fieldContext_RepositoryLivingWikiSettings_maxPagesPerJob(ctx, field)
+			case "lastRunAt":
+				return ec.fieldContext_RepositoryLivingWikiSettings_lastRunAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_RepositoryLivingWikiSettings_updatedAt(ctx, field)
+			case "updatedBy":
+				return ec.fieldContext_RepositoryLivingWikiSettings_updatedBy(ctx, field)
+			case "lastJobResult":
+				return ec.fieldContext_RepositoryLivingWikiSettings_lastJobResult(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RepositoryLivingWikiSettings", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings_enabled(ctx context.Context, field graphql.CollectedField, obj *RepositoryLivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryLivingWikiSettings_enabled(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Enabled, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryLivingWikiSettings_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryLivingWikiSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings_mode(ctx context.Context, field graphql.CollectedField, obj *RepositoryLivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryLivingWikiSettings_mode(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Mode, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(RepoWikiMode)
+	fc.Result = res
+	return ec.marshalNRepoWikiMode2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiMode(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryLivingWikiSettings_mode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryLivingWikiSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type RepoWikiMode does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings_sinks(ctx context.Context, field graphql.CollectedField, obj *RepositoryLivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryLivingWikiSettings_sinks(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Sinks, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*RepoWikiSink)
+	fc.Result = res
+	return ec.marshalNRepoWikiSink2ᚕᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryLivingWikiSettings_sinks(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryLivingWikiSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "kind":
+				return ec.fieldContext_RepoWikiSink_kind(ctx, field)
+			case "integrationName":
+				return ec.fieldContext_RepoWikiSink_integrationName(ctx, field)
+			case "audience":
+				return ec.fieldContext_RepoWikiSink_audience(ctx, field)
+			case "editPolicy":
+				return ec.fieldContext_RepoWikiSink_editPolicy(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RepoWikiSink", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings_excludePaths(ctx context.Context, field graphql.CollectedField, obj *RepositoryLivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryLivingWikiSettings_excludePaths(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ExcludePaths, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryLivingWikiSettings_excludePaths(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryLivingWikiSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings_staleWhenStrategy(ctx context.Context, field graphql.CollectedField, obj *RepositoryLivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryLivingWikiSettings_staleWhenStrategy(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.StaleWhenStrategy, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(RepoStaleWhenStrategy)
+	fc.Result = res
+	return ec.marshalNRepoStaleWhenStrategy2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoStaleWhenStrategy(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryLivingWikiSettings_staleWhenStrategy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryLivingWikiSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type RepoStaleWhenStrategy does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings_maxPagesPerJob(ctx context.Context, field graphql.CollectedField, obj *RepositoryLivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryLivingWikiSettings_maxPagesPerJob(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.MaxPagesPerJob, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int)
+	fc.Result = res
+	return ec.marshalNInt2int(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryLivingWikiSettings_maxPagesPerJob(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryLivingWikiSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings_lastRunAt(ctx context.Context, field graphql.CollectedField, obj *RepositoryLivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryLivingWikiSettings_lastRunAt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.LastRunAt, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*time.Time)
+	fc.Result = res
+	return ec.marshalOTime2ᚖtimeᚐTime(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryLivingWikiSettings_lastRunAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryLivingWikiSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings_updatedAt(ctx context.Context, field graphql.CollectedField, obj *RepositoryLivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryLivingWikiSettings_updatedAt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.UpdatedAt, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*time.Time)
+	fc.Result = res
+	return ec.marshalOTime2ᚖtimeᚐTime(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryLivingWikiSettings_updatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryLivingWikiSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings_updatedBy(ctx context.Context, field graphql.CollectedField, obj *RepositoryLivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryLivingWikiSettings_updatedBy(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.UpdatedBy, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryLivingWikiSettings_updatedBy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryLivingWikiSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings_lastJobResult(ctx context.Context, field graphql.CollectedField, obj *RepositoryLivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_RepositoryLivingWikiSettings_lastJobResult(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.RepositoryLivingWikiSettings().LastJobResult(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*LivingWikiJobResult)
+	fc.Result = res
+	return ec.marshalOLivingWikiJobResult2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐLivingWikiJobResult(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_RepositoryLivingWikiSettings_lastJobResult(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RepositoryLivingWikiSettings",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "jobId":
+				return ec.fieldContext_LivingWikiJobResult_jobId(ctx, field)
+			case "startedAt":
+				return ec.fieldContext_LivingWikiJobResult_startedAt(ctx, field)
+			case "completedAt":
+				return ec.fieldContext_LivingWikiJobResult_completedAt(ctx, field)
+			case "pagesPlanned":
+				return ec.fieldContext_LivingWikiJobResult_pagesPlanned(ctx, field)
+			case "pagesGenerated":
+				return ec.fieldContext_LivingWikiJobResult_pagesGenerated(ctx, field)
+			case "pagesExcluded":
+				return ec.fieldContext_LivingWikiJobResult_pagesExcluded(ctx, field)
+			case "excludedPageIds":
+				return ec.fieldContext_LivingWikiJobResult_excludedPageIds(ctx, field)
+			case "generatedPageTitles":
+				return ec.fieldContext_LivingWikiJobResult_generatedPageTitles(ctx, field)
+			case "exclusionReasons":
+				return ec.fieldContext_LivingWikiJobResult_exclusionReasons(ctx, field)
+			case "status":
+				return ec.fieldContext_LivingWikiJobResult_status(ctx, field)
+			case "errorMessage":
+				return ec.fieldContext_LivingWikiJobResult_errorMessage(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type LivingWikiJobResult", field.Name)
 		},
 	}
 	return fc, nil
@@ -46728,6 +48917,54 @@ func (ec *executionContext) unmarshalInputDiscussCodeInput(ctx context.Context, 
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputEnableLivingWikiForRepoInput(ctx context.Context, obj any) (EnableLivingWikiForRepoInput, error) {
+	var it EnableLivingWikiForRepoInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"repositoryId", "mode", "sinks", "retryExcludedOnly"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "repositoryId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("repositoryId"))
+			data, err := ec.unmarshalNID2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RepositoryID = data
+		case "mode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("mode"))
+			data, err := ec.unmarshalNRepoWikiMode2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Mode = data
+		case "sinks":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sinks"))
+			data, err := ec.unmarshalNRepoWikiSinkInput2ᚕᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Sinks = data
+		case "retryExcludedOnly":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("retryExcludedOnly"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RetryExcludedOnly = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputExecutionPathInput(ctx context.Context, obj any) (ExecutionPathInput, error) {
 	var it ExecutionPathInput
 	asMap := map[string]any{}
@@ -47176,6 +49413,54 @@ func (ec *executionContext) unmarshalInputImportRequirementsInput(ctx context.Co
 				return it, err
 			}
 			it.SourcePath = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputRepoWikiSinkInput(ctx context.Context, obj any) (RepoWikiSinkInput, error) {
+	var it RepoWikiSinkInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"kind", "integrationName", "audience", "editPolicy"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "kind":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("kind"))
+			data, err := ec.unmarshalNRepoWikiSinkKind2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkKind(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Kind = data
+		case "integrationName":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("integrationName"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.IntegrationName = data
+		case "audience":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("audience"))
+			data, err := ec.unmarshalNRepoWikiAudience2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiAudience(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Audience = data
+		case "editPolicy":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("editPolicy"))
+			data, err := ec.unmarshalORepoWikiEditPolicy2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiEditPolicy(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.EditPolicy = data
 		}
 	}
 
@@ -47652,6 +49937,75 @@ func (ec *executionContext) unmarshalInputUpdateRepositoryKnowledgeSettingsInput
 				return it, err
 			}
 			it.GenerationModeDefault = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputUpdateRepositoryLivingWikiSettingsInput(ctx context.Context, obj any) (UpdateRepositoryLivingWikiSettingsInput, error) {
+	var it UpdateRepositoryLivingWikiSettingsInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"repositoryId", "enabled", "mode", "sinks", "excludePaths", "staleWhenStrategy", "maxPagesPerJob"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "repositoryId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("repositoryId"))
+			data, err := ec.unmarshalNID2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RepositoryID = data
+		case "enabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("enabled"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Enabled = data
+		case "mode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("mode"))
+			data, err := ec.unmarshalORepoWikiMode2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiMode(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Mode = data
+		case "sinks":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sinks"))
+			data, err := ec.unmarshalORepoWikiSinkInput2ᚕᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Sinks = data
+		case "excludePaths":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("excludePaths"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExcludePaths = data
+		case "staleWhenStrategy":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("staleWhenStrategy"))
+			data, err := ec.unmarshalORepoStaleWhenStrategy2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoStaleWhenStrategy(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StaleWhenStrategy = data
+		case "maxPagesPerJob":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxPagesPerJob"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxPagesPerJob = data
 		}
 	}
 
@@ -49386,6 +51740,49 @@ func (ec *executionContext) _EffectiveComprehensionSettings(ctx context.Context,
 	return out
 }
 
+var enableLivingWikiResultImplementors = []string{"EnableLivingWikiResult"}
+
+func (ec *executionContext) _EnableLivingWikiResult(ctx context.Context, sel ast.SelectionSet, obj *EnableLivingWikiResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, enableLivingWikiResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EnableLivingWikiResult")
+		case "settings":
+			out.Values[i] = ec._EnableLivingWikiResult_settings(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "jobId":
+			out.Values[i] = ec._EnableLivingWikiResult_jobId(ctx, field, obj)
+		case "notice":
+			out.Values[i] = ec._EnableLivingWikiResult_notice(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var executionEntryPointImplementors = []string{"ExecutionEntryPoint"}
 
 func (ec *executionContext) _ExecutionEntryPoint(ctx context.Context, sel ast.SelectionSet, obj *ExecutionEntryPoint) graphql.Marshaler {
@@ -50973,6 +53370,89 @@ func (ec *executionContext) _LivingWikiConnectionTestResult(ctx context.Context,
 	return out
 }
 
+var livingWikiJobResultImplementors = []string{"LivingWikiJobResult"}
+
+func (ec *executionContext) _LivingWikiJobResult(ctx context.Context, sel ast.SelectionSet, obj *LivingWikiJobResult) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, livingWikiJobResultImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LivingWikiJobResult")
+		case "jobId":
+			out.Values[i] = ec._LivingWikiJobResult_jobId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "startedAt":
+			out.Values[i] = ec._LivingWikiJobResult_startedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "completedAt":
+			out.Values[i] = ec._LivingWikiJobResult_completedAt(ctx, field, obj)
+		case "pagesPlanned":
+			out.Values[i] = ec._LivingWikiJobResult_pagesPlanned(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pagesGenerated":
+			out.Values[i] = ec._LivingWikiJobResult_pagesGenerated(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pagesExcluded":
+			out.Values[i] = ec._LivingWikiJobResult_pagesExcluded(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "excludedPageIds":
+			out.Values[i] = ec._LivingWikiJobResult_excludedPageIds(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "generatedPageTitles":
+			out.Values[i] = ec._LivingWikiJobResult_generatedPageTitles(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "exclusionReasons":
+			out.Values[i] = ec._LivingWikiJobResult_exclusionReasons(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "status":
+			out.Values[i] = ec._LivingWikiJobResult_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "errorMessage":
+			out.Values[i] = ec._LivingWikiJobResult_errorMessage(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var livingWikiSettingsImplementors = []string{"LivingWikiSettings"}
 
 func (ec *executionContext) _LivingWikiSettings(ctx context.Context, sel ast.SelectionSet, obj *LivingWikiSettings) graphql.Marshaler {
@@ -51488,6 +53968,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "testLivingWikiConnection":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_testLivingWikiConnection(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateRepositoryLivingWikiSettings":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateRepositoryLivingWikiSettings(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "enableLivingWikiForRepo":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_enableLivingWikiForRepo(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "disableLivingWikiForRepo":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_disableLivingWikiForRepo(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -52657,6 +55158,47 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "repositoryLivingWikiSettings":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_repositoryLivingWikiSettings(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "repositoriesUsingSink":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_repositoriesUsingSink(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -52721,6 +55263,60 @@ func (ec *executionContext) _RepoLink(ctx context.Context, sel ast.SelectionSet,
 			}
 		case "createdAt":
 			out.Values[i] = ec._RepoLink_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var repoWikiSinkImplementors = []string{"RepoWikiSink"}
+
+func (ec *executionContext) _RepoWikiSink(ctx context.Context, sel ast.SelectionSet, obj *RepoWikiSink) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, repoWikiSinkImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RepoWikiSink")
+		case "kind":
+			out.Values[i] = ec._RepoWikiSink_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "integrationName":
+			out.Values[i] = ec._RepoWikiSink_integrationName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "audience":
+			out.Values[i] = ec._RepoWikiSink_audience(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "editPolicy":
+			out.Values[i] = ec._RepoWikiSink_editPolicy(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -52935,6 +55531,142 @@ func (ec *executionContext) _Repository(ctx context.Context, sel ast.SelectionSe
 					}
 				}()
 				res = ec._Repository_upstreamStatus(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "livingWikiSettings":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Repository_livingWikiSettings(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var repositoryLivingWikiSettingsImplementors = []string{"RepositoryLivingWikiSettings"}
+
+func (ec *executionContext) _RepositoryLivingWikiSettings(ctx context.Context, sel ast.SelectionSet, obj *RepositoryLivingWikiSettings) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, repositoryLivingWikiSettingsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RepositoryLivingWikiSettings")
+		case "enabled":
+			out.Values[i] = ec._RepositoryLivingWikiSettings_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "mode":
+			out.Values[i] = ec._RepositoryLivingWikiSettings_mode(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "sinks":
+			out.Values[i] = ec._RepositoryLivingWikiSettings_sinks(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "excludePaths":
+			out.Values[i] = ec._RepositoryLivingWikiSettings_excludePaths(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "staleWhenStrategy":
+			out.Values[i] = ec._RepositoryLivingWikiSettings_staleWhenStrategy(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "maxPagesPerJob":
+			out.Values[i] = ec._RepositoryLivingWikiSettings_maxPagesPerJob(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "lastRunAt":
+			out.Values[i] = ec._RepositoryLivingWikiSettings_lastRunAt(ctx, field, obj)
+		case "updatedAt":
+			out.Values[i] = ec._RepositoryLivingWikiSettings_updatedAt(ctx, field, obj)
+		case "updatedBy":
+			out.Values[i] = ec._RepositoryLivingWikiSettings_updatedBy(ctx, field, obj)
+		case "lastJobResult":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._RepositoryLivingWikiSettings_lastJobResult(ctx, field, obj)
 				return res
 			}
 
@@ -55695,6 +58427,25 @@ func (ec *executionContext) marshalNEffectiveComprehensionSettings2ᚖgithubᚗc
 	return ec._EffectiveComprehensionSettings(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNEnableLivingWikiForRepoInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐEnableLivingWikiForRepoInput(ctx context.Context, v any) (EnableLivingWikiForRepoInput, error) {
+	res, err := ec.unmarshalInputEnableLivingWikiForRepoInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNEnableLivingWikiResult2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐEnableLivingWikiResult(ctx context.Context, sel ast.SelectionSet, v EnableLivingWikiResult) graphql.Marshaler {
+	return ec._EnableLivingWikiResult(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNEnableLivingWikiResult2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐEnableLivingWikiResult(ctx context.Context, sel ast.SelectionSet, v *EnableLivingWikiResult) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._EnableLivingWikiResult(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNEvidenceSourceType2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐEvidenceSourceType(ctx context.Context, v any) (EvidenceSourceType, error) {
 	var res EvidenceSourceType
 	err := res.UnmarshalGQL(v)
@@ -56879,6 +59630,130 @@ func (ec *executionContext) marshalNRepoLink2ᚖgithubᚗcomᚋsourcebridgeᚋso
 	return ec._RepoLink(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNRepoStaleWhenStrategy2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoStaleWhenStrategy(ctx context.Context, v any) (RepoStaleWhenStrategy, error) {
+	var res RepoStaleWhenStrategy
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRepoStaleWhenStrategy2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoStaleWhenStrategy(ctx context.Context, sel ast.SelectionSet, v RepoStaleWhenStrategy) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNRepoWikiAudience2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiAudience(ctx context.Context, v any) (RepoWikiAudience, error) {
+	var res RepoWikiAudience
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRepoWikiAudience2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiAudience(ctx context.Context, sel ast.SelectionSet, v RepoWikiAudience) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNRepoWikiEditPolicy2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiEditPolicy(ctx context.Context, v any) (RepoWikiEditPolicy, error) {
+	var res RepoWikiEditPolicy
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRepoWikiEditPolicy2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiEditPolicy(ctx context.Context, sel ast.SelectionSet, v RepoWikiEditPolicy) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNRepoWikiMode2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiMode(ctx context.Context, v any) (RepoWikiMode, error) {
+	var res RepoWikiMode
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRepoWikiMode2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiMode(ctx context.Context, sel ast.SelectionSet, v RepoWikiMode) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNRepoWikiSink2ᚕᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkᚄ(ctx context.Context, sel ast.SelectionSet, v []*RepoWikiSink) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNRepoWikiSink2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSink(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNRepoWikiSink2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSink(ctx context.Context, sel ast.SelectionSet, v *RepoWikiSink) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._RepoWikiSink(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNRepoWikiSinkInput2ᚕᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkInputᚄ(ctx context.Context, v any) ([]*RepoWikiSinkInput, error) {
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]*RepoWikiSinkInput, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNRepoWikiSinkInput2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkInput(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) unmarshalNRepoWikiSinkInput2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkInput(ctx context.Context, v any) (*RepoWikiSinkInput, error) {
+	res, err := ec.unmarshalInputRepoWikiSinkInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNRepoWikiSinkKind2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkKind(ctx context.Context, v any) (RepoWikiSinkKind, error) {
+	var res RepoWikiSinkKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRepoWikiSinkKind2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkKind(ctx context.Context, sel ast.SelectionSet, v RepoWikiSinkKind) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) marshalNRepository2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepository(ctx context.Context, sel ast.SelectionSet, v Repository) graphql.Marshaler {
 	return ec._Repository(ctx, sel, &v)
 }
@@ -56935,6 +59810,20 @@ func (ec *executionContext) marshalNRepository2ᚖgithubᚗcomᚋsourcebridgeᚋ
 		return graphql.Null
 	}
 	return ec._Repository(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNRepositoryLivingWikiSettings2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryLivingWikiSettings(ctx context.Context, sel ast.SelectionSet, v RepositoryLivingWikiSettings) graphql.Marshaler {
+	return ec._RepositoryLivingWikiSettings(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNRepositoryLivingWikiSettings2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryLivingWikiSettings(ctx context.Context, sel ast.SelectionSet, v *RepositoryLivingWikiSettings) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._RepositoryLivingWikiSettings(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNRepositoryStatus2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryStatus(ctx context.Context, v any) (RepositoryStatus, error) {
@@ -57834,6 +60723,11 @@ func (ec *executionContext) unmarshalNUpdateRepositoryKnowledgeSettingsInput2git
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNUpdateRepositoryLivingWikiSettingsInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpdateRepositoryLivingWikiSettingsInput(ctx context.Context, v any) (UpdateRepositoryLivingWikiSettingsInput, error) {
+	res, err := ec.unmarshalInputUpdateRepositoryLivingWikiSettingsInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) unmarshalNUpdateRequirementFieldsInput2githubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐUpdateRequirementFieldsInput(ctx context.Context, v any) (UpdateRequirementFieldsInput, error) {
 	res, err := ec.unmarshalInputUpdateRequirementFieldsInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -58513,6 +61407,13 @@ func (ec *executionContext) marshalOLanguage2ᚖgithubᚗcomᚋsourcebridgeᚋso
 	return v
 }
 
+func (ec *executionContext) marshalOLivingWikiJobResult2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐLivingWikiJobResult(ctx context.Context, sel ast.SelectionSet, v *LivingWikiJobResult) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._LivingWikiJobResult(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalOModelCapabilityProfile2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐModelCapabilityProfile(ctx context.Context, sel ast.SelectionSet, v *ModelCapabilityProfile) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -58520,11 +61421,84 @@ func (ec *executionContext) marshalOModelCapabilityProfile2ᚖgithubᚗcomᚋsou
 	return ec._ModelCapabilityProfile(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalORepoStaleWhenStrategy2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoStaleWhenStrategy(ctx context.Context, v any) (*RepoStaleWhenStrategy, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(RepoStaleWhenStrategy)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalORepoStaleWhenStrategy2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoStaleWhenStrategy(ctx context.Context, sel ast.SelectionSet, v *RepoStaleWhenStrategy) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
+func (ec *executionContext) unmarshalORepoWikiEditPolicy2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiEditPolicy(ctx context.Context, v any) (*RepoWikiEditPolicy, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(RepoWikiEditPolicy)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalORepoWikiEditPolicy2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiEditPolicy(ctx context.Context, sel ast.SelectionSet, v *RepoWikiEditPolicy) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
+func (ec *executionContext) unmarshalORepoWikiMode2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiMode(ctx context.Context, v any) (*RepoWikiMode, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(RepoWikiMode)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalORepoWikiMode2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiMode(ctx context.Context, sel ast.SelectionSet, v *RepoWikiMode) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
+func (ec *executionContext) unmarshalORepoWikiSinkInput2ᚕᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkInputᚄ(ctx context.Context, v any) ([]*RepoWikiSinkInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]*RepoWikiSinkInput, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNRepoWikiSinkInput2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepoWikiSinkInput(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
 func (ec *executionContext) marshalORepository2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepository(ctx context.Context, sel ast.SelectionSet, v *Repository) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Repository(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalORepositoryLivingWikiSettings2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryLivingWikiSettings(ctx context.Context, sel ast.SelectionSet, v *RepositoryLivingWikiSettings) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._RepositoryLivingWikiSettings(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalORepositoryUnderstanding2ᚖgithubᚗcomᚋsourcebridgeᚋsourcebridgeᚋinternalᚋapiᚋgraphqlᚐRepositoryUnderstanding(ctx context.Context, sel ast.SelectionSet, v *RepositoryUnderstanding) graphql.Marshaler {

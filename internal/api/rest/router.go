@@ -146,6 +146,12 @@ func WithLivingWikiResolver(r *livingwiki.Resolver) ServerOption {
 	return func(s *Server) { s.livingWikiResolver = r }
 }
 
+// WithLivingWikiRepoStore wires the per-repo living-wiki opt-in store. When
+// nil, the repository living-wiki mutations and query return unavailable errors.
+func WithLivingWikiRepoStore(rs livingwiki.RepoSettingsStore) ServerOption {
+	return func(s *Server) { s.livingWikiRepoStore = rs }
+}
+
 // Server is the HTTP API server.
 type Server struct {
 	cfg                *config.Config
@@ -180,8 +186,9 @@ type Server struct {
 	searchSvc          *search.Service                // hybrid retrieval backbone; always set in NewServer
 	reqBooster         *search.RequirementBooster     // repo-scoped requirement link cache; feeds searchSvc boosters
 	searchMetrics      *search.Metrics                // in-process ring buffer of per-stage latency / success
-	livingWikiStore    livingwiki.Store               // living-wiki UI settings store; nil = feature unavailable
-	livingWikiResolver *livingwiki.Resolver           // merged living-wiki config (UI + env); nil = only env applies
+	livingWikiStore     livingwiki.Store              // living-wiki UI settings store; nil = feature unavailable
+	livingWikiResolver  *livingwiki.Resolver          // merged living-wiki config (UI + env); nil = only env applies
+	livingWikiRepoStore livingwiki.RepoSettingsStore  // per-repo living-wiki opt-in; nil = feature unavailable
 }
 
 // qaResolverOrchestrator exposes the server's QA orchestrator to the
@@ -480,8 +487,9 @@ func (s *Server) setupRouter() {
 			SearchSvc:          s.searchSvc,
 			ReqBooster:         s.reqBooster,
 			QA:                 s.qaResolverOrchestrator(),
-			LivingWikiStore:    s.livingWikiStore,
-			LivingWikiResolver: s.livingWikiResolver,
+			LivingWikiStore:     s.livingWikiStore,
+			LivingWikiResolver:  s.livingWikiResolver,
+			LivingWikiRepoStore: s.livingWikiRepoStore,
 		},
 	}))
 
