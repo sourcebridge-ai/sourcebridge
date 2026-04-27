@@ -175,6 +175,36 @@ export const REPOSITORY_QUERY = gql`
           symbolName
         }
       }
+      livingWikiSettings {
+        enabled
+        mode
+        sinks {
+          kind
+          integrationName
+          audience
+          editPolicy
+        }
+        excludePaths
+        staleWhenStrategy
+        maxPagesPerJob
+        lastRunAt
+        updatedAt
+        updatedBy
+        lastJobResult {
+          jobId
+          startedAt
+          completedAt
+          pagesPlanned
+          pagesGenerated
+          pagesExcluded
+          excludedPageIds
+          generatedPageTitles
+          exclusionReasons
+          status
+          failureCategory
+          errorMessage
+        }
+      }
     }
   }
 `;
@@ -1432,6 +1462,146 @@ export const ARCHITECTURE_DIAGRAM_QUERY = gql`
           callCount
         }
       }
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Living Wiki — global settings (for kill-switch + credential availability)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const LIVING_WIKI_GLOBAL_SETTINGS_QUERY = gql`
+  query LivingWikiGlobalSettings {
+    livingWikiSettings {
+      enabled
+      killSwitchActive
+      confluenceToken
+      notionToken
+      githubToken
+      gitlabToken
+    }
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Living Wiki — per-repo mutations
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const ENABLE_LIVING_WIKI_FOR_REPO_MUTATION = gql`
+  mutation EnableLivingWikiForRepo($input: EnableLivingWikiForRepoInput!) {
+    enableLivingWikiForRepo(input: $input) {
+      settings {
+        enabled
+        mode
+        sinks {
+          kind
+          integrationName
+          audience
+          editPolicy
+        }
+        excludePaths
+        staleWhenStrategy
+        maxPagesPerJob
+        lastRunAt
+        updatedAt
+        lastJobResult {
+          jobId
+          startedAt
+          completedAt
+          pagesPlanned
+          pagesGenerated
+          pagesExcluded
+          excludedPageIds
+          generatedPageTitles
+          exclusionReasons
+          status
+          failureCategory
+          errorMessage
+        }
+      }
+      jobId
+      notice
+    }
+  }
+`;
+
+export const DISABLE_LIVING_WIKI_FOR_REPO_MUTATION = gql`
+  mutation DisableLivingWikiForRepo($repositoryId: ID!) {
+    disableLivingWikiForRepo(repositoryId: $repositoryId) {
+      enabled
+      mode
+      sinks {
+        kind
+        integrationName
+        audience
+        editPolicy
+      }
+      excludePaths
+      staleWhenStrategy
+      maxPagesPerJob
+      lastRunAt
+      updatedAt
+    }
+  }
+`;
+
+export const UPDATE_REPOSITORY_LIVING_WIKI_SETTINGS_MUTATION = gql`
+  mutation UpdateRepositoryLivingWikiSettings($input: UpdateRepositoryLivingWikiSettingsInput!) {
+    updateRepositoryLivingWikiSettings(input: $input) {
+      enabled
+      mode
+      sinks {
+        kind
+        integrationName
+        audience
+        editPolicy
+      }
+      excludePaths
+      staleWhenStrategy
+      maxPagesPerJob
+      lastRunAt
+      updatedAt
+      lastJobResult {
+        jobId
+        startedAt
+        completedAt
+        pagesPlanned
+        pagesGenerated
+        pagesExcluded
+        excludedPageIds
+        generatedPageTitles
+        exclusionReasons
+        status
+        failureCategory
+        errorMessage
+      }
+    }
+  }
+`;
+
+export const RETRY_LIVING_WIKI_JOB_MUTATION = gql`
+  mutation RetryLivingWikiJob($repositoryId: ID!, $retryExcludedOnly: Boolean) {
+    retryLivingWikiJob(repositoryId: $repositoryId, retryExcludedOnly: $retryExcludedOnly) {
+      settings {
+        enabled
+        mode
+        sinks {
+          kind
+          integrationName
+          audience
+        }
+        lastJobResult {
+          jobId
+          pagesPlanned
+          pagesGenerated
+          pagesExcluded
+          status
+          failureCategory
+          errorMessage
+        }
+      }
+      jobId
+      notice
     }
   }
 `;

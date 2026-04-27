@@ -2670,23 +2670,6 @@ func (r *mutationResolver) RetryLivingWikiJob(ctx context.Context, repositoryID 
 	})
 }
 
-// repoSinksToInputs converts stored sink models back to the GraphQL input
-// type so RetryLivingWikiJob can delegate to EnableLivingWikiForRepo without
-// duplicating the settings.
-func repoSinksToInputs(sinks []livingwiki.RepoWikiSink) []*RepoWikiSinkInput {
-	out := make([]*RepoWikiSinkInput, 0, len(sinks))
-	for _, s := range sinks {
-		ep := RepoWikiEditPolicy(s.EditPolicy)
-		out = append(out, &RepoWikiSinkInput{
-			Kind:            RepoWikiSinkKind(s.Kind),
-			IntegrationName: s.IntegrationName,
-			Audience:        RepoWikiAudience(s.Audience),
-			EditPolicy:      &ep,
-		})
-	}
-	return out
-}
-
 // MoveToTrash is the resolver for the moveToTrash field.
 func (r *mutationResolver) MoveToTrash(ctx context.Context, typeArg TrashableType, id string, reason *string) (*TrashEntry, error) {
 	return r.Resolver.moveToTrash(ctx, typeArg, id, reason)

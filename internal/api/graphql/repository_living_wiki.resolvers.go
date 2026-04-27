@@ -158,3 +158,20 @@ func mapLivingWikiJobResult(r *livingwiki.LivingWikiJobResult) *LivingWikiJobRes
 // Multi-tenant installs will inject this from context in a future workstream.
 const defaultTenantID = "default"
 
+// repoSinksToInputs converts stored sink models back to the GraphQL input
+// type so RetryLivingWikiJob can delegate to EnableLivingWikiForRepo without
+// duplicating settings.
+func repoSinksToInputs(sinks []livingwiki.RepoWikiSink) []*RepoWikiSinkInput {
+	out := make([]*RepoWikiSinkInput, 0, len(sinks))
+	for _, s := range sinks {
+		ep := RepoWikiEditPolicy(s.EditPolicy)
+		out = append(out, &RepoWikiSinkInput{
+			Kind:            RepoWikiSinkKind(s.Kind),
+			IntegrationName: s.IntegrationName,
+			Audience:        RepoWikiAudience(s.Audience),
+			EditPolicy:      &ep,
+		})
+	}
+	return out
+}
+

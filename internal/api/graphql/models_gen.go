@@ -735,6 +735,11 @@ type LivingWikiSettings struct {
 	NotionWebhookSecret     *string    `json:"notionWebhookSecret,omitempty"`
 	UpdatedAt               *time.Time `json:"updatedAt,omitempty"`
 	UpdatedBy               *string    `json:"updatedBy,omitempty"`
+	// killSwitchActive is true when SOURCEBRIDGE_LIVING_WIKI_KILL_SWITCH=true is
+	// set on the server at boot time. When true, the dispatcher is not running
+	// even if enabled=true. The UI uses this to render State 1 (kill-switch
+	// active) rather than the activation gate.
+	KillSwitchActive bool `json:"killSwitchActive"`
 }
 
 type ModelCapabilityProfile struct {
@@ -858,8 +863,9 @@ type RepositoryLivingWikiSettings struct {
 	// The most recent job result for this repo, surfaced in the settings panel
 	// summary. Null when no job has been run yet.
 	LastJobResult *LivingWikiJobResult `json:"lastJobResult,omitempty"`
-	// RepoID is the repository identifier. Not exposed via GraphQL; used
-	// internally so the LastJobResult field resolver can query by repo.
+	// Internal: the repo ID, threaded through from the parent resolver so
+	// the lastJobResult field resolver can query JobResultStore. Not part
+	// of the GraphQL schema — populated by mapRepoLivingWikiSettings.
 	RepoID string `json:"-"`
 }
 

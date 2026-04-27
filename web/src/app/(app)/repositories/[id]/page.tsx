@@ -8,6 +8,7 @@ import {
   REPOSITORY_QUERY,
   SYMBOLS_QUERY,
   REQUIREMENTS_QUERY,
+  LIVING_WIKI_GLOBAL_SETTINGS_QUERY,
   REINDEX_REPOSITORY_MUTATION,
   BUILD_REPOSITORY_UNDERSTANDING_MUTATION,
   UPDATE_REPOSITORY_KNOWLEDGE_SETTINGS_MUTATION,
@@ -57,6 +58,7 @@ import { ArchitectureDiagram } from "@/components/architecture/ArchitectureDiagr
 import { RelatedReposPanel } from "@/components/federation/RelatedReposPanel";
 import { CreateRequirementDialog } from "@/components/requirements/CreateRequirementDialog";
 import { UpstreamStalenessPill } from "@/components/repository/UpstreamStalenessPill";
+import { WikiSettingsPanel } from "./wiki-settings-panel";
 import { SymbolTree } from "@/components/source/SymbolTree";
 import { SymbolList } from "@/components/source/SymbolList";
 import { kindBadgeClass, kindLabel, SYMBOL_KINDS } from "@/components/source/symbol-kind";
@@ -755,6 +757,7 @@ export default function RepositoryDetailPage() {
   const locallyCancelledJobsRef = useRef<Record<string, number>>({});
 
   const [repoResult, reexecuteRepo] = useQuery({ query: REPOSITORY_QUERY, variables: { id: repoId } });
+  const [globalWikiResult] = useQuery({ query: LIVING_WIKI_GLOBAL_SETTINGS_QUERY });
   const [symbolsResult] = useQuery({
     query: SYMBOLS_QUERY,
     variables: { repositoryId: repoId, query: symbolQuery || undefined, kind: symbolKindFilter || undefined, limit: 200 },
@@ -1831,6 +1834,30 @@ export default function RepositoryDetailPage() {
           </button>
         ))}
       </div>
+
+      {/* Living Wiki discoverability callout — files tab only */}
+      {tab === "files" &&
+        globalWikiResult.data?.livingWikiSettings?.enabled &&
+        !globalWikiResult.data?.livingWikiSettings?.killSwitchActive &&
+        !repo?.livingWikiSettings?.enabled &&
+        (repo?.fileCount ?? 0) > 0 && (
+          <div className="flex items-start gap-3 rounded-[var(--control-radius)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3">
+            <span className="mt-0.5 shrink-0 text-sm text-[var(--text-tertiary)]" aria-hidden="true">
+              ℹ
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-[var(--text-secondary)]">
+                Keep your docs in sync automatically with Living Wiki.
+              </p>
+            </div>
+            <Link
+              href={`/repositories/${repoId}?tab=settings#wiki`}
+              className="shrink-0 rounded-[var(--control-radius)] border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            >
+              Set up
+            </Link>
+          </div>
+        )}
 
       {/* Files Tab */}
       {tab === "files" && (
@@ -3545,6 +3572,15 @@ export default function RepositoryDetailPage() {
               ))}
             </div>
           </div>
+          {/* Living Wiki panel — sits between Knowledge Engine Default and Danger Zone */}
+          <div className="mt-6">
+            <WikiSettingsPanel
+              repoId={repoId}
+              repoName={repo?.name ?? ""}
+              initialSettings={repo?.livingWikiSettings ?? null}
+            />
+          </div>
+
           <div className="mt-8 rounded-[var(--control-radius)] border border-[var(--color-error,#ef4444)] p-4">
             <h4 className="mb-2 font-semibold text-[var(--color-error,#ef4444)]">Danger Zone</h4>
             <p className="mb-3 text-sm text-[var(--text-secondary)]">
