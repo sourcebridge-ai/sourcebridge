@@ -2367,6 +2367,9 @@ func (r *mutationResolver) UpdateLivingWikiSettings(ctx context.Context, input U
 	if input.EventTimeout != nil {
 		current.EventTimeout = *input.EventTimeout
 	}
+	if input.ConfluenceSite != nil {
+		current.ConfluenceSite = *input.ConfluenceSite
+	}
 
 	// Apply secret fields: ignore the sentinel (don't overwrite with "********").
 	// Track whether any credential field was actually rotated for audit logging.
@@ -2438,7 +2441,7 @@ func (r *mutationResolver) TestLivingWikiConnection(ctx context.Context, provide
 	case "gitlab":
 		return testGitLabConnection(ctx, res.GitLabToken)
 	case "confluence":
-		return testConfluenceConnection(ctx, res.ConfluenceEmail, res.ConfluenceToken)
+		return testConfluenceConnection(ctx, res.ConfluenceSite, res.ConfluenceEmail, res.ConfluenceToken)
 	case "notion":
 		return testNotionConnection(ctx, res.NotionToken)
 	default:

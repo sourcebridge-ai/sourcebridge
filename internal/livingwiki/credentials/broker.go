@@ -38,6 +38,9 @@ type Broker interface {
 	GitHub(ctx context.Context) (string, error)
 	// GitLab returns the current GitLab PRIVATE-TOKEN.
 	GitLab(ctx context.Context) (string, error)
+	// ConfluenceSite returns the Atlassian Cloud site subdomain
+	// (e.g. "mycompany" for mycompany.atlassian.net).
+	ConfluenceSite(ctx context.Context) (string, error)
 	// Confluence returns the Atlassian account email and API token for Basic auth.
 	Confluence(ctx context.Context) (email, token string, err error)
 	// Notion returns the current Notion integration secret.
@@ -54,6 +57,7 @@ type Broker interface {
 type Snapshot struct {
 	GitHubToken     string
 	GitLabToken     string
+	ConfluenceSite  string
 	ConfluenceEmail string
 	ConfluenceToken string
 	NotionToken     string
@@ -76,6 +80,11 @@ func Take(ctx context.Context, b Broker) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("credentials: GitLab: %w", err)
 	}
 
+	cfSite, err := b.ConfluenceSite(ctx)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("credentials: ConfluenceSite: %w", err)
+	}
+
 	cfEmail, cfToken, err := b.Confluence(ctx)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("credentials: Confluence: %w", err)
@@ -89,6 +98,7 @@ func Take(ctx context.Context, b Broker) (Snapshot, error) {
 	return Snapshot{
 		GitHubToken:     gh,
 		GitLabToken:     gl,
+		ConfluenceSite:  cfSite,
 		ConfluenceEmail: cfEmail,
 		ConfluenceToken: cfToken,
 		NotionToken:     nt,
@@ -125,6 +135,15 @@ func (b *ResolverBroker) GitLab(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("resolverBroker: GitLab: %w", err)
 	}
 	return res.GitLabToken, nil
+}
+
+// ConfluenceSite implements [Broker].
+func (b *ResolverBroker) ConfluenceSite(ctx context.Context) (string, error) {
+	res, err := b.r.Get()
+	if err != nil {
+		return "", fmt.Errorf("resolverBroker: ConfluenceSite: %w", err)
+	}
+	return res.ConfluenceSite, nil
 }
 
 // Confluence implements [Broker].

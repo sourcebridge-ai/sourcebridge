@@ -17,6 +17,7 @@ interface LivingWikiSettings {
   eventTimeout?: string | null;
   githubToken?: string | null;
   gitlabToken?: string | null;
+  confluenceSite?: string | null;
   confluenceEmail?: string | null;
   confluenceToken?: string | null;
   notionToken?: string | null;
@@ -62,6 +63,7 @@ const LIVING_WIKI_QUERY = `
       eventTimeout
       githubToken
       gitlabToken
+      confluenceSite
       confluenceEmail
       confluenceToken
       notionToken
@@ -81,6 +83,7 @@ const UPDATE_LIVING_WIKI_MUTATION = `
       eventTimeout
       githubToken
       gitlabToken
+      confluenceSite
       confluenceEmail
       confluenceToken
       notionToken
@@ -187,9 +190,11 @@ function SecretInput({
 function TestButton({
   state,
   onTest,
+  disabled,
 }: {
   state: FieldMeta;
   onTest: () => void;
+  disabled?: boolean;
 }) {
   const { testState, testMessage } = state;
   return (
@@ -197,7 +202,7 @@ function TestButton({
       <button
         type="button"
         onClick={onTest}
-        disabled={testState === "testing"}
+        disabled={testState === "testing" || disabled}
         className="text-xs font-medium text-[var(--accent-primary)] hover:underline disabled:opacity-60"
       >
         {testState === "testing" ? "Testing…" : "Test connection"}
@@ -317,6 +322,7 @@ export default function LivingWikiSettingsPage() {
 
   const [githubToken, setGithubToken] = useState("");
   const [gitlabToken, setGitlabToken] = useState("");
+  const [confluenceSite, setConfluenceSite] = useState("");
   const [confluenceEmail, setConfluenceEmail] = useState("");
   const [confluenceToken, setConfluenceToken] = useState("");
   const [notionToken, setNotionToken] = useState("");
@@ -339,6 +345,7 @@ export default function LivingWikiSettingsPage() {
     setEventTimeout(TIMEOUT_OPTIONS.includes(to) ? to : "5m");
     setGithubToken(s.githubToken ?? "");
     setGitlabToken(s.gitlabToken ?? "");
+    setConfluenceSite(s.confluenceSite ?? "");
     setConfluenceEmail(s.confluenceEmail ?? "");
     setConfluenceToken(s.confluenceToken ?? "");
     setNotionToken(s.notionToken ?? "");
@@ -371,6 +378,7 @@ export default function LivingWikiSettingsPage() {
             eventTimeout,
             githubToken: githubToken === SENTINEL ? SENTINEL : githubToken,
             gitlabToken: gitlabToken === SENTINEL ? SENTINEL : gitlabToken,
+            confluenceSite,
             confluenceEmail: confluenceEmail === SENTINEL ? SENTINEL : confluenceEmail,
             confluenceToken: confluenceToken === SENTINEL ? SENTINEL : confluenceToken,
             notionToken: notionToken === SENTINEL ? SENTINEL : notionToken,
@@ -536,6 +544,23 @@ export default function LivingWikiSettingsPage() {
           <div className="space-y-4">
             <div>
               <FieldLabel
+                label="Confluence site"
+                help='The subdomain of your Atlassian Cloud site. For example, if your Confluence URL is mycompany.atlassian.net, enter "mycompany".'
+                required
+              />
+              <input
+                type="text"
+                value={confluenceSite}
+                onChange={(e) => setConfluenceSite(e.target.value)}
+                placeholder="mycompany"
+                className={inputClass}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+
+            <div>
+              <FieldLabel
                 label="Atlassian account email"
                 help="The email address of the Atlassian account used for API authentication. This is combined with the API token below in HTTP Basic auth."
               />
@@ -558,7 +583,11 @@ export default function LivingWikiSettingsPage() {
               />
             </div>
 
-            <TestButton state={cfMeta} onTest={() => testConnection("confluence", setCfMeta)} />
+            <TestButton
+              state={cfMeta}
+              onTest={() => testConnection("confluence", setCfMeta)}
+              disabled={!confluenceSite.trim() || !confluenceEmail || !confluenceToken}
+            />
           </div>
         </Disclosure>
       </Panel>

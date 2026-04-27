@@ -1526,6 +1526,11 @@ type LivingWikiSettings {
   eventTimeout: String
   githubToken: String
   gitlabToken: String
+  """
+  confluenceSite is the Atlassian Cloud site subdomain (e.g. "mycompany" for
+  mycompany.atlassian.net). Not a secret; returned in plaintext.
+  """
+  confluenceSite: String
   confluenceEmail: String
   confluenceToken: String
   notionToken: String
@@ -1548,6 +1553,7 @@ input UpdateLivingWikiSettingsInput {
   eventTimeout: String
   githubToken: String
   gitlabToken: String
+  confluenceSite: String
   confluenceEmail: String
   confluenceToken: String
   notionToken: String

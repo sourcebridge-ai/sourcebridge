@@ -36,6 +36,10 @@ type Settings struct {
 	// GitLabToken is a GitLab PRIVATE-TOKEN.
 	GitLabToken string `json:"gitlab_token,omitempty"`
 
+	// ConfluenceSite is the Atlassian Cloud site subdomain (e.g. "mycompany"
+	// for mycompany.atlassian.net). Not a secret; stored in plaintext.
+	ConfluenceSite string `json:"confluence_site,omitempty"`
+
 	// ConfluenceEmail is the Atlassian account email for Basic auth.
 	ConfluenceEmail string `json:"confluence_email,omitempty"`
 

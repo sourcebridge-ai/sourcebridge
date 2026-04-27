@@ -43,6 +43,9 @@ func mapLivingWikiSettings(s livingwiki.Settings) *LivingWikiSettings {
 	if s.GitLabToken != "" {
 		out.GitlabToken = &s.GitLabToken
 	}
+	if s.ConfluenceSite != "" {
+		out.ConfluenceSite = &s.ConfluenceSite
+	}
 	if s.ConfluenceEmail != "" {
 		out.ConfluenceEmail = &s.ConfluenceEmail
 	}
@@ -132,15 +135,35 @@ func testGitLabConnection(ctx context.Context, token string) (*LivingWikiConnect
 	}, nil
 }
 
-func testConfluenceConnection(ctx context.Context, email, token string) (*LivingWikiConnectionTestResult, error) {
+// normalizeSite strips a full hostname suffix so users can type either
+// "mycompany" or "mycompany.atlassian.net" and get the same result.
+func normalizeSite(site string) string {
+	site = strings.TrimSpace(site)
+	site = strings.TrimSuffix(site, ".atlassian.net")
+	return site
+}
+
+func testConfluenceConnection(ctx context.Context, site, email, token string) (*LivingWikiConnectionTestResult, error) {
+	site = normalizeSite(site)
+	if site == "" {
+		return &LivingWikiConnectionTestResult{
+			Provider: "confluence",
+			Ok:       false,
+			Message:  strPtr(`Confluence site is required (e.g. "mycompany" → mycompany.atlassian.net)`),
+		}, nil
+	}
 	if email == "" || token == "" {
 		return &LivingWikiConnectionTestResult{
 			Provider: "confluence",
 			Ok:       false,
-			Message:  strPtr("Confluence email and token are both required"),
+			Message:  strPtr("Confluence email and API token are both required"),
 		}, nil
 	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.atlassian.com/me", nil)
+
+	// Per-site Confluence Cloud REST API accepts Basic auth (email:api_token).
+	// api.atlassian.com/me is an OAuth 2.0 (3LO) endpoint and rejects Basic auth.
+	url := fmt.Sprintf("https://%s.atlassian.net/wiki/rest/api/user/current", site)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	req.SetBasicAuth(email, token)
 	req.Header.Set("Accept", "application/json")
 
@@ -160,7 +183,7 @@ func testConfluenceConnection(ctx context.Context, email, token string) (*Living
 	return &LivingWikiConnectionTestResult{
 		Provider: "confluence",
 		Ok:       false,
-		Message:  strPtr(fmt.Sprintf("Atlassian API returned %d", resp.StatusCode)),
+		Message:  strPtr(fmt.Sprintf("Confluence API returned %d — verify site, email, and token", resp.StatusCode)),
 	}, nil
 }
 

@@ -19,11 +19,13 @@ import (
 type stubBroker struct {
 	github     string
 	gitlab     string
+	cfSite     string
 	cfEmail    string
 	cfToken    string
 	notion     string
 	githubErr  error
 	gitlabErr  error
+	cfSiteErr  error
 	cfErr      error
 	notionErr  error
 	callCounts map[string]int
@@ -32,6 +34,7 @@ type stubBroker struct {
 func newStubBroker(gh, gl, cfEmail, cfToken, nt string) *stubBroker {
 	return &stubBroker{
 		github: gh, gitlab: gl,
+		cfSite:  "testsite",
 		cfEmail: cfEmail, cfToken: cfToken,
 		notion:     nt,
 		callCounts: make(map[string]int),
@@ -46,6 +49,11 @@ func (b *stubBroker) GitHub(_ context.Context) (string, error) {
 func (b *stubBroker) GitLab(_ context.Context) (string, error) {
 	b.callCounts["gitlab"]++
 	return b.gitlab, b.gitlabErr
+}
+
+func (b *stubBroker) ConfluenceSite(_ context.Context) (string, error) {
+	b.callCounts["confluencesite"]++
+	return b.cfSite, b.cfSiteErr
 }
 
 func (b *stubBroker) Confluence(_ context.Context) (string, string, error) {
@@ -74,6 +82,9 @@ func TestTake_CollectsAllCredentials(t *testing.T) {
 	if snap.GitLabToken != "gl-token" {
 		t.Errorf("GitLabToken = %q, want %q", snap.GitLabToken, "gl-token")
 	}
+	if snap.ConfluenceSite != "testsite" {
+		t.Errorf("ConfluenceSite = %q, want %q", snap.ConfluenceSite, "testsite")
+	}
 	if snap.ConfluenceEmail != "user@example.com" {
 		t.Errorf("ConfluenceEmail = %q, want %q", snap.ConfluenceEmail, "user@example.com")
 	}
@@ -92,7 +103,7 @@ func TestTake_CallsEachBrokerMethodOnce(t *testing.T) {
 		t.Fatalf("Take: %v", err)
 	}
 
-	for _, method := range []string{"github", "gitlab", "confluence", "notion"} {
+	for _, method := range []string{"github", "gitlab", "confluencesite", "confluence", "notion"} {
 		if b.callCounts[method] != 1 {
 			t.Errorf("broker.%s called %d times, want 1", method, b.callCounts[method])
 		}

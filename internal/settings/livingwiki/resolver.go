@@ -36,6 +36,7 @@ type EnvConfig struct {
 	// These are the legacy env-var values; the UI overrides them.
 	GitHubToken     string
 	GitLabToken     string
+	ConfluenceSite  string
 	ConfluenceEmail string
 	ConfluenceToken string
 	NotionToken     string
@@ -44,12 +45,13 @@ type EnvConfig struct {
 // Resolved is the fully merged, ready-to-use configuration the living-wiki
 // code actually consumes. Every field has a concrete value (no optionals).
 type Resolved struct {
-	Enabled     bool
-	WorkerCount int
+	Enabled      bool
+	WorkerCount  int
 	EventTimeout time.Duration
 
 	GitHubToken     string
 	GitLabToken     string
+	ConfluenceSite  string
 	ConfluenceEmail string
 	ConfluenceToken string
 	NotionToken     string
@@ -164,6 +166,13 @@ func (r *Resolver) merge(ui *Settings) *Resolved {
 		ui.GitLabToken,
 		os.Getenv("SOURCEBRIDGE_LIVING_WIKI_GITLAB_TOKEN"),
 		r.env.GitLabToken,
+	)
+
+	// --- ConfluenceSite ---
+	out.ConfluenceSite = firstNonEmpty(
+		ui.ConfluenceSite,
+		os.Getenv("SOURCEBRIDGE_LIVING_WIKI_CONFLUENCE_SITE"),
+		r.env.ConfluenceSite,
 	)
 
 	// --- ConfluenceEmail ---

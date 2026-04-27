@@ -723,11 +723,14 @@ type LivingWikiJobResult struct {
 // A non-sentinel value in an UpdateLivingWikiSettingsInput replaces the stored
 // secret; the sentinel value is treated as "do not change".
 type LivingWikiSettings struct {
-	Enabled                 *bool      `json:"enabled,omitempty"`
-	WorkerCount             *int       `json:"workerCount,omitempty"`
-	EventTimeout            *string    `json:"eventTimeout,omitempty"`
-	GithubToken             *string    `json:"githubToken,omitempty"`
-	GitlabToken             *string    `json:"gitlabToken,omitempty"`
+	Enabled      *bool   `json:"enabled,omitempty"`
+	WorkerCount  *int    `json:"workerCount,omitempty"`
+	EventTimeout *string `json:"eventTimeout,omitempty"`
+	GithubToken  *string `json:"githubToken,omitempty"`
+	GitlabToken  *string `json:"gitlabToken,omitempty"`
+	// confluenceSite is the Atlassian Cloud site subdomain (e.g. "mycompany" for
+	// mycompany.atlassian.net). Not a secret; returned in plaintext.
+	ConfluenceSite          *string    `json:"confluenceSite,omitempty"`
 	ConfluenceEmail         *string    `json:"confluenceEmail,omitempty"`
 	ConfluenceToken         *string    `json:"confluenceToken,omitempty"`
 	NotionToken             *string    `json:"notionToken,omitempty"`
@@ -1170,6 +1173,7 @@ type UpdateLivingWikiSettingsInput struct {
 	EventTimeout            *string `json:"eventTimeout,omitempty"`
 	GithubToken             *string `json:"githubToken,omitempty"`
 	GitlabToken             *string `json:"gitlabToken,omitempty"`
+	ConfluenceSite          *string `json:"confluenceSite,omitempty"`
 	ConfluenceEmail         *string `json:"confluenceEmail,omitempty"`
 	ConfluenceToken         *string `json:"confluenceToken,omitempty"`
 	NotionToken             *string `json:"notionToken,omitempty"`

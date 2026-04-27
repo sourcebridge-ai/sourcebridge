@@ -47,10 +47,13 @@ var _ livingwiki.Store = (*LivingWikiSettingsStore)(nil)
 
 type surrealLivingWikiSettings struct {
 	// Orchestration
-	EnabledSet  bool   `json:"enabled_set"`
-	Enabled     bool   `json:"enabled"`
-	WorkerCount int    `json:"worker_count"`
+	EnabledSet   bool   `json:"enabled_set"`
+	Enabled      bool   `json:"enabled"`
+	WorkerCount  int    `json:"worker_count"`
 	EventTimeout string `json:"event_timeout"`
+
+	// Plain (non-secret) config
+	ConfluenceSite string `json:"confluence_site"`
 
 	// Encrypted secret fields. Stored as base64(nonce+ciphertext).
 	GitHubToken             string `json:"github_token"`
@@ -67,10 +70,11 @@ type surrealLivingWikiSettings struct {
 
 func (r *surrealLivingWikiSettings) toSettings(decrypt func(string) (string, error)) (*livingwiki.Settings, error) {
 	s := &livingwiki.Settings{
-		WorkerCount:  r.WorkerCount,
-		EventTimeout: r.EventTimeout,
-		UpdatedAt:    r.UpdatedAt.Time,
-		UpdatedBy:    r.UpdatedBy,
+		WorkerCount:    r.WorkerCount,
+		EventTimeout:   r.EventTimeout,
+		ConfluenceSite: r.ConfluenceSite,
+		UpdatedAt:      r.UpdatedAt.Time,
+		UpdatedBy:      r.UpdatedBy,
 	}
 	if r.EnabledSet {
 		b := r.Enabled
@@ -168,6 +172,7 @@ func (s *LivingWikiSettingsStore) Set(settings *livingwiki.Settings) error {
 			enabled                      = $enabled,
 			worker_count                 = $worker_count,
 			event_timeout                = $event_timeout,
+			confluence_site              = $confluence_site,
 			github_token                 = $github_token,
 			gitlab_token                 = $gitlab_token,
 			confluence_email             = $confluence_email,
@@ -184,6 +189,7 @@ func (s *LivingWikiSettingsStore) Set(settings *livingwiki.Settings) error {
 		"enabled":                   enabled,
 		"worker_count":              settings.WorkerCount,
 		"event_timeout":             settings.EventTimeout,
+		"confluence_site":           settings.ConfluenceSite,
 		"github_token":              githubEnc,
 		"gitlab_token":              gitlabEnc,
 		"confluence_email":          confEmailEnc,

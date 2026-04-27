@@ -597,6 +597,7 @@ type ComplexityRoot struct {
 
 	LivingWikiSettings struct {
 		ConfluenceEmail         func(childComplexity int) int
+		ConfluenceSite          func(childComplexity int) int
 		ConfluenceToken         func(childComplexity int) int
 		ConfluenceWebhookSecret func(childComplexity int) int
 		Enabled                 func(childComplexity int) int
@@ -3910,6 +3911,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.LivingWikiSettings.ConfluenceEmail(childComplexity), true
+
+	case "LivingWikiSettings.confluenceSite":
+		if e.complexity.LivingWikiSettings.ConfluenceSite == nil {
+			break
+		}
+
+		return e.complexity.LivingWikiSettings.ConfluenceSite(childComplexity), true
 
 	case "LivingWikiSettings.confluenceToken":
 		if e.complexity.LivingWikiSettings.ConfluenceToken == nil {
@@ -28470,6 +28478,47 @@ func (ec *executionContext) fieldContext_LivingWikiSettings_confluenceEmail(_ co
 	return fc, nil
 }
 
+func (ec *executionContext) _LivingWikiSettings_confluenceSite(ctx context.Context, field graphql.CollectedField, obj *LivingWikiSettings) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LivingWikiSettings_confluenceSite(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.ConfluenceSite, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_LivingWikiSettings_confluenceSite(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LivingWikiSettings",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _LivingWikiSettings_confluenceToken(ctx context.Context, field graphql.CollectedField, obj *LivingWikiSettings) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_LivingWikiSettings_confluenceToken(ctx, field)
 	if err != nil {
@@ -49957,7 +50006,7 @@ func (ec *executionContext) unmarshalInputUpdateLivingWikiSettingsInput(ctx cont
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"enabled", "workerCount", "eventTimeout", "githubToken", "gitlabToken", "confluenceEmail", "confluenceToken", "notionToken", "confluenceWebhookSecret", "notionWebhookSecret"}
+	fieldsInOrder := [...]string{"enabled", "workerCount", "eventTimeout", "githubToken", "gitlabToken", "confluenceSite", "confluenceEmail", "confluenceToken", "notionToken", "confluenceWebhookSecret", "notionWebhookSecret"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -49999,6 +50048,13 @@ func (ec *executionContext) unmarshalInputUpdateLivingWikiSettingsInput(ctx cont
 				return it, err
 			}
 			it.GitlabToken = data
+		case "confluenceSite":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("confluenceSite"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ConfluenceSite = data
 		case "confluenceEmail":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("confluenceEmail"))
 			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
@@ -53713,6 +53769,8 @@ func (ec *executionContext) _LivingWikiSettings(ctx context.Context, sel ast.Sel
 			out.Values[i] = ec._LivingWikiSettings_gitlabToken(ctx, field, obj)
 		case "confluenceEmail":
 			out.Values[i] = ec._LivingWikiSettings_confluenceEmail(ctx, field, obj)
+		case "confluenceSite":
+			out.Values[i] = ec._LivingWikiSettings_confluenceSite(ctx, field, obj)
 		case "confluenceToken":
 			out.Values[i] = ec._LivingWikiSettings_confluenceToken(ctx, field, obj)
 		case "notionToken":

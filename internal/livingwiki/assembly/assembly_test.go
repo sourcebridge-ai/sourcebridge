@@ -24,10 +24,11 @@ import (
 // for assembly tests that don't exercise HTTP calls).
 type stubBroker struct{}
 
-func (s *stubBroker) GitHub(_ context.Context) (string, error)                        { return "tok-gh", nil }
-func (s *stubBroker) GitLab(_ context.Context) (string, error)                        { return "tok-gl", nil }
-func (s *stubBroker) Confluence(_ context.Context) (string, string, error)            { return "u@e.com", "tok-cf", nil }
-func (s *stubBroker) Notion(_ context.Context) (string, error)                        { return "tok-nt", nil }
+func (s *stubBroker) GitHub(_ context.Context) (string, error)             { return "tok-gh", nil }
+func (s *stubBroker) GitLab(_ context.Context) (string, error)             { return "tok-gl", nil }
+func (s *stubBroker) ConfluenceSite(_ context.Context) (string, error)     { return "mycompany", nil }
+func (s *stubBroker) Confluence(_ context.Context) (string, string, error) { return "u@e.com", "tok-cf", nil }
+func (s *stubBroker) Notion(_ context.Context) (string, error)             { return "tok-nt", nil }
 
 var _ credentials.Broker = (*stubBroker)(nil)
 
