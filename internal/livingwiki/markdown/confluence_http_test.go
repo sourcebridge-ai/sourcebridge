@@ -14,7 +14,14 @@ import (
 	"time"
 
 	"github.com/sourcebridge/sourcebridge/internal/livingwiki/ast"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
 )
+
+// testSnap is a credentials.Snapshot pre-populated with test values.
+var testSnap = credentials.Snapshot{
+	ConfluenceEmail: "test@example.com",
+	ConfluenceToken: "test-token",
+}
 
 // confluenceTestServer builds a minimal Confluence Cloud mock that understands:
 //   - GET /wiki/api/v2/pages?title=… → search results
@@ -173,69 +180,9 @@ func extractConfluencePageID(path string) string {
 	return parts[0]
 }
 
+// newConfluenceHTTPClient is a convenience wrapper around newConfluenceClientWithTransport.
 func newConfluenceHTTPClient(srv *httptest.Server) *HTTPConfluenceClient {
-	return NewHTTPConfluenceClient(ConfluenceHTTPConfig{
-		// Override the base URL to point at the test server.
-		// We abuse the Site field since baseURL() concatenates it; instead,
-		// we override the method via a custom cfg that bakes in the test URL.
-		Email:        "test@example.com",
-		APIToken:     "test-token",
-		SpaceKey:     "ENG",
-		HTTPTimeout:  5 * time.Second,
-	})
-}
-
-// newConfluenceHTTPClientWithURL creates a client that hits the test server.
-func newConfluenceHTTPClientWithURL(srv *httptest.Server) *HTTPConfluenceClient {
-	c := &HTTPConfluenceClient{
-		cfg: ConfluenceHTTPConfig{
-			Site:        "testsite", // not used — we override the full URL below
-			Email:       "test@example.com",
-			APIToken:    "test-token",
-			SpaceKey:    "ENG",
-			HTTPTimeout: 5 * time.Second,
-		},
-		http: &http.Client{Timeout: 5 * time.Second},
-	}
-	// Patch the base URL to the test server. We do this by embedding a custom
-	// URL-building approach: override the do method is not possible without
-	// changing the struct. Instead, set a custom Site with the server URL
-	// baked in by replacing the baseURL helper via a test-specific wrapper.
-	// Since Site-based URL construction is internal, we use a small adapter.
-	_ = c
-	_ = srv
-	return newTestConfluenceClient(srv.URL)
-}
-
-// newTestConfluenceClient creates an HTTPConfluenceClient that uses srv.URL as
-// the API base, bypassing the Site-based URL construction.
-func newTestConfluenceClient(baseURL string) *HTTPConfluenceClient {
-	c := &HTTPConfluenceClient{
-		cfg: ConfluenceHTTPConfig{
-			Site:        "", // unused — we embed the full base URL via a wrapper
-			Email:       "test@example.com",
-			APIToken:    "test-token",
-			SpaceKey:    "ENG",
-			HTTPTimeout: 5 * time.Second,
-		},
-		http: &http.Client{Timeout: 5 * time.Second},
-	}
-	// Override the base URL by wrapping: since the struct's baseURL() relies on
-	// Site, we inject a testBaseURL field via the Site field with a sentinel and
-	// have the real impl handle it. Simpler: use a custom embedded URL.
-	// Actually the cleanest is to set cfg.Site to a value where the resulting
-	// URL points to our test server. We construct: baseURL = srv.URL + "/wiki/api/v2"
-	// which is what the real impl would do for "https://site.atlassian.net/wiki/api/v2".
-	// We achieve this by storing the test server URL in a field the baseURL()
-	// method can return — the only way is to have a testBaseURL field, which we
-	// don't want to add to prod code. Instead we use a trick:
-	// Set Site such that "https://" + Site + ".atlassian.net/wiki/api/v2" != srv.URL,
-	// and monkeypatch the http.Client's transport to redirect all requests to srv.URL.
-	_ = baseURL
-	_ = c
-	// Cleanest approach: override Site to embed a fake domain and use a custom
-	// http.RoundTripper that redirects calls to the test server.
-	return newConfluenceClientWithTransport(baseURL)
+	return newConfluenceClientWithTransport(srv.URL)
 }
 
 // confluenceRedirectTransport redirects all requests to the test server base URL.
@@ -261,8 +208,6 @@ func newConfluenceClientWithTransport(testBaseURL string) *HTTPConfluenceClient 
 	return &HTTPConfluenceClient{
 		cfg: ConfluenceHTTPConfig{
 			Site:        "testsite",
-			Email:       "test@example.com",
-			APIToken:    "test-token",
 			SpaceKey:    "ENG",
 			HTTPTimeout: 5 * time.Second,
 		},
@@ -281,7 +226,7 @@ func TestHTTPConfluenceClient_GetPage_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	client := newConfluenceClientWithTransport(srv.URL)
-	xhtml, props, err := client.GetPage(context.Background(), "nonexistent")
+	xhtml, props, err := client.GetPage(context.Background(), testSnap, "nonexistent")
 	if err != nil {
 		t.Fatalf("GetPage: %v", err)
 	}
@@ -304,7 +249,7 @@ func TestHTTPConfluenceClient_UpsertPage_Create(t *testing.T) {
 
 	xhtml := []byte("<p>Hello Confluence</p>")
 	props := ConfluenceProperties{"sourcebridge_page_id": "my-page"}
-	if err := client.UpsertPage(ctx, "my-page", xhtml, props); err != nil {
+	if err := client.UpsertPage(ctx, testSnap, "my-page", xhtml, props); err != nil {
 		t.Fatalf("UpsertPage create: %v", err)
 	}
 
@@ -334,7 +279,7 @@ func TestHTTPConfluenceClient_UpsertPage_Update(t *testing.T) {
 
 	newXHTML := []byte("<p>New content</p>")
 	props := ConfluenceProperties{"sourcebridge_page_id": "update-page"}
-	if err := client.UpsertPage(ctx, "update-page", newXHTML, props); err != nil {
+	if err := client.UpsertPage(ctx, testSnap, "update-page", newXHTML, props); err != nil {
 		t.Fatalf("UpsertPage update: %v", err)
 	}
 
@@ -365,7 +310,7 @@ func TestHTTPConfluenceClient_GetBlockByExternalID(t *testing.T) {
 	client := newConfluenceClientWithTransport(srv.URL)
 	ctx := context.Background()
 
-	blockBody, ok, err := client.GetBlockByExternalID(ctx, "my-page", ast.BlockID("block-001"))
+	blockBody, ok, err := client.GetBlockByExternalID(ctx, testSnap, "my-page", ast.BlockID("block-001"))
 	if err != nil {
 		t.Fatalf("GetBlockByExternalID: %v", err)
 	}
@@ -388,7 +333,7 @@ func TestHTTPConfluenceClient_GetBlockByExternalID_Missing(t *testing.T) {
 	client := newConfluenceClientWithTransport(srv.URL)
 	ctx := context.Background()
 
-	_, ok, err := client.GetBlockByExternalID(ctx, "my-page", ast.BlockID("nonexistent"))
+	_, ok, err := client.GetBlockByExternalID(ctx, testSnap, "my-page", ast.BlockID("nonexistent"))
 	if err != nil {
 		t.Fatalf("GetBlockByExternalID: %v", err)
 	}
@@ -413,7 +358,7 @@ func TestHTTPConfluenceClient_429_Retry(t *testing.T) {
 	defer srv.Close()
 
 	client := newConfluenceClientWithTransport(srv.URL)
-	_, _, err := client.GetPage(context.Background(), "any-page")
+	_, _, err := client.GetPage(context.Background(), testSnap, "any-page")
 	if err != nil {
 		t.Fatalf("GetPage: %v", err)
 	}
@@ -437,7 +382,7 @@ func TestHTTPConfluenceClient_500_Retry(t *testing.T) {
 	defer srv.Close()
 
 	client := newConfluenceClientWithTransport(srv.URL)
-	_, _, err := client.GetPage(context.Background(), "any-page")
+	_, _, err := client.GetPage(context.Background(), testSnap, "any-page")
 	if err != nil {
 		t.Fatalf("GetPage: %v", err)
 	}
@@ -452,7 +397,7 @@ func TestHTTPConfluenceClient_401(t *testing.T) {
 	defer srv.Close()
 
 	client := newConfluenceClientWithTransport(srv.URL)
-	_, _, err := client.GetPage(context.Background(), "any-page")
+	_, _, err := client.GetPage(context.Background(), testSnap, "any-page")
 	if err == nil {
 		t.Fatal("expected error for 401, got nil")
 	}
@@ -475,7 +420,7 @@ func TestHTTPConfluenceClient_MalformedJSON(t *testing.T) {
 	defer srv.Close()
 
 	client := newConfluenceClientWithTransport(srv.URL)
-	_, _, err := client.GetPage(context.Background(), "any-page")
+	_, _, err := client.GetPage(context.Background(), testSnap, "any-page")
 	if err == nil {
 		t.Fatal("expected error for malformed JSON, got nil")
 	}

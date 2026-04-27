@@ -12,13 +12,19 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
 )
+
+// testGitLabSnap is a credentials.Snapshot pre-populated with GitLab test values.
+var testGitLabSnap = credentials.Snapshot{
+	GitLabToken: "test-gitlab-token",
+}
 
 func newTestGitLabClient(t *testing.T, srv *httptest.Server) *GitLabClient {
 	t.Helper()
 	c := NewGitLabClient(GitLabClientConfig{
 		ProjectID:     "123",
-		Token:         "test-token",
 		BaseURL:       srv.URL,
 		DefaultBranch: "main",
 		HTTPTimeout:   5 * time.Second,
@@ -52,7 +58,7 @@ func TestGitLabClient_Open_Success(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestGitLabClient(t, srv)
-	err := client.Open(context.Background(), "feature", "Test MR", "Body",
+	err := client.Open(context.Background(), testGitLabSnap, "feature", "Test MR", "Body",
 		map[string][]byte{"wiki/foo.md": []byte("# Foo")})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -74,7 +80,7 @@ func TestGitLabClient_Merged(t *testing.T) {
 	client.mrIID = 3
 	client.branch = "some-branch"
 
-	merged, err := client.Merged(context.Background())
+	merged, err := client.Merged(context.Background(), testGitLabSnap)
 	if err != nil {
 		t.Fatalf("Merged: %v", err)
 	}
@@ -93,7 +99,7 @@ func TestGitLabClient_Closed(t *testing.T) {
 	client.mrIID = 3
 	client.branch = "branch"
 
-	closed, err := client.Closed(context.Background())
+	closed, err := client.Closed(context.Background(), testGitLabSnap)
 	if err != nil {
 		t.Fatalf("Closed: %v", err)
 	}
@@ -113,7 +119,7 @@ func TestGitLabClient_404(t *testing.T) {
 	client := newTestGitLabClient(t, srv)
 	client.mrIID = 99
 
-	_, err := client.Merged(context.Background())
+	_, err := client.Merged(context.Background(), testGitLabSnap)
 	if err == nil {
 		t.Fatal("expected error for 404, got nil")
 	}
@@ -133,7 +139,7 @@ func TestGitLabClient_401(t *testing.T) {
 	client := newTestGitLabClient(t, srv)
 	client.mrIID = 1
 
-	_, err := client.Merged(context.Background())
+	_, err := client.Merged(context.Background(), testGitLabSnap)
 	if err == nil {
 		t.Fatal("expected error for 401")
 	}
@@ -163,7 +169,7 @@ func TestGitLabClient_429_Retry(t *testing.T) {
 	client := newTestGitLabClient(t, srv)
 	client.mrIID = 1
 
-	merged, err := client.Merged(context.Background())
+	merged, err := client.Merged(context.Background(), testGitLabSnap)
 	if err != nil {
 		t.Fatalf("Merged: %v", err)
 	}
@@ -192,7 +198,7 @@ func TestGitLabClient_500_Retry(t *testing.T) {
 	client := newTestGitLabClient(t, srv)
 	client.mrIID = 1
 
-	_, err := client.Merged(context.Background())
+	_, err := client.Merged(context.Background(), testGitLabSnap)
 	if err != nil {
 		t.Fatalf("Merged: %v", err)
 	}
@@ -210,7 +216,7 @@ func TestGitLabClient_MalformedJSON(t *testing.T) {
 	client := newTestGitLabClient(t, srv)
 	client.mrIID = 1
 
-	_, err := client.Merged(context.Background())
+	_, err := client.Merged(context.Background(), testGitLabSnap)
 	if err == nil {
 		t.Fatal("expected error for malformed JSON, got nil")
 	}
@@ -231,7 +237,7 @@ func TestGitLabClient_ListCommitsOnBranch(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestGitLabClient(t, srv)
-	commits, err := client.ListCommitsOnBranch(context.Background(), "main", time.Time{})
+	commits, err := client.ListCommitsOnBranch(context.Background(), testGitLabSnap, "main", time.Time{})
 	if err != nil {
 		t.Fatalf("ListCommitsOnBranch: %v", err)
 	}
@@ -259,7 +265,7 @@ func TestGitLabClient_PostComment(t *testing.T) {
 	client := newTestGitLabClient(t, srv)
 	client.mrIID = 5
 
-	if err := client.PostComment(context.Background(), "Hello"); err != nil {
+	if err := client.PostComment(context.Background(), testGitLabSnap, "Hello"); err != nil {
 		t.Fatalf("PostComment: %v", err)
 	}
 	if gotBody != "Hello" {
@@ -304,7 +310,7 @@ func TestGitLabClient_CommitFallback_CreateToUpdate(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestGitLabClient(t, srv)
-	err := client.AppendCommitToBranch(context.Background(), "main",
+	err := client.AppendCommitToBranch(context.Background(), testGitLabSnap, "main",
 		map[string][]byte{"wiki/test.md": []byte("content")}, "test commit")
 	if err != nil {
 		t.Fatalf("AppendCommitToBranch: %v", err)

@@ -12,7 +12,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
 )
+
+// testNotionSnap is a credentials.Snapshot pre-populated with Notion test values.
+var testNotionSnap = credentials.Snapshot{
+	NotionToken: "test-notion-token",
+}
 
 // notionRedirectTransport redirects all requests to the test server.
 type notionRedirectTransport struct {
@@ -35,7 +42,6 @@ func (t *notionRedirectTransport) RoundTrip(req *http.Request) (*http.Response, 
 func newTestNotionClient(srv *httptest.Server, dbID string) *HTTPNotionClient {
 	return &HTTPNotionClient{
 		cfg: NotionHTTPConfig{
-			Token:       "test-token",
 			DatabaseID:  dbID,
 			HTTPTimeout: 5 * time.Second,
 		},
@@ -230,7 +236,7 @@ func TestHTTPNotionClient_GetPage_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestNotionClient(srv, "db-123")
-	blocks, props, err := client.GetPage(context.Background(), "nonexistent")
+	blocks, props, err := client.GetPage(context.Background(), testNotionSnap, "nonexistent")
 	if err != nil {
 		t.Fatalf("GetPage: %v", err)
 	}
@@ -256,7 +262,7 @@ func TestHTTPNotionClient_UpsertPage_Create(t *testing.T) {
 			paragraph: &notionParagraph{RichText: notionRichText("Hello Notion")}},
 	}
 	props := NotionProperties{"sourcebridge_page_id": "create-page"}
-	if err := client.UpsertPage(ctx, "create-page", blocks, props); err != nil {
+	if err := client.UpsertPage(ctx, testNotionSnap, "create-page", blocks, props); err != nil {
 		t.Fatalf("UpsertPage create: %v", err)
 	}
 
@@ -290,7 +296,7 @@ func TestHTTPNotionClient_UpsertPage_Update(t *testing.T) {
 		{Object: "block", Type: "paragraph", ExternalID: "new-b1",
 			paragraph: &notionParagraph{RichText: notionRichText("New content")}},
 	}
-	if err := client.UpsertPage(ctx, "update-page", newBlocks, NotionProperties{}); err != nil {
+	if err := client.UpsertPage(ctx, testNotionSnap, "update-page", newBlocks, NotionProperties{}); err != nil {
 		t.Fatalf("UpsertPage update: %v", err)
 	}
 	// After replace, new blocks should be appended.
@@ -315,7 +321,7 @@ func TestHTTPNotionClient_AppendBlocks(t *testing.T) {
 		{Object: "block", Type: "paragraph", ExternalID: "extra-b1",
 			paragraph: &notionParagraph{RichText: notionRichText("Extra")}},
 	}
-	if err := client.AppendBlocks(ctx, "my-page", extra); err != nil {
+	if err := client.AppendBlocks(ctx, testNotionSnap, "my-page", extra); err != nil {
 		t.Fatalf("AppendBlocks: %v", err)
 	}
 	if len(ns.blocks["notion-my-page"]) != 1 {
@@ -330,7 +336,7 @@ func TestHTTPNotionClient_DeleteBlock(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestNotionClient(srv, "db-123")
-	if err := client.DeleteBlock(context.Background(), "block-xyz"); err != nil {
+	if err := client.DeleteBlock(context.Background(), testNotionSnap, "block-xyz"); err != nil {
 		t.Fatalf("DeleteBlock: %v", err)
 	}
 }
@@ -355,7 +361,7 @@ func TestHTTPNotionClient_429_Retry(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestNotionClient(srv, "db-123")
-	_, _, err := client.GetPage(context.Background(), "any")
+	_, _, err := client.GetPage(context.Background(), testNotionSnap, "any")
 	if err != nil {
 		t.Fatalf("GetPage: %v", err)
 	}
@@ -381,7 +387,7 @@ func TestHTTPNotionClient_500_Retry(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestNotionClient(srv, "db-123")
-	_, _, err := client.GetPage(context.Background(), "any")
+	_, _, err := client.GetPage(context.Background(), testNotionSnap, "any")
 	if err != nil {
 		t.Fatalf("GetPage: %v", err)
 	}
@@ -398,7 +404,7 @@ func TestHTTPNotionClient_401(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestNotionClient(srv, "db-123")
-	_, _, err := client.GetPage(context.Background(), "any")
+	_, _, err := client.GetPage(context.Background(), testNotionSnap, "any")
 	if err == nil {
 		t.Fatal("expected error for 401, got nil")
 	}
@@ -421,7 +427,7 @@ func TestHTTPNotionClient_MalformedJSON(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestNotionClient(srv, "db-123")
-	_, _, err := client.GetPage(context.Background(), "any")
+	_, _, err := client.GetPage(context.Background(), testNotionSnap, "any")
 	if err == nil {
 		t.Fatal("expected error for malformed JSON, got nil")
 	}
@@ -441,7 +447,7 @@ func TestHTTPNotionClient_TitleFallback(t *testing.T) {
 
 	// Client with no DatabaseID → uses search.
 	client := newTestNotionClient(srv, "")
-	blocks, _, err := client.GetPage(context.Background(), "fallback-page")
+	blocks, _, err := client.GetPage(context.Background(), testNotionSnap, "fallback-page")
 	if err != nil {
 		t.Fatalf("GetPage (title fallback): %v", err)
 	}
@@ -463,7 +469,7 @@ func TestHTTPNotionClient_Version_Header(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestNotionClient(srv, "db-123")
-	_, _, _ = client.GetPage(context.Background(), "any")
+	_, _, _ = client.GetPage(context.Background(), testNotionSnap, "any")
 
 	if gotVersion != notionVersion {
 		t.Errorf("Notion-Version = %q, want %q", gotVersion, notionVersion)

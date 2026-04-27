@@ -48,6 +48,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
 )
 
 const (
@@ -89,9 +91,10 @@ func IsNotionNotFound(err error) bool {
 }
 
 // NotionHTTPConfig holds construction parameters for [HTTPNotionClient].
+// The integration token is intentionally absent: it is injected per-call via a
+// [credentials.Snapshot] so that credential rotation propagates to the next
+// orchestrator job without a process restart.
 type NotionHTTPConfig struct {
-	// Token is the Notion integration token.
-	Token string
 	// DatabaseID is the Notion database that holds SourceBridge pages.
 	// When set, UpsertPage creates pages inside this database and GetPage
 	// queries it by the ExternalIDProperty.
@@ -118,8 +121,13 @@ func (c NotionHTTPConfig) httpTimeout() time.Duration {
 	return 30 * time.Second
 }
 
-// HTTPNotionClient implements [NotionClient] via the Notion REST API.
+// HTTPNotionClient makes authenticated calls to the Notion REST API using
+// credentials supplied per-call via a [credentials.Snapshot].
 // Construct via [NewHTTPNotionClient].
+//
+// The client is stateless with respect to credentials: each public method
+// receives a Snapshot, so mid-job credential rotation does not affect an
+// in-flight job (the at-most-one-rotation-per-job invariant).
 type HTTPNotionClient struct {
 	cfg            NotionHTTPConfig
 	http           *http.Client
@@ -134,10 +142,9 @@ func (n *HTTPNotionClient) retryDelay(attempt int) time.Duration {
 	return time.Duration(math.Pow(2, float64(attempt-1))) * base
 }
 
-// Compile-time interface check.
-var _ NotionClient = (*HTTPNotionClient)(nil)
-
 // NewHTTPNotionClient constructs an [HTTPNotionClient].
+// No credentials are accepted here; pass a [credentials.Snapshot] to each
+// method call so that token rotation takes effect on the next job.
 func NewHTTPNotionClient(cfg NotionHTTPConfig) *HTTPNotionClient {
 	return &HTTPNotionClient{
 		cfg:  cfg,
@@ -151,8 +158,8 @@ func NewHTTPNotionClient(cfg NotionHTTPConfig) *HTTPNotionClient {
 // Implementation: two round-trips:
 //  1. Resolve externalID → Notion page ID via database query or search.
 //  2. GET /blocks/{pageID}/children to fetch the page's content blocks.
-func (n *HTTPNotionClient) GetPage(ctx context.Context, externalID string) ([]NotionBlock, NotionProperties, error) {
-	pageID, props, err := n.findPageByExternalID(ctx, externalID)
+func (n *HTTPNotionClient) GetPage(ctx context.Context, snap credentials.Snapshot, externalID string) ([]NotionBlock, NotionProperties, error) {
+	pageID, props, err := n.findPageByExternalID(ctx, snap.NotionToken, externalID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -160,7 +167,7 @@ func (n *HTTPNotionClient) GetPage(ctx context.Context, externalID string) ([]No
 		return nil, nil, nil
 	}
 
-	blocks, err := n.fetchChildren(ctx, pageID)
+	blocks, err := n.fetchChildren(ctx, snap.NotionToken, pageID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("notion_http: fetch children for page %s: %w", pageID, err)
 	}
@@ -168,35 +175,35 @@ func (n *HTTPNotionClient) GetPage(ctx context.Context, externalID string) ([]No
 }
 
 // UpsertPage creates or replaces the page identified by externalID.
-func (n *HTTPNotionClient) UpsertPage(ctx context.Context, externalID string, blocks []NotionBlock, properties NotionProperties) error {
-	pageID, _, err := n.findPageByExternalID(ctx, externalID)
+func (n *HTTPNotionClient) UpsertPage(ctx context.Context, snap credentials.Snapshot, externalID string, blocks []NotionBlock, properties NotionProperties) error {
+	pageID, _, err := n.findPageByExternalID(ctx, snap.NotionToken, externalID)
 	if err != nil {
 		return err
 	}
 
 	if pageID == "" {
-		return n.createPage(ctx, externalID, blocks, properties)
+		return n.createPage(ctx, snap.NotionToken, externalID, blocks, properties)
 	}
-	return n.replacePage(ctx, pageID, externalID, blocks, properties)
+	return n.replacePage(ctx, snap.NotionToken, pageID, externalID, blocks, properties)
 }
 
 // AppendBlocks appends blocks to an existing page identified by externalID.
-func (n *HTTPNotionClient) AppendBlocks(ctx context.Context, pageExternalID string, blocks []NotionBlock) error {
-	pageID, _, err := n.findPageByExternalID(ctx, pageExternalID)
+func (n *HTTPNotionClient) AppendBlocks(ctx context.Context, snap credentials.Snapshot, pageExternalID string, blocks []NotionBlock) error {
+	pageID, _, err := n.findPageByExternalID(ctx, snap.NotionToken, pageExternalID)
 	if err != nil {
 		return err
 	}
 	if pageID == "" {
 		return fmt.Errorf("notion_http: AppendBlocks: page %q not found", pageExternalID)
 	}
-	return n.appendBlocksToPage(ctx, pageID, blocks)
+	return n.appendBlocksToPage(ctx, snap.NotionToken, pageID, blocks)
 }
 
 // UpdateBlock replaces the content of the block identified by blockExternalID
 // (the SourceBridge external_id stored on the block). Notion identifies blocks
 // by their own UUID; this implementation resolves the external_id to the Notion
 // block ID by scanning the block's parent page's children.
-func (n *HTTPNotionClient) UpdateBlock(ctx context.Context, blockExternalID string, block NotionBlock) error {
+func (n *HTTPNotionClient) UpdateBlock(ctx context.Context, snap credentials.Snapshot, blockExternalID string, block NotionBlock) error {
 	// Notion PATCH /blocks/{id} requires the Notion block UUID, not our external_id.
 	// We store the mapping during upsert by matching external_id in the response.
 	// For now: PATCH directly using external_id as if it were the Notion block ID
@@ -219,16 +226,16 @@ func (n *HTTPNotionClient) UpdateBlock(ctx context.Context, blockExternalID stri
 	delete(rawBlock, "object")
 	delete(rawBlock, "external_id")
 
-	if err := n.do(ctx, http.MethodPatch, path, rawBlock, nil); err != nil {
+	if err := n.do(ctx, snap.NotionToken, http.MethodPatch, path, rawBlock, nil); err != nil {
 		return fmt.Errorf("notion_http: UpdateBlock %s: %w", blockExternalID, err)
 	}
 	return nil
 }
 
 // DeleteBlock removes the block identified by blockExternalID.
-func (n *HTTPNotionClient) DeleteBlock(ctx context.Context, blockExternalID string) error {
+func (n *HTTPNotionClient) DeleteBlock(ctx context.Context, snap credentials.Snapshot, blockExternalID string) error {
 	path := "/blocks/" + blockExternalID
-	if err := n.do(ctx, http.MethodDelete, path, nil, nil); err != nil {
+	if err := n.do(ctx, snap.NotionToken, http.MethodDelete, path, nil, nil); err != nil {
 		return fmt.Errorf("notion_http: DeleteBlock %s: %w", blockExternalID, err)
 	}
 	return nil
@@ -238,16 +245,16 @@ func (n *HTTPNotionClient) DeleteBlock(ctx context.Context, blockExternalID stri
 
 // findPageByExternalID resolves a SourceBridge external ID to a Notion page ID.
 // Returns ("", nil, nil) when not found.
-func (n *HTTPNotionClient) findPageByExternalID(ctx context.Context, externalID string) (string, NotionProperties, error) {
+func (n *HTTPNotionClient) findPageByExternalID(ctx context.Context, token, externalID string) (string, NotionProperties, error) {
 	if n.cfg.DatabaseID != "" {
-		return n.findPageInDatabase(ctx, externalID)
+		return n.findPageInDatabase(ctx, token, externalID)
 	}
-	return n.findPageByTitle(ctx, externalID)
+	return n.findPageByTitle(ctx, token, externalID)
 }
 
 // findPageInDatabase queries the Notion database for a page whose external ID
 // property matches externalID.
-func (n *HTTPNotionClient) findPageInDatabase(ctx context.Context, externalID string) (string, NotionProperties, error) {
+func (n *HTTPNotionClient) findPageInDatabase(ctx context.Context, token, externalID string) (string, NotionProperties, error) {
 	path := "/databases/" + n.cfg.DatabaseID + "/query"
 
 	// Build a filter on the external ID property.
@@ -267,7 +274,7 @@ func (n *HTTPNotionClient) findPageInDatabase(ctx context.Context, externalID st
 			Properties map[string]json.RawMessage `json:"properties"`
 		} `json:"results"`
 	}
-	if err := n.do(ctx, http.MethodPost, path, filterPayload, &resp); err != nil {
+	if err := n.do(ctx, token, http.MethodPost, path, filterPayload, &resp); err != nil {
 		return "", nil, fmt.Errorf("notion_http: database query: %w", err)
 	}
 	if len(resp.Results) == 0 {
@@ -282,7 +289,7 @@ func (n *HTTPNotionClient) findPageInDatabase(ctx context.Context, externalID st
 // findPageByTitle uses the Notion search API to find a page by title (fallback
 // when no DatabaseID is set). Title-based search is approximate; external ID
 // verification is not possible without the property API on non-database pages.
-func (n *HTTPNotionClient) findPageByTitle(ctx context.Context, title string) (string, NotionProperties, error) {
+func (n *HTTPNotionClient) findPageByTitle(ctx context.Context, token, title string) (string, NotionProperties, error) {
 	payload := map[string]interface{}{
 		"query": title,
 		"filter": map[string]string{
@@ -302,7 +309,7 @@ func (n *HTTPNotionClient) findPageByTitle(ctx context.Context, title string) (s
 			} `json:"properties"`
 		} `json:"results"`
 	}
-	if err := n.do(ctx, http.MethodPost, "/search", payload, &resp); err != nil {
+	if err := n.do(ctx, token, http.MethodPost, "/search", payload, &resp); err != nil {
 		return "", nil, fmt.Errorf("notion_http: search: %w", err)
 	}
 
@@ -319,7 +326,7 @@ func (n *HTTPNotionClient) findPageByTitle(ctx context.Context, title string) (s
 }
 
 // createPage creates a new Notion page with the given blocks and properties.
-func (n *HTTPNotionClient) createPage(ctx context.Context, externalID string, blocks []NotionBlock, _ NotionProperties) error {
+func (n *HTTPNotionClient) createPage(ctx context.Context, token, externalID string, blocks []NotionBlock, _ NotionProperties) error {
 	type titleText struct {
 		Type string `json:"type"`
 		Text struct {
@@ -371,7 +378,7 @@ func (n *HTTPNotionClient) createPage(ctx context.Context, externalID string, bl
 	var resp struct {
 		ID string `json:"id"`
 	}
-	if err := n.do(ctx, http.MethodPost, "/pages", payload, &resp); err != nil {
+	if err := n.do(ctx, token, http.MethodPost, "/pages", payload, &resp); err != nil {
 		return fmt.Errorf("notion_http: create page: %w", err)
 	}
 	return nil
@@ -380,9 +387,9 @@ func (n *HTTPNotionClient) createPage(ctx context.Context, externalID string, bl
 // replacePage clears the existing page's blocks and appends the new ones.
 // Notion has no "replace all blocks" endpoint, so we delete existing blocks and
 // then append the new set.
-func (n *HTTPNotionClient) replacePage(ctx context.Context, pageID, externalID string, blocks []NotionBlock, _ NotionProperties) error {
+func (n *HTTPNotionClient) replacePage(ctx context.Context, token, pageID, externalID string, blocks []NotionBlock, _ NotionProperties) error {
 	// Fetch existing blocks.
-	existing, err := n.fetchChildren(ctx, pageID)
+	existing, err := n.fetchChildren(ctx, token, pageID)
 	if err != nil {
 		return fmt.Errorf("notion_http: replacePage fetch existing: %w", err)
 	}
@@ -391,29 +398,29 @@ func (n *HTTPNotionClient) replacePage(ctx context.Context, pageID, externalID s
 	// because we must still write the new content.
 	for _, b := range existing {
 		if b.Object == "block" && b.ExternalID != "" {
-			_ = n.do(ctx, http.MethodDelete, "/blocks/"+b.ExternalID, nil, nil)
+			_ = n.do(ctx, token, http.MethodDelete, "/blocks/"+b.ExternalID, nil, nil)
 		}
 	}
 
 	// Append new blocks.
-	if err := n.appendBlocksToPage(ctx, pageID, blocks); err != nil {
+	if err := n.appendBlocksToPage(ctx, token, pageID, blocks); err != nil {
 		return fmt.Errorf("notion_http: replacePage append blocks: %w", err)
 	}
 
 	// Update the title (best-effort).
-	_ = n.updatePageTitle(ctx, pageID, externalID)
+	_ = n.updatePageTitle(ctx, token, pageID, externalID)
 	return nil
 }
 
 // fetchChildren fetches all child blocks for a page or block ID.
-func (n *HTTPNotionClient) fetchChildren(ctx context.Context, pageID string) ([]NotionBlock, error) {
+func (n *HTTPNotionClient) fetchChildren(ctx context.Context, token, pageID string) ([]NotionBlock, error) {
 	path := "/blocks/" + pageID + "/children?page_size=100"
 	var resp struct {
 		Results    []NotionBlock `json:"results"`
 		HasMore    bool          `json:"has_more"`
 		NextCursor string        `json:"next_cursor"`
 	}
-	if err := n.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	if err := n.do(ctx, token, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
 
@@ -426,7 +433,7 @@ func (n *HTTPNotionClient) fetchChildren(ctx context.Context, pageID string) ([]
 			HasMore    bool          `json:"has_more"`
 			NextCursor string        `json:"next_cursor"`
 		}
-		if err := n.do(ctx, http.MethodGet, nextPath, nil, &nextResp); err != nil {
+		if err := n.do(ctx, token, http.MethodGet, nextPath, nil, &nextResp); err != nil {
 			break // partial result is better than none
 		}
 		blocks = append(blocks, nextResp.Results...)
@@ -437,20 +444,20 @@ func (n *HTTPNotionClient) fetchChildren(ctx context.Context, pageID string) ([]
 }
 
 // appendBlocksToPage calls PATCH /blocks/{id}/children with the given blocks.
-func (n *HTTPNotionClient) appendBlocksToPage(ctx context.Context, pageID string, blocks []NotionBlock) error {
+func (n *HTTPNotionClient) appendBlocksToPage(ctx context.Context, token, pageID string, blocks []NotionBlock) error {
 	if len(blocks) == 0 {
 		return nil
 	}
 	path := "/blocks/" + pageID + "/children"
 	payload := map[string]interface{}{"children": blocks}
-	if err := n.do(ctx, http.MethodPatch, path, payload, nil); err != nil {
+	if err := n.do(ctx, token, http.MethodPatch, path, payload, nil); err != nil {
 		return fmt.Errorf("notion_http: append blocks to %s: %w", pageID, err)
 	}
 	return nil
 }
 
 // updatePageTitle updates the page's title property.
-func (n *HTTPNotionClient) updatePageTitle(ctx context.Context, pageID, title string) error {
+func (n *HTTPNotionClient) updatePageTitle(ctx context.Context, token, pageID, title string) error {
 	payload := map[string]interface{}{
 		"properties": map[string]interface{}{
 			"title": map[string]interface{}{
@@ -464,12 +471,12 @@ func (n *HTTPNotionClient) updatePageTitle(ctx context.Context, pageID, title st
 		},
 	}
 	path := "/pages/" + pageID
-	return n.do(ctx, http.MethodPatch, path, payload, nil)
+	return n.do(ctx, token, http.MethodPatch, path, payload, nil)
 }
 
 // ─── HTTP core ────────────────────────────────────────────────────────────────
 
-func (n *HTTPNotionClient) do(ctx context.Context, method, path string, reqBody, respBody interface{}) error {
+func (n *HTTPNotionClient) do(ctx context.Context, token, method, path string, reqBody, respBody interface{}) error {
 	for attempt := 0; attempt <= maxNotionRetries; attempt++ {
 		if attempt > 0 {
 			sleep := n.retryDelay(attempt)
@@ -480,7 +487,7 @@ func (n *HTTPNotionClient) do(ctx context.Context, method, path string, reqBody,
 			}
 		}
 
-		err := n.doOnce(ctx, method, path, reqBody, respBody)
+		err := n.doOnce(ctx, token, method, path, reqBody, respBody)
 		if err == nil {
 			return nil
 		}
@@ -498,7 +505,7 @@ func (n *HTTPNotionClient) do(ctx context.Context, method, path string, reqBody,
 	return fmt.Errorf("notion_http: %s %s: exceeded retry limit", method, path)
 }
 
-func (n *HTTPNotionClient) doOnce(ctx context.Context, method, path string, reqBody, respBody interface{}) error {
+func (n *HTTPNotionClient) doOnce(ctx context.Context, token, method, path string, reqBody, respBody interface{}) error {
 	var bodyReader io.Reader
 	if reqBody != nil {
 		data, err := json.Marshal(reqBody)
@@ -513,7 +520,7 @@ func (n *HTTPNotionClient) doOnce(ctx context.Context, method, path string, reqB
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+n.cfg.Token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Notion-Version", notionVersion)
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")

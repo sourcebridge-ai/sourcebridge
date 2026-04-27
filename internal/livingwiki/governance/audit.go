@@ -34,6 +34,11 @@ type AuditEntry struct {
 	// Timestamp is when the governance action was recorded.
 	Timestamp time.Time
 
+	// RemoteAddr is the IP address of the HTTP client that triggered this audit
+	// event. Populated for UI-originated events (credential rotations, settings
+	// changes); empty for programmatic or internal events.
+	RemoteAddr string
+
 	// Reviewer is the engineer who reviewed the sync-PR, if any.
 	// Empty for non-PR promotions and force-overwrites.
 	Reviewer string

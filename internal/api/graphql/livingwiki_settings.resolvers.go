@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/governance"
 	"github.com/sourcebridge/sourcebridge/internal/settings/livingwiki"
 )
 
@@ -54,9 +55,12 @@ func (r *mutationResolver) UpdateLivingWikiSettings(ctx context.Context, input U
 	}
 
 	// Apply secret fields: ignore the sentinel (don't overwrite with "********").
+	// Track whether any credential field was actually rotated for audit logging.
+	credentialRotated := false
 	applySecret := func(stored *string, incoming *string) {
 		if incoming != nil && *incoming != livingwiki.SecretSentinel {
 			*stored = *incoming
+			credentialRotated = true
 		}
 	}
 	applySecret(&current.GitHubToken, input.GithubToken)
@@ -69,7 +73,8 @@ func (r *mutationResolver) UpdateLivingWikiSettings(ctx context.Context, input U
 
 	// Stamp audit fields.
 	current.UpdatedAt = time.Now()
-	if userID := userIDFromContext(ctx); userID != "" {
+	userID := userIDFromContext(ctx)
+	if userID != "" {
 		current.UpdatedBy = userID
 	}
 
@@ -80,6 +85,19 @@ func (r *mutationResolver) UpdateLivingWikiSettings(ctx context.Context, input U
 	// Invalidate the resolver cache so next webhook sees new values immediately.
 	if r.LivingWikiResolver != nil {
 		r.LivingWikiResolver.Invalidate()
+	}
+
+	// Append an audit entry when a credential field was rotated.
+	if credentialRotated && r.LivingWikiAuditLog != nil {
+		entry := governance.AuditEntry{
+			BlockID:              "lw_settings:default",
+			SourceSink:           "ui",
+			SourceUser:           userID,
+			TargetCanonicalState: "credential_rotated",
+			RemoteAddr:           remoteAddrFromContext(ctx),
+			Timestamp:            time.Now(),
+		}
+		_ = r.LivingWikiAuditLog.Append(ctx, entry)
 	}
 
 	return mapLivingWikiSettings(livingwiki.MaskSecrets(*current)), nil
@@ -310,4 +328,27 @@ func userIDFromContext(ctx context.Context) string {
 	// Import is already pulled in by other resolvers via helpers.go.
 	_ = ctx
 	return "" // extended by enterprise layer; acceptable for now
+}
+
+// remoteAddrContextKey is the context key used to carry the HTTP remote address
+// for audit logging. Middleware that wants to propagate the caller's IP should
+// store it under this key via context.WithValue.
+type remoteAddrContextKey struct{}
+
+// remoteAddrFromContext extracts the remote IP address from the request context
+// for audit logging. Returns "" when no address is available.
+func remoteAddrFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if addr, ok := ctx.Value(remoteAddrContextKey{}).(string); ok {
+		return addr
+	}
+	return ""
+}
+
+// WithRemoteAddr returns a context carrying the caller's remote address for
+// audit-log extraction by [remoteAddrFromContext].
+func WithRemoteAddr(ctx context.Context, addr string) context.Context {
+	return context.WithValue(ctx, remoteAddrContextKey{}, addr)
 }

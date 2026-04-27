@@ -13,6 +13,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/featureflags"
 	"github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/governance"
 	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
 	"github.com/sourcebridge/sourcebridge/internal/qa"
 	"github.com/sourcebridge/sourcebridge/internal/search"
@@ -47,6 +48,7 @@ type Resolver struct {
 	QA                 *qa.Orchestrator           // server-side deep-QA orchestrator; nil when server-side QA is disabled
 	SearchSvc          *search.Service            // hybrid retrieval backbone; nil falls back to legacy substring search
 	ReqBooster         *search.RequirementBooster // requirement-link cache; link mutations call Invalidate so subsequent searches see fresh links
+	LivingWikiAuditLog governance.AuditLog        // audit trail for credential rotations and settings changes; nil disables audit logging
 }
 
 // getStore returns the per-request tenant-filtered store when available,

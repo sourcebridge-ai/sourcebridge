@@ -54,6 +54,7 @@ import (
 	"time"
 
 	"github.com/sourcebridge/sourcebridge/internal/livingwiki/ast"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
 )
 
 const (
@@ -90,13 +91,12 @@ func IsConfluenceRateLimited(err error) bool {
 }
 
 // ConfluenceHTTPConfig holds construction parameters for [HTTPConfluenceClient].
+// Credential fields (email, API token) are intentionally absent: they are
+// injected per-call via a [credentials.Snapshot] so that credential rotation
+// propagates to the next orchestrator job without a process restart.
 type ConfluenceHTTPConfig struct {
 	// Site is the Atlassian Cloud site name (e.g. "mycompany" → mycompany.atlassian.net).
 	Site string
-	// Email is the Atlassian account email used for Basic auth.
-	Email string
-	// APIToken is the Atlassian API token.
-	APIToken string
 	// SpaceKey is the Confluence space key (e.g. "ENG").
 	// Used when creating new pages.
 	SpaceKey string
@@ -111,8 +111,8 @@ func (c ConfluenceHTTPConfig) baseURL() string {
 	return fmt.Sprintf("https://%s.atlassian.net/wiki/api/v2", c.Site)
 }
 
-func (c ConfluenceHTTPConfig) basicAuth() string {
-	creds := c.Email + ":" + c.APIToken
+func basicAuthHeader(email, token string) string {
+	creds := email + ":" + token
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(creds))
 }
 
@@ -123,8 +123,13 @@ func (c ConfluenceHTTPConfig) httpTimeout() time.Duration {
 	return 30 * time.Second
 }
 
-// HTTPConfluenceClient implements [ConfluenceClient] via the Confluence Cloud
-// REST API v2. Construct via [NewHTTPConfluenceClient].
+// HTTPConfluenceClient makes authenticated calls to the Confluence Cloud REST
+// API v2 using credentials supplied per-call via a [credentials.Snapshot].
+// Construct via [NewHTTPConfluenceClient].
+//
+// The client is stateless with respect to credentials: each public method
+// receives a Snapshot, so mid-job credential rotation does not affect an
+// in-flight job (the at-most-one-rotation-per-job invariant).
 type HTTPConfluenceClient struct {
 	cfg            ConfluenceHTTPConfig
 	http           *http.Client
@@ -139,10 +144,9 @@ func (c *HTTPConfluenceClient) retryDelay(attempt int) time.Duration {
 	return time.Duration(math.Pow(2, float64(attempt-1))) * base
 }
 
-// Compile-time interface check.
-var _ ConfluenceClient = (*HTTPConfluenceClient)(nil)
-
 // NewHTTPConfluenceClient constructs an [HTTPConfluenceClient].
+// No credentials are accepted here; pass a [credentials.Snapshot] to each
+// method call so that token rotation takes effect on the next job.
 func NewHTTPConfluenceClient(cfg ConfluenceHTTPConfig) *HTTPConfluenceClient {
 	return &HTTPConfluenceClient{
 		cfg:  cfg,
@@ -150,10 +154,11 @@ func NewHTTPConfluenceClient(cfg ConfluenceHTTPConfig) *HTTPConfluenceClient {
 	}
 }
 
-// GetPage fetches the page identified by externalID.
+// GetPage fetches the page identified by externalID using credentials from snap.
 // Returns (nil, nil, nil) when no page with that external ID exists yet.
-func (c *HTTPConfluenceClient) GetPage(ctx context.Context, externalID string) ([]byte, ConfluenceProperties, error) {
-	pageID, err := c.findPageIDByExternalID(ctx, externalID)
+func (c *HTTPConfluenceClient) GetPage(ctx context.Context, snap credentials.Snapshot, externalID string) ([]byte, ConfluenceProperties, error) {
+	auth := basicAuthHeader(snap.ConfluenceEmail, snap.ConfluenceToken)
+	pageID, err := c.findPageIDByExternalID(ctx, auth, externalID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -174,12 +179,12 @@ func (c *HTTPConfluenceClient) GetPage(ctx context.Context, externalID string) (
 		} `json:"version"`
 		Title string `json:"title"`
 	}
-	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	if err := c.do(ctx, auth, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, nil, fmt.Errorf("confluence_http: GetPage body: %w", err)
 	}
 
 	// Fetch stored properties.
-	props, err := c.getPageProperties(ctx, pageID)
+	props, err := c.getPageProperties(ctx, auth, pageID)
 	if err != nil {
 		// Non-fatal — return empty properties.
 		props = ConfluenceProperties{}
@@ -189,16 +194,17 @@ func (c *HTTPConfluenceClient) GetPage(ctx context.Context, externalID string) (
 }
 
 // UpsertPage creates or updates the page identified by externalID.
-func (c *HTTPConfluenceClient) UpsertPage(ctx context.Context, externalID string, xhtml []byte, metadata ConfluenceProperties) error {
-	pageID, err := c.findPageIDByExternalID(ctx, externalID)
+func (c *HTTPConfluenceClient) UpsertPage(ctx context.Context, snap credentials.Snapshot, externalID string, xhtml []byte, metadata ConfluenceProperties) error {
+	auth := basicAuthHeader(snap.ConfluenceEmail, snap.ConfluenceToken)
+	pageID, err := c.findPageIDByExternalID(ctx, auth, externalID)
 	if err != nil {
 		return err
 	}
 
 	if pageID == "" {
-		return c.createPage(ctx, externalID, xhtml, metadata)
+		return c.createPage(ctx, auth, externalID, xhtml, metadata)
 	}
-	return c.updatePage(ctx, pageID, externalID, xhtml, metadata)
+	return c.updatePage(ctx, auth, pageID, externalID, xhtml, metadata)
 }
 
 // GetBlockByExternalID fetches the XHTML of a specific block by scanning the
@@ -207,8 +213,8 @@ func (c *HTTPConfluenceClient) UpsertPage(ctx context.Context, externalID string
 // Performance note: this performs a full page fetch and O(n) scan of the XHTML.
 // For typical wiki pages (tens of blocks) this is negligible. If pages ever
 // grow to thousands of blocks, a cached parse could be added.
-func (c *HTTPConfluenceClient) GetBlockByExternalID(ctx context.Context, pageExternalID string, blockExternalID ast.BlockID) ([]byte, bool, error) {
-	xhtml, _, err := c.GetPage(ctx, pageExternalID)
+func (c *HTTPConfluenceClient) GetBlockByExternalID(ctx context.Context, snap credentials.Snapshot, pageExternalID string, blockExternalID ast.BlockID) ([]byte, bool, error) {
+	xhtml, _, err := c.GetPage(ctx, snap, pageExternalID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -229,7 +235,7 @@ func (c *HTTPConfluenceClient) GetBlockByExternalID(ctx context.Context, pageExt
 
 // findPageIDByExternalID searches for a Confluence page whose
 // sourcebridge_page_id property matches externalID. Returns "" when not found.
-func (c *HTTPConfluenceClient) findPageIDByExternalID(ctx context.Context, externalID string) (string, error) {
+func (c *HTTPConfluenceClient) findPageIDByExternalID(ctx context.Context, auth, externalID string) (string, error) {
 	// Search by title (we use the externalID as the page title when creating).
 	// A title search is O(1) on Confluence's side; property verification is O(1)
 	// additional call.
@@ -244,13 +250,13 @@ func (c *HTTPConfluenceClient) findPageIDByExternalID(ctx context.Context, exter
 			Title string `json:"title"`
 		} `json:"results"`
 	}
-	if err := c.do(ctx, http.MethodGet, path, nil, &searchResp); err != nil {
+	if err := c.do(ctx, auth, http.MethodGet, path, nil, &searchResp); err != nil {
 		return "", fmt.Errorf("confluence_http: search pages: %w", err)
 	}
 
 	for _, result := range searchResp.Results {
 		// Verify the property to avoid title collisions.
-		propVal, propErr := c.getPageProperty(ctx, result.ID, confluencePropertyKey)
+		propVal, propErr := c.getPageProperty(ctx, auth, result.ID, confluencePropertyKey)
 		if propErr != nil {
 			continue
 		}
@@ -263,7 +269,7 @@ func (c *HTTPConfluenceClient) findPageIDByExternalID(ctx context.Context, exter
 
 // createPage creates a new Confluence page with the given XHTML body and
 // writes the sourcebridge_page_id property.
-func (c *HTTPConfluenceClient) createPage(ctx context.Context, externalID string, xhtml []byte, metadata ConfluenceProperties) error {
+func (c *HTTPConfluenceClient) createPage(ctx context.Context, auth, externalID string, xhtml []byte, metadata ConfluenceProperties) error {
 	type spaceRef struct {
 		Key string `json:"key"`
 	}
@@ -301,12 +307,12 @@ func (c *HTTPConfluenceClient) createPage(ctx context.Context, externalID string
 	var resp struct {
 		ID string `json:"id"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/pages", payload, &resp); err != nil {
+	if err := c.do(ctx, auth, http.MethodPost, "/pages", payload, &resp); err != nil {
 		return fmt.Errorf("confluence_http: create page: %w", err)
 	}
 
 	// Write the sourcebridge_page_id property.
-	if err := c.setPageProperty(ctx, resp.ID, confluencePropertyKey, externalID); err != nil {
+	if err := c.setPageProperty(ctx, auth, resp.ID, confluencePropertyKey, externalID); err != nil {
 		return fmt.Errorf("confluence_http: set page property: %w", err)
 	}
 
@@ -315,13 +321,13 @@ func (c *HTTPConfluenceClient) createPage(ctx context.Context, externalID string
 		if k == confluencePropertyKey {
 			continue
 		}
-		_ = c.setPageProperty(ctx, resp.ID, k, v) // best-effort
+		_ = c.setPageProperty(ctx, auth, resp.ID, k, v) // best-effort
 	}
 	return nil
 }
 
 // updatePage replaces the page body and bumps the version.
-func (c *HTTPConfluenceClient) updatePage(ctx context.Context, pageID, externalID string, xhtml []byte, metadata ConfluenceProperties) error {
+func (c *HTTPConfluenceClient) updatePage(ctx context.Context, auth, pageID, externalID string, xhtml []byte, metadata ConfluenceProperties) error {
 	// Fetch current version number.
 	path := fmt.Sprintf("/pages/%s", url.PathEscape(pageID))
 	var current struct {
@@ -329,7 +335,7 @@ func (c *HTTPConfluenceClient) updatePage(ctx context.Context, pageID, externalI
 			Number int `json:"number"`
 		} `json:"version"`
 	}
-	if err := c.do(ctx, http.MethodGet, path, nil, &current); err != nil {
+	if err := c.do(ctx, auth, http.MethodGet, path, nil, &current); err != nil {
 		return fmt.Errorf("confluence_http: get page version: %w", err)
 	}
 
@@ -360,19 +366,19 @@ func (c *HTTPConfluenceClient) updatePage(ctx context.Context, pageID, externalI
 		},
 	}
 
-	if err := c.do(ctx, http.MethodPut, path, payload, nil); err != nil {
+	if err := c.do(ctx, auth, http.MethodPut, path, payload, nil); err != nil {
 		return fmt.Errorf("confluence_http: update page: %w", err)
 	}
 
 	// Update metadata properties (best-effort).
 	for k, v := range metadata {
-		_ = c.setPageProperty(ctx, pageID, k, v)
+		_ = c.setPageProperty(ctx, auth, pageID, k, v)
 	}
 	return nil
 }
 
 // getPageProperties reads all known SourceBridge properties from a page.
-func (c *HTTPConfluenceClient) getPageProperties(ctx context.Context, pageID string) (ConfluenceProperties, error) {
+func (c *HTTPConfluenceClient) getPageProperties(ctx context.Context, auth, pageID string) (ConfluenceProperties, error) {
 	path := fmt.Sprintf("/pages/%s/properties", url.PathEscape(pageID))
 	var resp struct {
 		Results []struct {
@@ -380,7 +386,7 @@ func (c *HTTPConfluenceClient) getPageProperties(ctx context.Context, pageID str
 			Value string `json:"value"`
 		} `json:"results"`
 	}
-	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	if err := c.do(ctx, auth, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
 	props := make(ConfluenceProperties, len(resp.Results))
@@ -392,12 +398,12 @@ func (c *HTTPConfluenceClient) getPageProperties(ctx context.Context, pageID str
 
 // getPageProperty reads one property from a page. Returns "" and no error when
 // the property does not exist.
-func (c *HTTPConfluenceClient) getPageProperty(ctx context.Context, pageID, key string) (string, error) {
+func (c *HTTPConfluenceClient) getPageProperty(ctx context.Context, auth, pageID, key string) (string, error) {
 	path := fmt.Sprintf("/pages/%s/properties/%s", url.PathEscape(pageID), url.PathEscape(key))
 	var resp struct {
 		Value string `json:"value"`
 	}
-	err := c.do(ctx, http.MethodGet, path, nil, &resp)
+	err := c.do(ctx, auth, http.MethodGet, path, nil, &resp)
 	if err != nil {
 		if IsConfluenceNotFound(err) {
 			return "", nil
@@ -409,13 +415,13 @@ func (c *HTTPConfluenceClient) getPageProperty(ctx context.Context, pageID, key 
 
 // setPageProperty writes a single string property on a Confluence page using
 // PUT (which creates or updates).
-func (c *HTTPConfluenceClient) setPageProperty(ctx context.Context, pageID, key, value string) error {
+func (c *HTTPConfluenceClient) setPageProperty(ctx context.Context, auth, pageID, key, value string) error {
 	path := fmt.Sprintf("/pages/%s/properties/%s", url.PathEscape(pageID), url.PathEscape(key))
 	payload := map[string]interface{}{
 		"key":   key,
 		"value": value,
 	}
-	if err := c.do(ctx, http.MethodPut, path, payload, nil); err != nil {
+	if err := c.do(ctx, auth, http.MethodPut, path, payload, nil); err != nil {
 		return fmt.Errorf("confluence_http: set property %q on %s: %w", key, pageID, err)
 	}
 	return nil
@@ -423,7 +429,7 @@ func (c *HTTPConfluenceClient) setPageProperty(ctx context.Context, pageID, key,
 
 // ─── HTTP core ────────────────────────────────────────────────────────────────
 
-func (c *HTTPConfluenceClient) do(ctx context.Context, method, path string, reqBody, respBody interface{}) error {
+func (c *HTTPConfluenceClient) do(ctx context.Context, auth, method, path string, reqBody, respBody interface{}) error {
 	for attempt := 0; attempt <= maxConfluenceRetries; attempt++ {
 		if attempt > 0 {
 			sleep := c.retryDelay(attempt)
@@ -434,7 +440,7 @@ func (c *HTTPConfluenceClient) do(ctx context.Context, method, path string, reqB
 			}
 		}
 
-		err := c.doOnce(ctx, method, path, reqBody, respBody)
+		err := c.doOnce(ctx, auth, method, path, reqBody, respBody)
 		if err == nil {
 			return nil
 		}
@@ -452,7 +458,7 @@ func (c *HTTPConfluenceClient) do(ctx context.Context, method, path string, reqB
 	return fmt.Errorf("confluence_http: %s %s: exceeded retry limit", method, path)
 }
 
-func (c *HTTPConfluenceClient) doOnce(ctx context.Context, method, path string, reqBody, respBody interface{}) error {
+func (c *HTTPConfluenceClient) doOnce(ctx context.Context, auth, method, path string, reqBody, respBody interface{}) error {
 	var bodyReader io.Reader
 	if reqBody != nil {
 		data, err := json.Marshal(reqBody)
@@ -467,7 +473,7 @@ func (c *HTTPConfluenceClient) doOnce(ctx context.Context, method, path string, 
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("Authorization", c.cfg.basicAuth())
+	req.Header.Set("Authorization", auth)
 	req.Header.Set("Accept", "application/json")
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")

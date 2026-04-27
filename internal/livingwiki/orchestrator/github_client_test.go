@@ -12,7 +12,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
 )
+
+// testGitHubSnap is a credentials.Snapshot pre-populated with GitHub test values.
+var testGitHubSnap = credentials.Snapshot{
+	GitHubToken: "test-github-token",
+}
 
 // newTestGitHubClient constructs a GitHubClient pointed at the given test
 // server. owner/repo can be arbitrary slugs for the test.
@@ -21,7 +28,6 @@ func newTestGitHubClient(t *testing.T, srv *httptest.Server) *GitHubClient {
 	c := NewGitHubClient(GitHubClientConfig{
 		Owner:         "acme",
 		Repo:          "wiki",
-		Token:         "test-token",
 		BaseURL:       srv.URL,
 		DefaultBranch: "main",
 		HTTPTimeout:   5 * time.Second,
@@ -90,7 +96,7 @@ func TestGitHubClient_Open_Success(t *testing.T) {
 	client := newTestGitHubClient(t, srv)
 	ctx := context.Background()
 
-	err := client.Open(ctx, "feature-branch", "Test PR", "PR body",
+	err := client.Open(ctx, testGitHubSnap, "feature-branch", "Test PR", "PR body",
 		map[string][]byte{"wiki/foo.md": []byte("# Foo")})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -118,7 +124,7 @@ func TestGitHubClient_Merged(t *testing.T) {
 	client.prNum = 7
 	client.branch = "some-branch"
 
-	merged, err := client.Merged(context.Background())
+	merged, err := client.Merged(context.Background(), testGitHubSnap)
 	if err != nil {
 		t.Fatalf("Merged: %v", err)
 	}
@@ -138,7 +144,7 @@ func TestGitHubClient_404(t *testing.T) {
 	client := newTestGitHubClient(t, srv)
 	client.prNum = 99
 
-	_, err := client.Merged(context.Background())
+	_, err := client.Merged(context.Background(), testGitHubSnap)
 	if err == nil {
 		t.Fatal("expected error for 404, got nil")
 	}
@@ -158,7 +164,7 @@ func TestGitHubClient_401(t *testing.T) {
 	client := newTestGitHubClient(t, srv)
 	client.prNum = 1
 
-	_, err := client.Merged(context.Background())
+	_, err := client.Merged(context.Background(), testGitHubSnap)
 	if err == nil {
 		t.Fatal("expected error for 401, got nil")
 	}
@@ -192,7 +198,7 @@ func TestGitHubClient_429_Retry(t *testing.T) {
 	client := newTestGitHubClient(t, srv)
 	client.prNum = 1
 
-	merged, err := client.Merged(context.Background())
+	merged, err := client.Merged(context.Background(), testGitHubSnap)
 	if err != nil {
 		t.Fatalf("Merged: %v", err)
 	}
@@ -224,7 +230,7 @@ func TestGitHubClient_500_Retry(t *testing.T) {
 	client := newTestGitHubClient(t, srv)
 	client.prNum = 1
 
-	_, err := client.Merged(context.Background())
+	_, err := client.Merged(context.Background(), testGitHubSnap)
 	if err != nil {
 		t.Fatalf("Merged after retry: %v", err)
 	}
@@ -245,7 +251,7 @@ func TestGitHubClient_MalformedJSON(t *testing.T) {
 	client := newTestGitHubClient(t, srv)
 	client.prNum = 1
 
-	_, err := client.Merged(context.Background())
+	_, err := client.Merged(context.Background(), testGitHubSnap)
 	if err == nil {
 		t.Fatal("expected error for malformed JSON, got nil")
 	}
@@ -266,7 +272,7 @@ func TestGitHubClient_PostComment(t *testing.T) {
 	client := newTestGitHubClient(t, srv)
 	client.prNum = 5
 
-	if err := client.PostComment(context.Background(), "Hello world"); err != nil {
+	if err := client.PostComment(context.Background(), testGitHubSnap, "Hello world"); err != nil {
 		t.Fatalf("PostComment: %v", err)
 	}
 	if gotBody != "Hello world" {
@@ -305,7 +311,7 @@ func TestGitHubClient_ListCommitsOnBranch(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestGitHubClient(t, srv)
-	commits, err := client.ListCommitsOnBranch(context.Background(), "main", time.Time{})
+	commits, err := client.ListCommitsOnBranch(context.Background(), testGitHubSnap, "main", time.Time{})
 	if err != nil {
 		t.Fatalf("ListCommitsOnBranch: %v", err)
 	}
@@ -379,7 +385,7 @@ func TestGitHubClient_BranchCreation(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestGitHubClient(t, srv)
-	err := client.Open(context.Background(), "new-branch", "Title", "Body",
+	err := client.Open(context.Background(), testGitHubSnap, "new-branch", "Title", "Body",
 		map[string][]byte{"wiki/test.md": []byte("content")})
 	if err != nil {
 		t.Fatalf("Open: %v", err)

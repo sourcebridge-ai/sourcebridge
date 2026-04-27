@@ -51,6 +51,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
 )
 
 const (
@@ -109,13 +111,14 @@ func asGitHubError(err error, out **GitHubAPIError) bool {
 }
 
 // GitHubClientConfig holds construction parameters for [GitHubClient].
+// The authentication token is intentionally absent: it is injected per-call via
+// a [credentials.Snapshot] so that token rotation propagates to the next
+// orchestrator job without a process restart.
 type GitHubClientConfig struct {
 	// Owner is the GitHub repository owner (user or organisation).
 	Owner string
 	// Repo is the GitHub repository name.
 	Repo string
-	// Token is a PAT or GitHub App installation token.
-	Token string
 	// BaseURL is the API base (defaults to https://api.github.com).
 	// Override for GitHub Enterprise Server.
 	BaseURL string
@@ -146,9 +149,14 @@ func (c GitHubClientConfig) httpTimeout() time.Duration {
 	return 30 * time.Second
 }
 
-// GitHubClient implements [ExtendedWikiPR] and [ExtendedRepoWriter] against
-// the GitHub REST API using stdlib net/http. A single instance is bound to one
-// PR (identified by a PR number that is assigned when [Open] is first called).
+// GitHubClient makes authenticated calls to the GitHub REST API using
+// credentials supplied per-call via a [credentials.Snapshot].
+// A single instance is bound to one PR (identified by a PR number that is
+// assigned when [Open] is first called).
+//
+// The client is stateless with respect to credentials: each public method
+// receives a Snapshot, so mid-job token rotation does not affect an
+// in-flight job (the at-most-one-rotation-per-job invariant).
 //
 // Construct via [NewGitHubClient].
 type GitHubClient struct {
@@ -167,11 +175,9 @@ func (g *GitHubClient) retryDelay(attempt int) time.Duration {
 	return time.Duration(math.Pow(2, float64(attempt-1))) * base
 }
 
-// Compile-time interface checks.
-var _ ExtendedWikiPR = (*GitHubClient)(nil)
-var _ ExtendedRepoWriter = (*GitHubClient)(nil)
-
 // NewGitHubClient constructs a [GitHubClient].
+// No credentials are accepted here; pass a [credentials.Snapshot] to each
+// method call so that token rotation takes effect on the next job.
 func NewGitHubClient(cfg GitHubClientConfig) *GitHubClient {
 	return &GitHubClient{
 		cfg:  cfg,
@@ -198,13 +204,13 @@ func (g *GitHubClient) Branch() string { return g.branch }
 //
 // The WikiPR.Open contract: branch is the head branch name; files are committed
 // there, then a PR from branch → default branch is opened.
-func (g *GitHubClient) Open(ctx context.Context, branch, title, body string, files map[string][]byte) error {
+func (g *GitHubClient) Open(ctx context.Context, snap credentials.Snapshot, branch, title, body string, files map[string][]byte) error {
 	g.branch = branch
 
 	// Commit the files to the branch (creates the branch if needed).
 	if len(files) > 0 {
 		commitMsg := fmt.Sprintf("wiki: initial generation (sourcebridge) on %s", branch)
-		if err := g.appendCommit(ctx, branch, files, commitMsg); err != nil {
+		if err := g.appendCommit(ctx, snap.GitHubToken, branch, files, commitMsg); err != nil {
 			return fmt.Errorf("github_client: Open: commit files: %w", err)
 		}
 	}
@@ -227,7 +233,7 @@ func (g *GitHubClient) Open(ctx context.Context, branch, title, body string, fil
 		Number int `json:"number"`
 	}
 	path := fmt.Sprintf("/repos/%s/%s/pulls", g.cfg.Owner, g.cfg.Repo)
-	if err := g.do(ctx, http.MethodPost, path, payload, &resp); err != nil {
+	if err := g.do(ctx, snap.GitHubToken, http.MethodPost, path, payload, &resp); err != nil {
 		return fmt.Errorf("github_client: create PR: %w", err)
 	}
 	g.prNum = resp.Number
@@ -235,8 +241,8 @@ func (g *GitHubClient) Open(ctx context.Context, branch, title, body string, fil
 }
 
 // Merged reports whether the PR has been merged.
-func (g *GitHubClient) Merged(ctx context.Context) (bool, error) {
-	state, err := g.prState(ctx)
+func (g *GitHubClient) Merged(ctx context.Context, snap credentials.Snapshot) (bool, error) {
+	state, err := g.prState(ctx, snap.GitHubToken)
 	if err != nil {
 		return false, err
 	}
@@ -244,8 +250,8 @@ func (g *GitHubClient) Merged(ctx context.Context) (bool, error) {
 }
 
 // Closed reports whether the PR was closed without merging.
-func (g *GitHubClient) Closed(ctx context.Context) (bool, error) {
-	state, err := g.prState(ctx)
+func (g *GitHubClient) Closed(ctx context.Context, snap credentials.Snapshot) (bool, error) {
+	state, err := g.prState(ctx, snap.GitHubToken)
 	if err != nil {
 		return false, err
 	}
@@ -257,7 +263,7 @@ type githubPRState struct {
 	closed bool
 }
 
-func (g *GitHubClient) prState(ctx context.Context) (githubPRState, error) {
+func (g *GitHubClient) prState(ctx context.Context, token string) (githubPRState, error) {
 	if g.prNum == 0 {
 		return githubPRState{}, fmt.Errorf("github_client: PR not yet opened")
 	}
@@ -266,7 +272,7 @@ func (g *GitHubClient) prState(ctx context.Context) (githubPRState, error) {
 		Merged bool   `json:"merged"`
 	}
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", g.cfg.Owner, g.cfg.Repo, g.prNum)
-	if err := g.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	if err := g.do(ctx, token, http.MethodGet, path, nil, &resp); err != nil {
 		return githubPRState{}, fmt.Errorf("github_client: get PR state: %w", err)
 	}
 	return githubPRState{
@@ -276,27 +282,27 @@ func (g *GitHubClient) prState(ctx context.Context) (githubPRState, error) {
 }
 
 // PostComment posts a comment on the PR.
-func (g *GitHubClient) PostComment(ctx context.Context, body string) error {
+func (g *GitHubClient) PostComment(ctx context.Context, snap credentials.Snapshot, body string) error {
 	if g.prNum == 0 {
 		return fmt.Errorf("github_client: PR not yet opened")
 	}
 	payload := map[string]string{"body": body}
 	// PR comments use the issues endpoint.
 	path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments", g.cfg.Owner, g.cfg.Repo, g.prNum)
-	if err := g.do(ctx, http.MethodPost, path, payload, nil); err != nil {
+	if err := g.do(ctx, snap.GitHubToken, http.MethodPost, path, payload, nil); err != nil {
 		return fmt.Errorf("github_client: post comment: %w", err)
 	}
 	return nil
 }
 
 // UpdateDescription replaces the PR description.
-func (g *GitHubClient) UpdateDescription(ctx context.Context, body string) error {
+func (g *GitHubClient) UpdateDescription(ctx context.Context, snap credentials.Snapshot, body string) error {
 	if g.prNum == 0 {
 		return fmt.Errorf("github_client: PR not yet opened")
 	}
 	payload := map[string]string{"body": body}
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", g.cfg.Owner, g.cfg.Repo, g.prNum)
-	if err := g.do(ctx, http.MethodPatch, path, payload, nil); err != nil {
+	if err := g.do(ctx, snap.GitHubToken, http.MethodPatch, path, payload, nil); err != nil {
 		return fmt.Errorf("github_client: update PR description: %w", err)
 	}
 	return nil
@@ -306,15 +312,15 @@ func (g *GitHubClient) UpdateDescription(ctx context.Context, body string) error
 
 // AppendCommitToBranch writes files to branch as a new commit without
 // force-pushing.
-func (g *GitHubClient) AppendCommitToBranch(ctx context.Context, branch string, files map[string][]byte, message string) error {
-	if err := g.appendCommit(ctx, branch, files, message); err != nil {
+func (g *GitHubClient) AppendCommitToBranch(ctx context.Context, snap credentials.Snapshot, branch string, files map[string][]byte, message string) error {
+	if err := g.appendCommit(ctx, snap.GitHubToken, branch, files, message); err != nil {
 		return fmt.Errorf("github_client: AppendCommitToBranch: %w", err)
 	}
 	return nil
 }
 
 // ListCommitsOnBranch returns commits on branch at or after since, oldest-first.
-func (g *GitHubClient) ListCommitsOnBranch(ctx context.Context, branch string, since time.Time) ([]Commit, error) {
+func (g *GitHubClient) ListCommitsOnBranch(ctx context.Context, snap credentials.Snapshot, branch string, since time.Time) ([]Commit, error) {
 	params := url.Values{}
 	params.Set("sha", branch)
 	if !since.IsZero() {
@@ -331,7 +337,7 @@ func (g *GitHubClient) ListCommitsOnBranch(ctx context.Context, branch string, s
 			} `json:"committer"`
 		} `json:"commit"`
 	}
-	if err := g.do(ctx, http.MethodGet, path, nil, &raw); err != nil {
+	if err := g.do(ctx, snap.GitHubToken, http.MethodGet, path, nil, &raw); err != nil {
 		return nil, fmt.Errorf("github_client: list commits: %w", err)
 	}
 
@@ -353,17 +359,17 @@ func (g *GitHubClient) ListCommitsOnBranch(ctx context.Context, branch string, s
 // ─── ExtendedRepoWriter (non-PR branch writes) ───────────────────────────────
 
 // WriteFiles writes files to the default branch.
-func (g *GitHubClient) WriteFiles(ctx context.Context, files map[string][]byte) error {
-	return g.appendCommit(ctx, g.cfg.defaultBranch(), files, "wiki: update (sourcebridge)")
+func (g *GitHubClient) WriteFiles(ctx context.Context, snap credentials.Snapshot, files map[string][]byte) error {
+	return g.appendCommit(ctx, snap.GitHubToken, g.cfg.defaultBranch(), files, "wiki: update (sourcebridge)")
 }
 
 // ─── Git Data API helpers ────────────────────────────────────────────────────
 
 // appendCommit performs the full GitHub Git Data dance:
 // ensure branch exists → get base SHA → create blobs → create tree → create commit → update ref.
-func (g *GitHubClient) appendCommit(ctx context.Context, branch string, files map[string][]byte, message string) error {
+func (g *GitHubClient) appendCommit(ctx context.Context, token, branch string, files map[string][]byte, message string) error {
 	// 1. Ensure the branch exists (creates from defaultBranch if missing).
-	baseSHA, err := g.ensureBranch(ctx, branch)
+	baseSHA, err := g.ensureBranch(ctx, token, branch)
 	if err != nil {
 		return err
 	}
@@ -377,7 +383,7 @@ func (g *GitHubClient) appendCommit(ctx context.Context, branch string, files ma
 	}
 	entries := make([]treeEntry, 0, len(files))
 	for path, content := range files {
-		blobSHA, blobErr := g.createBlob(ctx, content)
+		blobSHA, blobErr := g.createBlob(ctx, token, content)
 		if blobErr != nil {
 			return fmt.Errorf("create blob for %q: %w", path, blobErr)
 		}
@@ -390,37 +396,37 @@ func (g *GitHubClient) appendCommit(ctx context.Context, branch string, files ma
 	}
 
 	// 3. Get the current commit's tree SHA.
-	currentCommitSHA, treeSHA, err := g.resolveCommitTree(ctx, baseSHA)
+	currentCommitSHA, treeSHA, err := g.resolveCommitTree(ctx, token, baseSHA)
 	if err != nil {
 		return err
 	}
 
 	// 4. Create a new tree.
-	newTreeSHA, err := g.createTree(ctx, treeSHA, entries)
+	newTreeSHA, err := g.createTree(ctx, token, treeSHA, entries)
 	if err != nil {
 		return err
 	}
 
 	// 5. Create the commit.
-	newCommitSHA, err := g.createCommit(ctx, message, newTreeSHA, currentCommitSHA)
+	newCommitSHA, err := g.createCommit(ctx, token, message, newTreeSHA, currentCommitSHA)
 	if err != nil {
 		return err
 	}
 
 	// 6. Advance the branch ref.
-	return g.updateRef(ctx, branch, newCommitSHA)
+	return g.updateRef(ctx, token, branch, newCommitSHA)
 }
 
 // ensureBranch returns the current HEAD SHA for branch, creating the branch
 // from defaultBranch if it does not exist.
-func (g *GitHubClient) ensureBranch(ctx context.Context, branch string) (string, error) {
+func (g *GitHubClient) ensureBranch(ctx context.Context, token, branch string) (string, error) {
 	path := fmt.Sprintf("/repos/%s/%s/git/ref/heads/%s", g.cfg.Owner, g.cfg.Repo, branch)
 	var ref struct {
 		Object struct {
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
-	err := g.do(ctx, http.MethodGet, path, nil, &ref)
+	err := g.do(ctx, token, http.MethodGet, path, nil, &ref)
 	if err == nil {
 		return ref.Object.SHA, nil
 	}
@@ -435,7 +441,7 @@ func (g *GitHubClient) ensureBranch(ctx context.Context, branch string) (string,
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
-	if err2 := g.do(ctx, http.MethodGet, defaultPath, nil, &defaultRef); err2 != nil {
+	if err2 := g.do(ctx, token, http.MethodGet, defaultPath, nil, &defaultRef); err2 != nil {
 		return "", fmt.Errorf("get default branch ref: %w", err2)
 	}
 	baseSHA := defaultRef.Object.SHA
@@ -445,13 +451,13 @@ func (g *GitHubClient) ensureBranch(ctx context.Context, branch string) (string,
 		"ref": "refs/heads/" + branch,
 		"sha": baseSHA,
 	}
-	if err3 := g.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/%s/git/refs", g.cfg.Owner, g.cfg.Repo), createPayload, nil); err3 != nil {
+	if err3 := g.do(ctx, token, http.MethodPost, fmt.Sprintf("/repos/%s/%s/git/refs", g.cfg.Owner, g.cfg.Repo), createPayload, nil); err3 != nil {
 		return "", fmt.Errorf("create branch %q: %w", branch, err3)
 	}
 	return baseSHA, nil
 }
 
-func (g *GitHubClient) createBlob(ctx context.Context, content []byte) (string, error) {
+func (g *GitHubClient) createBlob(ctx context.Context, token string, content []byte) (string, error) {
 	payload := map[string]string{
 		"content":  base64.StdEncoding.EncodeToString(content),
 		"encoding": "base64",
@@ -460,7 +466,7 @@ func (g *GitHubClient) createBlob(ctx context.Context, content []byte) (string, 
 		SHA string `json:"sha"`
 	}
 	path := fmt.Sprintf("/repos/%s/%s/git/blobs", g.cfg.Owner, g.cfg.Repo)
-	if err := g.do(ctx, http.MethodPost, path, payload, &resp); err != nil {
+	if err := g.do(ctx, token, http.MethodPost, path, payload, &resp); err != nil {
 		return "", err
 	}
 	return resp.SHA, nil
@@ -469,7 +475,7 @@ func (g *GitHubClient) createBlob(ctx context.Context, content []byte) (string, 
 // resolveCommitTree resolves a commit SHA (or branch ref SHA) to the
 // (commitSHA, treeSHA) pair. GitHub ref objects may point to a commit or a tag;
 // we always expect a commit here.
-func (g *GitHubClient) resolveCommitTree(ctx context.Context, commitSHA string) (string, string, error) {
+func (g *GitHubClient) resolveCommitTree(ctx context.Context, token, commitSHA string) (string, string, error) {
 	path := fmt.Sprintf("/repos/%s/%s/git/commits/%s", g.cfg.Owner, g.cfg.Repo, commitSHA)
 	var resp struct {
 		SHA  string `json:"sha"`
@@ -477,13 +483,13 @@ func (g *GitHubClient) resolveCommitTree(ctx context.Context, commitSHA string) 
 			SHA string `json:"sha"`
 		} `json:"tree"`
 	}
-	if err := g.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	if err := g.do(ctx, token, http.MethodGet, path, nil, &resp); err != nil {
 		return "", "", fmt.Errorf("get commit %s: %w", commitSHA, err)
 	}
 	return resp.SHA, resp.Tree.SHA, nil
 }
 
-func (g *GitHubClient) createTree(ctx context.Context, baseTreeSHA string, entries interface{}) (string, error) {
+func (g *GitHubClient) createTree(ctx context.Context, token, baseTreeSHA string, entries interface{}) (string, error) {
 	payload := map[string]interface{}{
 		"base_tree": baseTreeSHA,
 		"tree":      entries,
@@ -492,13 +498,13 @@ func (g *GitHubClient) createTree(ctx context.Context, baseTreeSHA string, entri
 		SHA string `json:"sha"`
 	}
 	path := fmt.Sprintf("/repos/%s/%s/git/trees", g.cfg.Owner, g.cfg.Repo)
-	if err := g.do(ctx, http.MethodPost, path, payload, &resp); err != nil {
+	if err := g.do(ctx, token, http.MethodPost, path, payload, &resp); err != nil {
 		return "", fmt.Errorf("create tree: %w", err)
 	}
 	return resp.SHA, nil
 }
 
-func (g *GitHubClient) createCommit(ctx context.Context, message, treeSHA, parentSHA string) (string, error) {
+func (g *GitHubClient) createCommit(ctx context.Context, token, message, treeSHA, parentSHA string) (string, error) {
 	type committerInfo struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
@@ -516,19 +522,19 @@ func (g *GitHubClient) createCommit(ctx context.Context, message, treeSHA, paren
 		SHA string `json:"sha"`
 	}
 	path := fmt.Sprintf("/repos/%s/%s/git/commits", g.cfg.Owner, g.cfg.Repo)
-	if err := g.do(ctx, http.MethodPost, path, payload, &resp); err != nil {
+	if err := g.do(ctx, token, http.MethodPost, path, payload, &resp); err != nil {
 		return "", fmt.Errorf("create commit: %w", err)
 	}
 	return resp.SHA, nil
 }
 
-func (g *GitHubClient) updateRef(ctx context.Context, branch, commitSHA string) error {
+func (g *GitHubClient) updateRef(ctx context.Context, token, branch, commitSHA string) error {
 	payload := map[string]interface{}{
 		"sha":   commitSHA,
 		"force": false,
 	}
 	path := fmt.Sprintf("/repos/%s/%s/git/refs/heads/%s", g.cfg.Owner, g.cfg.Repo, branch)
-	if err := g.do(ctx, http.MethodPatch, path, payload, nil); err != nil {
+	if err := g.do(ctx, token, http.MethodPatch, path, payload, nil); err != nil {
 		return fmt.Errorf("update ref %s: %w", branch, err)
 	}
 	return nil
@@ -536,10 +542,11 @@ func (g *GitHubClient) updateRef(ctx context.Context, branch, commitSHA string) 
 
 // ─── HTTP core ───────────────────────────────────────────────────────────────
 
-// do executes an API call with retry logic. method is the HTTP method; path is
-// relative to the base URL (must start with "/"). reqBody is marshalled to JSON
-// when non-nil. respBody is populated from the response JSON when non-nil.
-func (g *GitHubClient) do(ctx context.Context, method, path string, reqBody, respBody interface{}) error {
+// do executes an API call with retry logic. token is the Bearer auth token;
+// method is the HTTP method; path is relative to the base URL (must start
+// with "/"). reqBody is marshalled to JSON when non-nil. respBody is populated
+// from the response JSON when non-nil.
+func (g *GitHubClient) do(ctx context.Context, token, method, path string, reqBody, respBody interface{}) error {
 	for attempt := 0; attempt <= maxGitHubRetries; attempt++ {
 		if attempt > 0 {
 			sleep := g.retryDelay(attempt)
@@ -550,7 +557,7 @@ func (g *GitHubClient) do(ctx context.Context, method, path string, reqBody, res
 			}
 		}
 
-		err := g.doOnce(ctx, method, path, reqBody, respBody)
+		err := g.doOnce(ctx, token, method, path, reqBody, respBody)
 		if err == nil {
 			return nil
 		}
@@ -570,7 +577,7 @@ func (g *GitHubClient) do(ctx context.Context, method, path string, reqBody, res
 }
 
 // doOnce executes a single HTTP request against the GitHub API.
-func (g *GitHubClient) doOnce(ctx context.Context, method, path string, reqBody, respBody interface{}) error {
+func (g *GitHubClient) doOnce(ctx context.Context, token, method, path string, reqBody, respBody interface{}) error {
 	var bodyReader io.Reader
 	if reqBody != nil {
 		data, err := json.Marshal(reqBody)
@@ -585,7 +592,7 @@ func (g *GitHubClient) doOnce(ctx context.Context, method, path string, reqBody,
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+g.cfg.Token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	if reqBody != nil {

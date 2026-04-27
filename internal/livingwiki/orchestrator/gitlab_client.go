@@ -56,6 +56,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
 )
 
 const (
@@ -90,11 +92,12 @@ func IsGitLabNotFound(err error) bool {
 }
 
 // GitLabClientConfig holds construction parameters for [GitLabClient].
+// The authentication token is intentionally absent: it is injected per-call via
+// a [credentials.Snapshot] so that token rotation propagates to the next
+// orchestrator job without a process restart.
 type GitLabClientConfig struct {
 	// ProjectID is the GitLab project numeric ID or URL-encoded namespace/project.
 	ProjectID string
-	// Token is a personal or project access token.
-	Token string
 	// BaseURL is the API root (defaults to https://gitlab.com).
 	// Override for self-managed GitLab instances.
 	BaseURL string
@@ -125,8 +128,12 @@ func (c GitLabClientConfig) httpTimeout() time.Duration {
 	return 30 * time.Second
 }
 
-// GitLabClient implements [ExtendedWikiPR] and [ExtendedRepoWriter] against
-// the GitLab REST API.
+// GitLabClient makes authenticated calls to the GitLab REST API using
+// credentials supplied per-call via a [credentials.Snapshot].
+//
+// The client is stateless with respect to credentials: each public method
+// receives a Snapshot, so mid-job token rotation does not affect an
+// in-flight job (the at-most-one-rotation-per-job invariant).
 //
 // Construct via [NewGitLabClient].
 type GitLabClient struct {
@@ -145,11 +152,9 @@ func (g *GitLabClient) retryDelay(attempt int) time.Duration {
 	return time.Duration(math.Pow(2, float64(attempt-1))) * base
 }
 
-// Compile-time interface checks.
-var _ ExtendedWikiPR = (*GitLabClient)(nil)
-var _ ExtendedRepoWriter = (*GitLabClient)(nil)
-
 // NewGitLabClient constructs a [GitLabClient].
+// No credentials are accepted here; pass a [credentials.Snapshot] to each
+// method call so that token rotation takes effect on the next job.
 func NewGitLabClient(cfg GitLabClientConfig) *GitLabClient {
 	return &GitLabClient{
 		cfg:  cfg,
@@ -181,12 +186,12 @@ func (g *GitLabClient) ID() string {
 func (g *GitLabClient) Branch() string { return g.branch }
 
 // Open commits files to branch and creates a GitLab merge request.
-func (g *GitLabClient) Open(ctx context.Context, branch, title, body string, files map[string][]byte) error {
+func (g *GitLabClient) Open(ctx context.Context, snap credentials.Snapshot, branch, title, body string, files map[string][]byte) error {
 	g.branch = branch
 
 	if len(files) > 0 {
 		msg := fmt.Sprintf("wiki: initial generation (sourcebridge) on %s", branch)
-		if err := g.appendCommit(ctx, branch, files, msg); err != nil {
+		if err := g.appendCommit(ctx, snap.GitLabToken, branch, files, msg); err != nil {
 			return fmt.Errorf("gitlab_client: Open: commit files: %w", err)
 		}
 	}
@@ -208,7 +213,7 @@ func (g *GitLabClient) Open(ctx context.Context, branch, title, body string, fil
 		IID int `json:"iid"`
 	}
 	path := fmt.Sprintf("/api/v4/projects/%s/merge_requests", g.encodedProjectID())
-	if err := g.do(ctx, http.MethodPost, path, payload, &resp); err != nil {
+	if err := g.do(ctx, snap.GitLabToken, http.MethodPost, path, payload, &resp); err != nil {
 		return fmt.Errorf("gitlab_client: create MR: %w", err)
 	}
 	g.mrIID = resp.IID
@@ -216,8 +221,8 @@ func (g *GitLabClient) Open(ctx context.Context, branch, title, body string, fil
 }
 
 // Merged reports whether the MR state is "merged".
-func (g *GitLabClient) Merged(ctx context.Context) (bool, error) {
-	state, err := g.mrState(ctx)
+func (g *GitLabClient) Merged(ctx context.Context, snap credentials.Snapshot) (bool, error) {
+	state, err := g.mrState(ctx, snap.GitLabToken)
 	if err != nil {
 		return false, err
 	}
@@ -225,15 +230,15 @@ func (g *GitLabClient) Merged(ctx context.Context) (bool, error) {
 }
 
 // Closed reports whether the MR was closed without merging.
-func (g *GitLabClient) Closed(ctx context.Context) (bool, error) {
-	state, err := g.mrState(ctx)
+func (g *GitLabClient) Closed(ctx context.Context, snap credentials.Snapshot) (bool, error) {
+	state, err := g.mrState(ctx, snap.GitLabToken)
 	if err != nil {
 		return false, err
 	}
 	return state == "closed", nil
 }
 
-func (g *GitLabClient) mrState(ctx context.Context) (string, error) {
+func (g *GitLabClient) mrState(ctx context.Context, token string) (string, error) {
 	if g.mrIID == 0 {
 		return "", fmt.Errorf("gitlab_client: MR not yet opened")
 	}
@@ -241,33 +246,33 @@ func (g *GitLabClient) mrState(ctx context.Context) (string, error) {
 		State string `json:"state"`
 	}
 	path := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d", g.encodedProjectID(), g.mrIID)
-	if err := g.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	if err := g.do(ctx, token, http.MethodGet, path, nil, &resp); err != nil {
 		return "", fmt.Errorf("gitlab_client: get MR state: %w", err)
 	}
 	return resp.State, nil
 }
 
 // PostComment posts a note on the MR.
-func (g *GitLabClient) PostComment(ctx context.Context, body string) error {
+func (g *GitLabClient) PostComment(ctx context.Context, snap credentials.Snapshot, body string) error {
 	if g.mrIID == 0 {
 		return fmt.Errorf("gitlab_client: MR not yet opened")
 	}
 	payload := map[string]string{"body": body}
 	path := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/notes", g.encodedProjectID(), g.mrIID)
-	if err := g.do(ctx, http.MethodPost, path, payload, nil); err != nil {
+	if err := g.do(ctx, snap.GitLabToken, http.MethodPost, path, payload, nil); err != nil {
 		return fmt.Errorf("gitlab_client: post comment: %w", err)
 	}
 	return nil
 }
 
 // UpdateDescription replaces the MR description.
-func (g *GitLabClient) UpdateDescription(ctx context.Context, body string) error {
+func (g *GitLabClient) UpdateDescription(ctx context.Context, snap credentials.Snapshot, body string) error {
 	if g.mrIID == 0 {
 		return fmt.Errorf("gitlab_client: MR not yet opened")
 	}
 	payload := map[string]string{"description": body}
 	path := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d", g.encodedProjectID(), g.mrIID)
-	if err := g.do(ctx, http.MethodPut, path, payload, nil); err != nil {
+	if err := g.do(ctx, snap.GitLabToken, http.MethodPut, path, payload, nil); err != nil {
 		return fmt.Errorf("gitlab_client: update MR description: %w", err)
 	}
 	return nil
@@ -276,15 +281,15 @@ func (g *GitLabClient) UpdateDescription(ctx context.Context, body string) error
 // ─── ExtendedWikiPR ──────────────────────────────────────────────────────────
 
 // AppendCommitToBranch writes files to branch as a new commit.
-func (g *GitLabClient) AppendCommitToBranch(ctx context.Context, branch string, files map[string][]byte, message string) error {
-	if err := g.appendCommit(ctx, branch, files, message); err != nil {
+func (g *GitLabClient) AppendCommitToBranch(ctx context.Context, snap credentials.Snapshot, branch string, files map[string][]byte, message string) error {
+	if err := g.appendCommit(ctx, snap.GitLabToken, branch, files, message); err != nil {
 		return fmt.Errorf("gitlab_client: AppendCommitToBranch: %w", err)
 	}
 	return nil
 }
 
 // ListCommitsOnBranch returns commits on branch at or after since, oldest-first.
-func (g *GitLabClient) ListCommitsOnBranch(ctx context.Context, branch string, since time.Time) ([]Commit, error) {
+func (g *GitLabClient) ListCommitsOnBranch(ctx context.Context, snap credentials.Snapshot, branch string, since time.Time) ([]Commit, error) {
 	params := url.Values{}
 	params.Set("ref_name", branch)
 	if !since.IsZero() {
@@ -293,11 +298,11 @@ func (g *GitLabClient) ListCommitsOnBranch(ctx context.Context, branch string, s
 	path := fmt.Sprintf("/api/v4/projects/%s/repository/commits?%s", g.encodedProjectID(), params.Encode())
 
 	var raw []struct {
-		ID          string `json:"id"`
+		ID             string `json:"id"`
 		CommitterName  string `json:"committer_name"`
 		CommitterEmail string `json:"committer_email"`
 	}
-	if err := g.do(ctx, http.MethodGet, path, nil, &raw); err != nil {
+	if err := g.do(ctx, snap.GitLabToken, http.MethodGet, path, nil, &raw); err != nil {
 		return nil, fmt.Errorf("gitlab_client: list commits: %w", err)
 	}
 
@@ -319,17 +324,17 @@ func (g *GitLabClient) ListCommitsOnBranch(ctx context.Context, branch string, s
 // ─── ExtendedRepoWriter (non-MR branch writes) ───────────────────────────────
 
 // WriteFiles writes files to the default branch.
-func (g *GitLabClient) WriteFiles(ctx context.Context, files map[string][]byte) error {
-	return g.appendCommit(ctx, g.cfg.defaultBranch(), files, "wiki: update (sourcebridge)")
+func (g *GitLabClient) WriteFiles(ctx context.Context, snap credentials.Snapshot, files map[string][]byte) error {
+	return g.appendCommit(ctx, snap.GitLabToken, g.cfg.defaultBranch(), files, "wiki: update (sourcebridge)")
 }
 
 // ─── Repository Commits API helper ───────────────────────────────────────────
 
 // appendCommit commits files to a branch using GitLab's Repository Commits API.
 // It creates the branch if it does not exist.
-func (g *GitLabClient) appendCommit(ctx context.Context, branch string, files map[string][]byte, message string) error {
+func (g *GitLabClient) appendCommit(ctx context.Context, token, branch string, files map[string][]byte, message string) error {
 	// Ensure the branch exists first.
-	if err := g.ensureBranch(ctx, branch); err != nil {
+	if err := g.ensureBranch(ctx, token, branch); err != nil {
 		return err
 	}
 
@@ -366,7 +371,7 @@ func (g *GitLabClient) appendCommit(ctx context.Context, branch string, files ma
 	}
 
 	path := fmt.Sprintf("/api/v4/projects/%s/repository/commits", g.encodedProjectID())
-	err := g.do(ctx, http.MethodPost, path, payload, nil)
+	err := g.do(ctx, token, http.MethodPost, path, payload, nil)
 	if err == nil {
 		return nil
 	}
@@ -379,7 +384,7 @@ func (g *GitLabClient) appendCommit(ctx context.Context, branch string, files ma
 			actions[i].Action = "update"
 		}
 		payload.Actions = actions
-		if retryErr := g.do(ctx, http.MethodPost, path, payload, nil); retryErr != nil {
+		if retryErr := g.do(ctx, token, http.MethodPost, path, payload, nil); retryErr != nil {
 			return fmt.Errorf("commit (update) to branch %q: %w", branch, retryErr)
 		}
 		return nil
@@ -388,11 +393,11 @@ func (g *GitLabClient) appendCommit(ctx context.Context, branch string, files ma
 }
 
 // ensureBranch creates branch from the default branch when it does not exist.
-func (g *GitLabClient) ensureBranch(ctx context.Context, branch string) error {
+func (g *GitLabClient) ensureBranch(ctx context.Context, token, branch string) error {
 	checkPath := fmt.Sprintf("/api/v4/projects/%s/repository/branches/%s",
 		g.encodedProjectID(), url.PathEscape(branch))
 	var dummy interface{}
-	err := g.do(ctx, http.MethodGet, checkPath, nil, &dummy)
+	err := g.do(ctx, token, http.MethodGet, checkPath, nil, &dummy)
 	if err == nil {
 		return nil // branch exists
 	}
@@ -406,7 +411,7 @@ func (g *GitLabClient) ensureBranch(ctx context.Context, branch string) error {
 		"ref":    g.cfg.defaultBranch(),
 	}
 	createPath := fmt.Sprintf("/api/v4/projects/%s/repository/branches", g.encodedProjectID())
-	if err2 := g.do(ctx, http.MethodPost, createPath, payload, nil); err2 != nil {
+	if err2 := g.do(ctx, token, http.MethodPost, createPath, payload, nil); err2 != nil {
 		return fmt.Errorf("create branch %q: %w", branch, err2)
 	}
 	return nil
@@ -414,7 +419,7 @@ func (g *GitLabClient) ensureBranch(ctx context.Context, branch string) error {
 
 // ─── HTTP core ───────────────────────────────────────────────────────────────
 
-func (g *GitLabClient) do(ctx context.Context, method, path string, reqBody, respBody interface{}) error {
+func (g *GitLabClient) do(ctx context.Context, token, method, path string, reqBody, respBody interface{}) error {
 	for attempt := 0; attempt <= maxGitLabRetries; attempt++ {
 		if attempt > 0 {
 			sleep := g.retryDelay(attempt)
@@ -425,7 +430,7 @@ func (g *GitLabClient) do(ctx context.Context, method, path string, reqBody, res
 			}
 		}
 
-		err := g.doOnce(ctx, method, path, reqBody, respBody)
+		err := g.doOnce(ctx, token, method, path, reqBody, respBody)
 		if err == nil {
 			return nil
 		}
@@ -443,7 +448,7 @@ func (g *GitLabClient) do(ctx context.Context, method, path string, reqBody, res
 	return fmt.Errorf("gitlab_client: %s %s: exceeded retry limit", method, path)
 }
 
-func (g *GitLabClient) doOnce(ctx context.Context, method, path string, reqBody, respBody interface{}) error {
+func (g *GitLabClient) doOnce(ctx context.Context, token, method, path string, reqBody, respBody interface{}) error {
 	var bodyReader io.Reader
 	if reqBody != nil {
 		data, err := json.Marshal(reqBody)
@@ -458,7 +463,7 @@ func (g *GitLabClient) doOnce(ctx context.Context, method, path string, reqBody,
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("PRIVATE-TOKEN", g.cfg.Token)
+	req.Header.Set("PRIVATE-TOKEN", token)
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
