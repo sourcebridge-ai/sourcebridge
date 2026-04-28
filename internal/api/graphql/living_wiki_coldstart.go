@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 SourceBridge Contributors
 //
-// R5: cold-start job goroutine for living-wiki.
+// R5 + sink-dispatch wiring: cold-start job goroutine for living-wiki.
 //
 // This file provides:
 //   - [buildColdStartRunner] — the RunWithContext closure injected into
 //     llm.EnqueueRequest by EnableLivingWikiForRepo and RetryLivingWikiJob.
+//   - [dispatchGeneratedPages] — calls sinks.BuildSinkWriters and
+//     sinks.DispatchPagesToSinks after generation, pushing pages to every
+//     sink configured on the repo.
 //   - Port adapters ([graphStoreSymbolGraph], [coldStartLLMCaller]) that bridge
 //     the resolver's dependencies into the living-wiki orchestrator's narrow
 //     interfaces, so the cold-start goroutine can call TaxonomyResolver.Resolve
@@ -25,9 +28,14 @@ import (
 	"time"
 
 	reasoningv1 "github.com/sourcebridge/sourcebridge/gen/go/reasoning/v1"
+	"github.com/sourcebridge/sourcebridge/internal/clustering"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/ast"
 	"github.com/sourcebridge/sourcebridge/internal/livingwiki/coldstart"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
 	lwmetrics "github.com/sourcebridge/sourcebridge/internal/livingwiki/metrics"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/markdown"
 	lworch "github.com/sourcebridge/sourcebridge/internal/livingwiki/orchestrator"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/sinks"
 	"github.com/sourcebridge/sourcebridge/internal/llm"
 	"github.com/sourcebridge/sourcebridge/internal/reports/templates"
 	"github.com/sourcebridge/sourcebridge/internal/settings/livingwiki"
@@ -48,6 +56,10 @@ import (
 //
 // sinkKind is the label recorded in Prometheus (e.g. "confluence", "git_repo").
 // Pass "" when the sink kind is unknown.
+//
+// broker and repoSettingsStore power the post-generation sink dispatch phase.
+// When either is nil the dispatch phase is skipped; pages remain in the
+// proposed_ast store only (same behaviour as before this wiring landed).
 func buildColdStartRunner(
 	lwOrch *lworch.Orchestrator,
 	repoID string,
@@ -57,6 +69,9 @@ func buildColdStartRunner(
 	excludedPageIDs []string, // non-nil+non-empty ⇒ retryExcludedOnly path
 	sinkKind string,
 	jobResultStore livingwiki.JobResultStore,
+	broker credentials.Broker,
+	repoSettingsStore livingwiki.RepoSettingsStore,
+	clusterStore clustering.ClusterStore,
 ) func(ctx context.Context, rt llm.Runtime) error {
 	if lwOrch == nil {
 		return func(_ context.Context, rt llm.Runtime) error {
@@ -76,12 +91,7 @@ func buildColdStartRunner(
 
 		if len(excludedPageIDs) > 0 {
 			// retryExcludedOnly path: scope to previously-excluded pages.
-			// Build a minimal PlannedPage for each excluded ID using the default
-			// template set. TaxonomyResolver is not needed for this path because
-			// the excluded IDs already encode template choice (via their naming
-			// convention). We produce a filtered full taxonomy and keep only
-			// the IDs in excludedPageIDs.
-			full, err := resolveTaxonomy(runCtx, repoID, graphStore, workerClient)
+			full, err := resolveTaxonomy(runCtx, repoID, graphStore, workerClient, clusterStore)
 			if err != nil {
 				return fmt.Errorf("living-wiki: taxonomy resolution failed: %w", err)
 			}
@@ -101,7 +111,7 @@ func buildColdStartRunner(
 		} else {
 			// Full cold-start path.
 			var err error
-			pages, err = resolveTaxonomy(runCtx, repoID, graphStore, workerClient)
+			pages, err = resolveTaxonomy(runCtx, repoID, graphStore, workerClient, clusterStore)
 			if err != nil {
 				return fmt.Errorf("living-wiki: taxonomy resolution failed: %w", err)
 			}
@@ -116,8 +126,6 @@ func buildColdStartRunner(
 		rt.ReportProgress(0.05, "generating", fmt.Sprintf("Starting generation of %d pages", total))
 
 		// ── Step 2: Generate pages with progress reporting ────────────────────
-		// Counters updated atomically from OnPageDone callbacks (called from
-		// parallel generation goroutines inside lwOrch.Generate).
 		var generated, excludedCount int32
 		var excludedIDsAcc atomicStringSlice
 
@@ -131,16 +139,16 @@ func buildColdStartRunner(
 			done := int(atomic.LoadInt32(&generated)) + int(atomic.LoadInt32(&excludedCount))
 			var progress float64
 			if total > 0 {
-				// Reserve 0–5% for planning, 5–95% for generation, 95–100% for finish.
-				progress = 0.05 + 0.90*float64(done)/float64(total)
+				// Reserve 0–5% for planning, 5–90% for generation, 90–100% for sink push.
+				progress = 0.05 + 0.85*float64(done)/float64(total)
 			}
 			rt.ReportProgress(progress, "generating",
 				fmt.Sprintf("%d/%d pages complete", done, total))
 		}
 
-		// WikiPR: R6 will replace this with a per-job snapshot from the broker.
-		// Until then we use an in-memory PR so the orchestrator can complete
-		// the full pipeline and pages are stored as proposed_ast.
+		// Use an in-memory WikiPR so pages are stored as proposed_ast.
+		// A future workstream will replace this with a per-job snapshot from the
+		// broker once git-based PR creation is wired.
 		pr := lworch.NewMemoryWikiPR(fmt.Sprintf("pr-%s", jobID))
 
 		genReq := lworch.GenerateRequest{
@@ -153,10 +161,10 @@ func buildColdStartRunner(
 		result, err := lwOrch.Generate(runCtx, genReq)
 		elapsed := time.Since(start)
 
-		// ── Step 3: Classify outcome ──────────────────────────────────────────
-		var status string
-		var failCat coldstart.FailureCategory
-		var errMsg string
+		// ── Step 3: Classify generation outcome ───────────────────────────────
+		status := "ok"
+		failCat := coldstart.FailureCategoryNone
+		errMsg := ""
 
 		switch {
 		case err != nil:
@@ -166,19 +174,32 @@ func buildColdStartRunner(
 		case len(result.Excluded) > 0:
 			status = "partial"
 			failCat = coldstart.FailureCategoryPartialContent
-		default:
-			status = "ok"
-			failCat = coldstart.FailureCategoryNone
 		}
 
 		finalGen := int(atomic.LoadInt32(&generated))
 		finalExcl := int(atomic.LoadInt32(&excludedCount))
+
+		// ── Step 4: Dispatch generated pages to configured sinks ──────────────
+		var sinkResults []livingwiki.SinkWriteResult
+
+		if err == nil && len(result.Generated) > 0 {
+			rt.ReportProgress(0.92, "pushing", fmt.Sprintf(
+				"Pushing %d pages to sinks", len(result.Generated)))
+
+			sinkResults = dispatchGeneratedPages(
+				runCtx, repoID, tenantID,
+				result.Generated,
+				broker, repoSettingsStore,
+				&status, &failCat, &errMsg,
+			)
+		}
+
 		rt.ReportProgress(1.0, status, fmt.Sprintf(
 			"Generation complete: %d generated, %d excluded",
 			finalGen, finalExcl,
 		))
 
-		// ── Step 4: Persist LivingWikiJobResult ───────────────────────────────
+		// ── Step 5: Persist LivingWikiJobResult ───────────────────────────────
 		if jobResultStore != nil {
 			now := time.Now()
 			exIDs := excludedIDsAcc.snapshot()
@@ -194,6 +215,7 @@ func buildColdStartRunner(
 				PagesExcluded:    finalExcl,
 				ExcludedPageIDs:  exIDs,
 				ExclusionReasons: reasons,
+				SinkWriteResults: sinkResults,
 				Status:           status,
 				FailureCategory:  string(failCat),
 				ErrorMessage:     errMsg,
@@ -204,7 +226,7 @@ func buildColdStartRunner(
 			}
 		}
 
-		// ── Step 5: Prometheus counter ────────────────────────────────────────
+		// ── Step 6: Prometheus counter ────────────────────────────────────────
 		lwmetrics.Default.RecordJob(status, sinkKind, elapsed.Seconds())
 
 		if err != nil {
@@ -214,11 +236,117 @@ func buildColdStartRunner(
 	}
 }
 
+// dispatchGeneratedPages takes the credential snapshot, builds SinkWriters
+// from the repo's configured sinks, and pushes each generated page to every
+// sink. It updates status/failCat/errMsg when sink failures warrant a
+// reclassification (e.g. all sinks return 401 → status "failed", cat "auth").
+//
+// When broker or repoSettingsStore is nil, dispatch is skipped silently.
+func dispatchGeneratedPages(
+	ctx context.Context,
+	repoID, tenantID string,
+	generatedPages []ast.Page,
+	broker credentials.Broker,
+	repoSettingsStore livingwiki.RepoSettingsStore,
+	status *string,
+	failCat *coldstart.FailureCategory,
+	errMsg *string,
+) []livingwiki.SinkWriteResult {
+	if broker == nil || repoSettingsStore == nil {
+		return nil
+	}
+
+	// Fetch per-repo sink settings.
+	repoSettings, err := repoSettingsStore.GetRepoSettings(ctx, tenantID, repoID)
+	if err != nil {
+		slog.Warn("living-wiki: could not fetch repo settings for sink dispatch",
+			"repo_id", repoID, "error", err)
+		return nil
+	}
+	if repoSettings == nil || len(repoSettings.Sinks) == 0 {
+		return nil
+	}
+
+	// Take a per-job credential snapshot.
+	snap, err := credentials.Take(ctx, broker)
+	if err != nil {
+		slog.Warn("living-wiki: credential snapshot failed; skipping sink dispatch",
+			"repo_id", repoID, "error", err)
+		// Classify as auth failure so the UI shows the right CTA.
+		*status = "failed"
+		*failCat = coldstart.FailureCategoryAuth
+		*errMsg = fmt.Sprintf("credential snapshot failed: %s", err)
+		return nil
+	}
+
+	// Build SinkWriters from the repo's settings.
+	writers, err := sinks.BuildSinkWriters(ctx, repoSettings, snap)
+	if err != nil {
+		slog.Warn("living-wiki: could not build sink writers",
+			"repo_id", repoID, "error", err)
+		if sinks.IsMissingCredentialsError(err) {
+			*status = "failed"
+			*failCat = coldstart.FailureCategoryAuth
+			*errMsg = err.Error()
+		} else {
+			// Not-implemented sinks are surfaced as partial — not fatal.
+			if *status == "ok" {
+				*status = "partial"
+				*failCat = coldstart.FailureCategoryPartialContent
+			}
+			*errMsg = err.Error()
+		}
+		return nil
+	}
+	if len(writers) == 0 {
+		return nil
+	}
+
+	// Dispatch — per-sink parallel, per-page sequential within each sink.
+	rateLimiter := markdown.NewTokenBucketRateLimiter(markdown.DefaultSinkRates())
+	dispatchResult, _ := sinks.DispatchPagesNamed(ctx, generatedPages, writers, rateLimiter, lwmetrics.Default)
+
+	// Convert to domain model for persistence.
+	results := make([]livingwiki.SinkWriteResult, 0, len(dispatchResult.PerSink))
+	for integrationName, summary := range dispatchResult.PerSink {
+		r := livingwiki.SinkWriteResult{
+			IntegrationName: integrationName,
+			Kind:            string(summary.Kind),
+			PagesWritten:    summary.PagesWritten,
+			PagesFailed:     summary.PagesFailed,
+			FailedPageIDs:   summary.FailedPageIDs,
+		}
+		if summary.Error != nil {
+			r.Error = summary.Error.Error()
+		}
+		results = append(results, r)
+	}
+
+	// Reclassify overall status based on sink outcomes.
+	dispatchStatus := sinks.DispatchSummaryStatus(dispatchResult)
+	switch dispatchStatus {
+	case "failed":
+		if *status == "ok" {
+			*status = "failed"
+			*failCat = coldstart.FailureCategoryAuth
+			*errMsg = "all sinks failed to write pages"
+		}
+	case "partial":
+		if *status == "ok" {
+			*status = "partial"
+			*failCat = coldstart.FailureCategoryPartialContent
+		}
+	}
+
+	return results
+}
+
 // resolveTaxonomy builds the TaxonomyResolver from available dependencies and
-// returns the full planned-page list for the given repo. graphStore and
-// workerClient may be nil; the resolver degrades gracefully (no LLM-dependent
-// pages will be generated, but the job won't hard-fail).
-func resolveTaxonomy(ctx context.Context, repoID string, gs graphstore.GraphStore, wc *worker.Client) ([]lworch.PlannedPage, error) {
+// returns the full planned-page list for the given repo. graphStore, workerClient,
+// and clusterStore may be nil; the resolver degrades gracefully (no LLM-dependent
+// pages will be generated and the package-path heuristic is used for architecture
+// pages, but the job won't hard-fail).
+func resolveTaxonomy(ctx context.Context, repoID string, gs graphstore.GraphStore, wc *worker.Client, cs clustering.ClusterStore) ([]lworch.PlannedPage, error) {
 	var sg templates.SymbolGraph
 	if gs != nil {
 		sg = &graphStoreSymbolGraph{store: gs}
@@ -227,8 +355,35 @@ func resolveTaxonomy(ctx context.Context, repoID string, gs graphstore.GraphStor
 	if wc != nil {
 		llmCaller = &coldStartLLMCaller{client: wc}
 	}
+
+	// Fetch clusters to use as the primary area signal for architecture pages.
+	// On error or empty result we pass nil and fall back to package-path heuristics.
+	var clusterSummaries []clustering.ClusterSummary
+	if cs != nil {
+		raw, err := cs.GetClusters(ctx, repoID)
+		if err != nil || len(raw) == 0 {
+			if err != nil {
+				slog.Debug("living-wiki: failed to fetch clusters for taxonomy, using package-path fallback",
+					"repo_id", repoID, "error", err)
+			}
+		} else {
+			clusterSummaries = make([]clustering.ClusterSummary, len(raw))
+			for i, c := range raw {
+				label := c.Label
+				if c.LLMLabel != nil && *c.LLMLabel != "" {
+					label = *c.LLMLabel
+				}
+				clusterSummaries[i] = clustering.ClusterSummary{
+					ID:          c.ID,
+					Label:       label,
+					MemberCount: c.Size,
+				}
+			}
+		}
+	}
+
 	tr := lworch.NewTaxonomyResolver(repoID, sg, nil /* gitLog */, llmCaller)
-	return tr.Resolve(ctx, nil, time.Now())
+	return tr.Resolve(ctx, nil, clusterSummaries, time.Now())
 }
 
 // buildExclusionReasons extracts human-readable gate-violation messages from

@@ -766,7 +766,7 @@ func TestTaxonomyResolver(t *testing.T) {
 	)
 
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	pages, err := resolver.Resolve(ctx, nil, now)
+	pages, err := resolver.Resolve(ctx, nil, nil, now)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -827,7 +827,7 @@ func TestEndToEndWithRealTemplates(t *testing.T) {
 	graph := twoPackageGraph{}
 	resolver := orchestrator.NewTaxonomyResolver("test-repo", graph, nil, llm)
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	pages, err := resolver.Resolve(ctx, nil, now)
+	pages, err := resolver.Resolve(ctx, nil, nil, now)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/sourcebridge/sourcebridge/internal/auth"
 	"github.com/sourcebridge/sourcebridge/internal/capabilities"
+	"github.com/sourcebridge/sourcebridge/internal/clustering"
 	"github.com/sourcebridge/sourcebridge/internal/db"
 	"github.com/sourcebridge/sourcebridge/internal/indexing"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
@@ -269,6 +270,7 @@ type mcpHandler struct {
 	knowledgeStore knowledge.KnowledgeStore
 	worker         mcpWorkerCaller
 	indexingSvc    *indexing.Service    // Phase-3 follow-on — drives end-to-end index_repository / refresh_repository
+	clusterStore   clustering.ClusterStore // subsystem clustering; nil when the store doesn't support it
 	edition        capabilities.Edition // drives tools/list filtering + initialize response
 	allowedRepos   map[string]bool      // nil = all repos allowed
 	sessionTTL     time.Duration
@@ -348,9 +350,13 @@ func newMCPHandlerWithEdition(store graphstore.GraphStore, ks knowledge.Knowledg
 		keepalive:      keepalive,
 		maxSessions:    maxSessions,
 		sessionStore:   ss,
-		// indexingSvc is wired by router.go after construction so
-		// tests without the full Server context can skip it and
-		// exercise the fallback register-only path.
+		// indexingSvc and clusterStore are wired by router.go after
+		// construction so tests without the full Server context can skip
+		// them and exercise fallback paths.
+	}
+	// Wire clusterStore when the backing store satisfies the interface.
+	if cs, ok := store.(clustering.ClusterStore); ok {
+		h.clusterStore = cs
 	}
 	if repos != "" {
 		h.allowedRepos = make(map[string]bool)
@@ -899,6 +905,7 @@ func (h *mcpHandler) baseTools() []mcpToolDefinition {
 	tools = append(tools, h.lifecycleToolDefs()...)
 	tools = append(tools, h.compoundToolDefs()...)
 	tools = append(tools, h.crossRepoToolDef())
+	tools = append(tools, h.clusteringToolDefs()...)
 	return tools
 }
 
@@ -993,6 +1000,13 @@ func (h *mcpHandler) handleToolsCallCtx(ctx context.Context, session *mcpSession
 	// Phase 3.4 — enterprise-only cross-repo tool.
 	case "get_cross_repo_impact":
 		result, toolErr = h.callGetCrossRepoImpact(session, params.Arguments)
+	// Subsystem clustering tools.
+	case "get_subsystems":
+		result, toolErr = h.callGetSubsystems(session, params.Arguments)
+	case "get_subsystem_by_id":
+		result, toolErr = h.callGetSubsystemByID(session, params.Arguments)
+	case "get_subsystem":
+		result, toolErr = h.callGetSubsystem(session, params.Arguments)
 	default:
 		// Try enterprise tool extender
 		if h.toolExtender != nil {

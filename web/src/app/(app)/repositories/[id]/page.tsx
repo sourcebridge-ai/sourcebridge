@@ -59,6 +59,8 @@ import { RelatedReposPanel } from "@/components/federation/RelatedReposPanel";
 import { CreateRequirementDialog } from "@/components/requirements/CreateRequirementDialog";
 import { UpstreamStalenessPill } from "@/components/repository/UpstreamStalenessPill";
 import { WikiSettingsPanel } from "./wiki-settings-panel";
+import { ClusterTable } from "@/components/subsystems/ClusterTable";
+import { ImproveLabelsButton } from "@/components/subsystems/ImproveLabelsButton";
 import { SymbolTree } from "@/components/source/SymbolTree";
 import { SymbolList } from "@/components/source/SymbolList";
 import { kindBadgeClass, kindLabel, SYMBOL_KINDS } from "@/components/source/symbol-kind";
@@ -67,7 +69,7 @@ import { authFetch } from "@/lib/auth-fetch";
 import { trackEvent } from "@/lib/telemetry";
 import { disableJobAlerts, enableJobAlerts, jobAlertsEnabled, notifyJobEvent } from "@/lib/notifications";
 
-type Tab = "files" | "symbols" | "requirements" | "specs" | "analysis" | "impact" | "architecture" | "related" | "knowledge" | "settings";
+type Tab = "files" | "symbols" | "requirements" | "specs" | "analysis" | "impact" | "architecture" | "related" | "knowledge" | "subsystems" | "settings";
 type SymbolDetailTab = "source" | "cliff-notes" | "chat";
 
 interface FileNode {
@@ -725,7 +727,7 @@ export default function RepositoryDetailPage() {
   const searchParams = useSearchParams();
   const repoId = params.id as string;
   const urlTab = searchParams.get("tab");
-  const tab: Tab = (urlTab && ["files", "symbols", "requirements", "specs", "analysis", "impact", "architecture", "related", "knowledge", "settings"].includes(urlTab))
+  const tab: Tab = (urlTab && ["files", "symbols", "requirements", "specs", "analysis", "impact", "architecture", "related", "knowledge", "subsystems", "settings"].includes(urlTab))
     ? (urlTab as Tab)
     : "files";
   const [symbolQuery, setSymbolQuery] = useState("");
@@ -975,7 +977,9 @@ export default function RepositoryDetailPage() {
 
   const features = useFeatures();
   const symbolScopedAnalysisEnabled = features.symbolScopedAnalysis;
+  const [subsystemsRefreshKey, setSubsystemsRefreshKey] = useState(0);
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [copiedSetupCmd, setCopiedSetupCmd] = useState(false);
   const [understandingCollapsed, setUnderstandingCollapsed] = useState(false);
   const [understandingShowAllSections, setUnderstandingShowAllSections] = useState(false);
   const [explainQuestion, setExplainQuestion] = useState("");
@@ -1118,6 +1122,7 @@ export default function RepositoryDetailPage() {
     { key: "architecture", label: "Architecture", visible: true },
     { key: "related", label: "Related", visible: true },
     { key: "knowledge", label: "Field Guide", visible: true },
+    { key: "subsystems", label: "Subsystems", visible: features.subsystemClustering },
     { key: "settings", label: "Settings", visible: true },
   ];
   const tabs = allTabs.filter((t) => t.visible);
@@ -3531,6 +3536,25 @@ export default function RepositoryDetailPage() {
         </div>
       )}
 
+      {/* Subsystems Tab */}
+      {tab === "subsystems" && features.subsystemClustering && repoId && (
+        <Panel className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Subsystems</h3>
+              <p className="mt-0.5 text-sm text-[var(--text-secondary)]">
+                Subsystems are groups of related symbols based on how they call each other. Use them to navigate the codebase, understand boundaries, and onboard faster.
+              </p>
+            </div>
+            <ImproveLabelsButton
+              repoId={repoId}
+              onComplete={() => setSubsystemsRefreshKey((k) => k + 1)}
+            />
+          </div>
+          <ClusterTable repoId={repoId} refreshKey={subsystemsRefreshKey} />
+        </Panel>
+      )}
+
       {/* Settings Tab */}
       {tab === "settings" && (
         <Panel>
@@ -3580,6 +3604,44 @@ export default function RepositoryDetailPage() {
               initialSettings={repo?.livingWikiSettings ?? null}
             />
           </div>
+
+          {/* Use with Claude Code card — capability-gated on agent_setup */}
+          {features.agentSetup && repoId && (
+            <div className="mt-6 rounded-[var(--control-radius)] border border-[var(--border-default)] bg-[var(--bg-base)] p-4">
+              <h4 className="text-sm font-semibold text-[var(--text-primary)]">Use with Claude Code</h4>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                Generate a <code className="rounded bg-[var(--bg-subtle)] px-1 py-0.5 text-xs">.claude/CLAUDE.md</code> skill card with per-subsystem sections so Claude Code understands how this codebase is structured before you start refactoring.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <code className="flex-1 rounded bg-[var(--bg-subtle)] px-3 py-2 text-xs font-mono text-[var(--text-primary)]">
+                  {`sourcebridge setup claude --repo-id ${repoId}`}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(`sourcebridge setup claude --repo-id ${repoId}`);
+                    setCopiedSetupCmd(true);
+                    setTimeout(() => setCopiedSetupCmd(false), 2000);
+                  }}
+                  className="shrink-0 rounded-[var(--control-radius)] border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  aria-label="Copy setup command"
+                >
+                  {copiedSetupCmd ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-[var(--text-tertiary,var(--text-secondary))]">
+                <a
+                  href="https://docs.claude.com/en/docs/claude-code/memory"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-[var(--text-primary)]"
+                >
+                  Learn more about Claude Code memory
+                  <span className="sr-only"> (opens in new tab)</span>
+                </a>
+              </p>
+            </div>
+          )}
 
           <div className="mt-8 rounded-[var(--control-radius)] border border-[var(--color-error,#ef4444)] p-4">
             <h4 className="mb-2 font-semibold text-[var(--color-error,#ef4444)]">Danger Zone</h4>

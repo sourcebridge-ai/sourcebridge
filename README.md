@@ -322,12 +322,31 @@ SourceBridge supports both cloud-hosted and local inference providers. Configure
 
 All local providers expose an OpenAI-compatible API. Set `base_url` to the local endpoint.
 
+## Using with Claude Code
+
+After indexing a repository, generate a `.claude/CLAUDE.md` skill card that gives Claude Code a structured map of the codebase — per-subsystem sections, call-graph-derived warnings, and representative symbols — so the agent understands the architecture before refactoring:
+
+```bash
+sourcebridge setup claude --repo-id <id>
+```
+
+This writes three files into the repository:
+
+- `.claude/CLAUDE.md` — the skill card with `## Subsystem:` sections derived from clustering data
+- `.claude/sourcebridge.json` — metadata for future refreshes (gitignored by default)
+- `.mcp.json` — Claude Code MCP server configuration so the agent can call SourceBridge tools directly
+
+Re-run the command after re-indexing to refresh the skill card.
+
+See [Claude Code memory documentation](https://docs.claude.com/en/docs/claude-code/memory) for how Claude Code reads `.claude/CLAUDE.md`.
+
 ## CLI Reference
 
 | Command | Description |
 |---|---|
 | `sourcebridge serve` | Start the API server |
 | `sourcebridge index <path>` | Index a repository with tree-sitter |
+| `sourcebridge setup claude` | Generate a `.claude/CLAUDE.md` skill card for Claude Code |
 | `sourcebridge import <file>` | Import requirements from Markdown or CSV |
 | `sourcebridge trace <req-id>` | Trace a requirement to linked code |
 | `sourcebridge review <path>` | Run an AI-powered code review |

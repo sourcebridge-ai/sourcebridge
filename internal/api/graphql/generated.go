@@ -386,6 +386,8 @@ type ComplexityRoot struct {
 		PodcastGeneration        func(childComplexity int) int
 		SlideGeneration          func(childComplexity int) int
 		Sso                      func(childComplexity int) int
+		SubsystemClustering      func(childComplexity int) int
+		AgentSetup               func(childComplexity int) int
 		SymbolScopedAnalysis     func(childComplexity int) int
 		SystemExplain            func(childComplexity int) int
 		Webhooks                 func(childComplexity int) int
@@ -2854,6 +2856,20 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Features.Sso(childComplexity), true
+
+	case "Features.subsystemClustering":
+		if e.complexity.Features.SubsystemClustering == nil {
+			break
+		}
+
+		return e.complexity.Features.SubsystemClustering(childComplexity), true
+
+	case "Features.agentSetup":
+		if e.complexity.Features.AgentSetup == nil {
+			break
+		}
+
+		return e.complexity.Features.AgentSetup(childComplexity), true
 
 	case "Features.symbolScopedAnalysis":
 		if e.complexity.Features.SymbolScopedAnalysis == nil {
@@ -21241,6 +21257,94 @@ func (ec *executionContext) fieldContext_Features_systemExplain(_ context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _Features_subsystemClustering(ctx context.Context, field graphql.CollectedField, obj *Features) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Features_subsystemClustering(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SubsystemClustering, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Features_subsystemClustering(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Features",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Features_agentSetup(ctx context.Context, field graphql.CollectedField, obj *Features) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Features_agentSetup(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.AgentSetup, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Features_agentSetup(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Features",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Features_symbolScopedAnalysis(ctx context.Context, field graphql.CollectedField, obj *Features) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Features_symbolScopedAnalysis(ctx, field)
 	if err != nil {
@@ -34124,6 +34228,10 @@ func (ec *executionContext) fieldContext_Query_features(_ context.Context, field
 				return ec.fieldContext_Features_systemExplain(ctx, field)
 			case "symbolScopedAnalysis":
 				return ec.fieldContext_Features_symbolScopedAnalysis(ctx, field)
+			case "subsystemClustering":
+				return ec.fieldContext_Features_subsystemClustering(ctx, field)
+			case "agentSetup":
+				return ec.fieldContext_Features_agentSetup(ctx, field)
 			case "multiAudienceKnowledge":
 				return ec.fieldContext_Features_multiAudienceKnowledge(ctx, field)
 			case "customKnowledgeTemplates":
@@ -52403,6 +52511,16 @@ func (ec *executionContext) _Features(ctx context.Context, sel ast.SelectionSet,
 			}
 		case "symbolScopedAnalysis":
 			out.Values[i] = ec._Features_symbolScopedAnalysis(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "subsystemClustering":
+			out.Values[i] = ec._Features_subsystemClustering(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "agentSetup":
+			out.Values[i] = ec._Features_agentSetup(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

@@ -33,6 +33,26 @@ func init() {
 	indexCmd.Flags().BoolVar(&indexRetry, "retry", false, "Retry previously failed indexing")
 }
 
+// formatSymbolCount formats a symbol count with thousands separators.
+func formatSymbolCount(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	out := make([]byte, 0, len(s)+len(s)/3)
+	rem := len(s) % 3
+	if rem > 0 {
+		out = append(out, s[:rem]...)
+	}
+	for i := rem; i < len(s); i += 3 {
+		if i > 0 || rem > 0 {
+			out = append(out, ',')
+		}
+		out = append(out, s[i:i+3]...)
+	}
+	return string(out)
+}
+
 func runIndex(cmd *cobra.Command, args []string) error {
 	repoPath := args[0]
 
@@ -83,6 +103,13 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		for _, e := range result.Errors {
 			fmt.Fprintf(os.Stderr, "  - %s\n", e)
 		}
+	}
+
+	if repo.ID != "" {
+		fmt.Fprintf(os.Stdout, "\nIndexed %s symbols. Use with Claude Code:\n  sourcebridge setup claude --repo-id %s\n",
+			formatSymbolCount(result.TotalSymbols), repo.ID)
+	} else {
+		fmt.Fprintf(os.Stdout, "\nIndexed %s symbols.\n", formatSymbolCount(result.TotalSymbols))
 	}
 
 	return nil

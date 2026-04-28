@@ -36,4 +36,5 @@ func init() {
 	rootCmd.AddCommand(traceReqCmd)
 	rootCmd.AddCommand(askImplCmd)
 	rootCmd.AddCommand(importCmd)
+	rootCmd.AddCommand(setupCmd)
 }

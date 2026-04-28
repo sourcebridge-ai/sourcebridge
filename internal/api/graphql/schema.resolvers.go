@@ -2600,6 +2600,9 @@ func (r *mutationResolver) EnableLivingWikiForRepo(ctx context.Context, input En
 			excludedPageIDs,
 			sinkKind,
 			r.LivingWikiJobResultStore,
+			r.livingWikiBroker(),
+			r.LivingWikiRepoStore,
+			r.ClusterStore,
 		),
 	}
 

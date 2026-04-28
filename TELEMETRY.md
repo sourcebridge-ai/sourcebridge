@@ -22,6 +22,10 @@ information is ever collected.
 | `trash_size_gauge` | `17` | Most recent sampled count of items currently in the trash |
 | `qa_asks_total_14d` | `342` | Rolling 14-day count of server-side QA (`/api/v1/ask`, `ask` mutation, MCP `ask_question`) invocations on this install. Zero when server-side QA is disabled. |
 | `qa_server_side` feature flag | `["qa_server_side"]` | Present in the `features` array when `SOURCEBRIDGE_QA_SERVER_SIDE_ENABLED=true`. Lets the public dashboard track orchestrator adoption. |
+| `clustering_enabled` | `true` | True when the `subsystem_clustering` capability is active on this installation. |
+| `cluster_count` | `12` | Number of clusters for the largest indexed repository. Zero when clustering has not run or no repos are indexed. |
+| `clustering_modularity_q` | `0.42` | Newman–Girvan modularity Q of the most recent clustering run, rounded to 2 decimal places. Zero when clustering has not run. |
+| `agent_setup_used` | `false` | Reserved for Sprint 3 (`sourcebridge setup claude`). Always `false` in v1. |
 
 ## What is NOT collected
 

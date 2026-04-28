@@ -18,6 +18,8 @@ export const FEATURES_QUERY = gql`
       codeTours
       systemExplain
       symbolScopedAnalysis
+      subsystemClustering
+      agentSetup
       multiAudienceKnowledge
       customKnowledgeTemplates
       advancedLearningPaths

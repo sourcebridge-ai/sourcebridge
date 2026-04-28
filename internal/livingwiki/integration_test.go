@@ -247,7 +247,7 @@ func TestLivingWikiE2E_ColdStart(t *testing.T) {
 
 	resolver := orchestrator.NewTaxonomyResolver(repoID, graph, nil, llm)
 	now := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
-	pages, err := resolver.Resolve(ctx, nil, now)
+	pages, err := resolver.Resolve(ctx, nil, nil, now)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestLivingWikiE2E_RegenPassIdempotent(t *testing.T) {
 	llm := &cannedLLM{}
 	resolver := orchestrator.NewTaxonomyResolver(repoID, graph, nil, llm)
 	now := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
-	pages, err := resolver.Resolve(ctx, nil, now)
+	pages, err := resolver.Resolve(ctx, nil, nil, now)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

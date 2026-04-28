@@ -60,6 +60,10 @@ const (
 	SubsystemLinking      Subsystem = "linking"
 	SubsystemContracts    Subsystem = "contracts"
 	SubsystemQA           Subsystem = "qa"
+	// SubsystemClustering is used by the label-propagation graph clustering
+	// job. It reuses the existing queue/dedup/concurrency machinery even
+	// though no LLM calls are made — the job is CPU-bound, not LLM-bound.
+	SubsystemClustering Subsystem = "clustering"
 )
 
 // JobPriority controls queue preference. Higher-priority jobs should be

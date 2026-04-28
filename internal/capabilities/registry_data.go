@@ -138,6 +138,22 @@ var Registry = []Capability{
 		LatencyClass: "fast_read",
 	},
 
+	// ---- Subsystem clustering ----
+	{
+		Name:         "subsystem_clustering",
+		Description:  "Label-propagation subsystem clustering on the call graph. Exposes three MCP tools for navigating code subsystems and a web UI Subsystems tab.",
+		Editions:     []Edition{EditionOSS, EditionEnterprise},
+		MCPToolNames: []string{"get_subsystems", "get_subsystem_by_id", "get_subsystem"},
+		LatencyClass: "fast_read",
+	},
+
+	// ---- Agent setup (Claude Code integration) ----
+	{
+		Name:        "agent_setup",
+		Description: "Generate a .claude/CLAUDE.md skill card and .mcp.json configuration for Claude Code integration.",
+		Editions:    []Edition{EditionOSS, EditionEnterprise},
+	},
+
 	// ---- Enterprise-only capabilities (no MCP tools yet — Phase 3 adds them) ----
 	{
 		Name:        "enterprise_reports",

@@ -46,18 +46,35 @@ const DefaultEndpoint = "https://telemetry.sourcebridge.ai/v1/ping"
 
 // Ping is the anonymous telemetry payload.
 type Ping struct {
-	InstallationID string            `json:"installation_id"`
-	Version        string            `json:"version"`
-	Edition        string            `json:"edition"`
-	LLMProviderKind string           `json:"llm_provider_kind,omitempty"`
-	Platform       string            `json:"platform"`
-	GoVersion      string            `json:"go_version"`
-	Uptime         string            `json:"uptime"`
-	Repos          int               `json:"repos"`
-	Users          int               `json:"users"`
-	Features       []string          `json:"features,omitempty"`
-	Counts         map[string]int    `json:"counts,omitempty"`
-	Timestamp      time.Time         `json:"timestamp"`
+	InstallationID  string         `json:"installation_id"`
+	Version         string         `json:"version"`
+	Edition         string         `json:"edition"`
+	LLMProviderKind string         `json:"llm_provider_kind,omitempty"`
+	Platform        string         `json:"platform"`
+	GoVersion       string         `json:"go_version"`
+	Uptime          string         `json:"uptime"`
+	Repos           int            `json:"repos"`
+	Users           int            `json:"users"`
+	Features        []string       `json:"features,omitempty"`
+	Counts          map[string]int `json:"counts,omitempty"`
+	Timestamp       time.Time      `json:"timestamp"`
+
+	// Clustering fields (Sprint 1 — F5 Subsystem Clustering).
+
+	// ClusteringEnabled is true when the subsystem_clustering capability is
+	// active on this installation.
+	ClusteringEnabled bool `json:"clustering_enabled"`
+	// ClusterCount is the number of clusters for the largest indexed repository.
+	// Zero when clustering has not run or no repos are indexed.
+	ClusterCount int `json:"cluster_count"`
+	// ClusteringModularityQ is the Newman–Girvan modularity score of the most
+	// recent clustering run, rounded to 2 decimal places. Zero when clustering
+	// has not run.
+	ClusteringModularityQ float32 `json:"clustering_modularity_q"`
+	// AgentSetupUsed is true when `sourcebridge setup claude` has been run at
+	// least once on this installation. Reserved for Sprint 3 — always false
+	// in v1.
+	AgentSetupUsed bool `json:"agent_setup_used"`
 }
 
 // CountProvider returns aggregate counts for telemetry.
@@ -179,20 +196,45 @@ func (t *Tracker) loop() {
 	}
 }
 
+// agentSetupFlagFile returns the path of the persistent flag file written by
+// `sourcebridge setup claude` upon its first successful run.
+func agentSetupFlagFile(dataDir string) string {
+	return filepath.Join(dataDir, ".sourcebridge-agent-setup-used")
+}
+
+// MarkAgentSetupUsed writes the persistent flag file to the data directory so
+// that subsequent telemetry pings report agent_setup_used=true. Exported for
+// use by the CLI after a successful `setup claude` run.
+func MarkAgentSetupUsed(dataDir string) {
+	if dataDir == "" {
+		return
+	}
+	path := agentSetupFlagFile(dataDir)
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	_ = os.WriteFile(path, []byte("1\n"), 0o644)
+}
+
 func (t *Tracker) send() {
 	ping := Ping{
-		InstallationID: t.installationID,
-		Version:        t.version,
-		Edition:        t.edition,
+		InstallationID:  t.installationID,
+		Version:         t.version,
+		Edition:         t.edition,
 		LLMProviderKind: t.llmProviderKind,
-		Platform:       resolvePlatform(),
-		GoVersion:      runtime.Version(),
-		Uptime:         time.Since(t.startTime).Truncate(time.Second).String(),
-		Timestamp:      time.Now().UTC(),
+		Platform:        resolvePlatform(),
+		GoVersion:       runtime.Version(),
+		Uptime:          time.Since(t.startTime).Truncate(time.Second).String(),
+		Timestamp:       time.Now().UTC(),
 	}
 
 	if t.provider != nil {
 		ping.Repos, ping.Users, ping.Features, ping.Counts = t.provider.TelemetryCounts()
+	}
+
+	// agent_setup_used: set from the persistent flag file written by `setup claude`.
+	if t.dataDir != "" {
+		if _, err := os.Stat(agentSetupFlagFile(t.dataDir)); err == nil {
+			ping.AgentSetupUsed = true
+		}
 	}
 
 	body, err := json.Marshal(ping)

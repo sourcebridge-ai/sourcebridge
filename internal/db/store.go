@@ -18,6 +18,7 @@ import (
 	surrealdb "github.com/surrealdb/surrealdb.go"
 	"github.com/surrealdb/surrealdb.go/pkg/models"
 
+	"github.com/sourcebridge/sourcebridge/internal/clustering"
 	"github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/indexer"
 )
@@ -61,6 +62,9 @@ type SurrealStore struct {
 
 // Verify at compile time that *SurrealStore satisfies graph.GraphStore.
 var _ graph.GraphStore = (*SurrealStore)(nil)
+
+// Verify at compile time that *SurrealStore satisfies clustering.ClusterStore.
+var _ clustering.ClusterStore = (*SurrealStore)(nil)
 
 // NewSurrealStore creates a SurrealStore wrapping an already-connected SurrealDB client.
 func NewSurrealStore(client *SurrealDB) *SurrealStore {
@@ -544,6 +548,14 @@ func (s *SurrealStore) ReplaceIndexResult(repoID string, result *indexer.IndexRe
 		`UPDATE type::thing('ca_repository', $id) SET status = 'indexing'`,
 		map[string]any{"id": repoID})
 
+	// Invalidate stale clusters before replacing the graph data.
+	// Non-fatal: the re-cluster job will overwrite these records; a failed
+	// delete leaves stale (not missing) clusters, which is the safer outcome.
+	if err := s.DeleteClusters(context.Background(), repoID); err != nil {
+		slog.Warn("ReplaceIndexResult: failed to delete stale clusters; continuing",
+			"repo_id", repoID, "error", err)
+	}
+
 	// Remove old data (including call graph)
 	_, _ = surrealdb.Query[interface{}](ctx(), db,
 		`DELETE ca_import WHERE file_id IN (SELECT VALUE id FROM ca_file WHERE repo_id = $id);
@@ -795,6 +807,13 @@ func (s *SurrealStore) RemoveRepository(id string) bool {
 	db := s.client.DB()
 	if db == nil {
 		return false
+	}
+
+	// Remove cluster data first (stale invalidation). Logged on failure; a
+	// failed delete here means orphaned cluster records, not a missing repo.
+	if err := s.DeleteClusters(context.Background(), id); err != nil {
+		slog.Warn("RemoveRepository: failed to delete clusters; orphaned records may remain",
+			"repo_id", id, "error", err)
 	}
 
 	_, err := surrealdb.Query[interface{}](ctx(), db,
@@ -2582,4 +2601,348 @@ func (s *SurrealStore) DeleteDiscoveredRequirementsByRepo(repoID string) int {
 		return 0
 	}
 	return -1 // SurrealDB DELETE doesn't return count easily
+}
+
+// ---------------------------------------------------------------------------
+// ClusterStore methods (satisfies clustering.ClusterStore implicitly)
+// ---------------------------------------------------------------------------
+
+// GetRepoEdgeHash returns the cluster_graph_edge_hash stored on the
+// ca_repository record, or an empty string when the field is absent.
+func (s *SurrealStore) GetRepoEdgeHash(_ context.Context, repoID string) (string, error) {
+	db := s.client.DB()
+	if db == nil {
+		return "", nil
+	}
+	type hashRow struct {
+		Hash string `json:"cluster_graph_edge_hash"`
+	}
+	rows, err := queryOne[[]hashRow](ctx(), db,
+		`SELECT cluster_graph_edge_hash FROM type::thing('ca_repository', $id)`,
+		map[string]any{"id": repoID})
+	if err != nil || len(rows) == 0 {
+		return "", nil
+	}
+	return rows[0].Hash, nil
+}
+
+// SetRepoEdgeHash writes the cluster_graph_edge_hash onto the ca_repository
+// record so future clustering runs can skip unchanged graphs.
+func (s *SurrealStore) SetRepoEdgeHash(_ context.Context, repoID, hash string) error {
+	db := s.client.DB()
+	if db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	_, err := surrealdb.Query[interface{}](ctx(), db,
+		`UPDATE type::thing('ca_repository', $id) SET cluster_graph_edge_hash = $hash`,
+		map[string]any{"id": repoID, "hash": hash})
+	return err
+}
+
+// surrealCluster is the SurrealDB representation of a cluster record.
+type surrealCluster struct {
+	ID        *models.RecordID `json:"id,omitempty"`
+	RepoID    string           `json:"repo_id"`
+	Label     string           `json:"label"`
+	LLMLabel  *string          `json:"llm_label,omitempty"`
+	Size      int              `json:"size"`
+	EdgeHash  string           `json:"edge_hash"`
+	Partial   bool             `json:"partial"`
+	CreatedAt surrealTime      `json:"created_at"`
+	UpdatedAt surrealTime      `json:"updated_at"`
+}
+
+func (c *surrealCluster) toCluster() clustering.Cluster {
+	return clustering.Cluster{
+		ID:        recordIDString(c.ID),
+		RepoID:    c.RepoID,
+		Label:     c.Label,
+		LLMLabel:  c.LLMLabel,
+		Size:      c.Size,
+		EdgeHash:  c.EdgeHash,
+		Partial:   c.Partial,
+		CreatedAt: c.CreatedAt.Time,
+		UpdatedAt: c.UpdatedAt.Time,
+	}
+}
+
+// surrealClusterMember is the SurrealDB representation of a cluster_member record.
+type surrealClusterMember struct {
+	ID        *models.RecordID `json:"id,omitempty"`
+	ClusterID string           `json:"cluster_id"`
+	SymbolID  string           `json:"symbol_id"`
+	RepoID    string           `json:"repo_id"`
+}
+
+// ReplaceClusters atomically deletes all existing clusters for the repository
+// and inserts the new set in a single BEGIN/COMMIT transaction batch. Readers
+// therefore never observe an empty window between the delete and the insert.
+//
+// Implementation note: SurrealDB's Go SDK does not expose a native transaction
+// API over the WebSocket protocol; however, multi-statement queries issued as a
+// single Query call are wrapped in BEGIN/COMMIT by the server and execute
+// atomically. We exploit this by composing the full delete + insert as one
+// batch query, passing cluster and member rows as JSON arrays via $clusters and
+// $members parameters iterated with FOR loops.
+func (s *SurrealStore) ReplaceClusters(ctx context.Context, repoID string, clusters []clustering.Cluster) error {
+	db := s.client.DB()
+	if db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	now := time.Now().UTC()
+
+	// Build flat arrays for the BEGIN/COMMIT batch.
+	type clusterRow struct {
+		ID        string  `json:"cid"`
+		RepoID    string  `json:"repo_id"`
+		Label     string  `json:"label"`
+		LLMLabel  *string `json:"llm_label"`
+		Size      int     `json:"size"`
+		EdgeHash  string  `json:"edge_hash"`
+		Partial   bool    `json:"partial"`
+		CreatedAt string  `json:"created_at"`
+		UpdatedAt string  `json:"updated_at"`
+	}
+	type memberRow struct {
+		ClusterID string `json:"cid"`
+		SymbolID  string `json:"symbol_id"`
+		RepoID    string `json:"repo_id"`
+	}
+
+	clusterRows := make([]clusterRow, 0, len(clusters))
+	memberRows := make([]memberRow, 0)
+	for _, c := range clusters {
+		rawID := strings.TrimPrefix(c.ID, "cluster:")
+		if rawID == "" {
+			rawID = uuid.New().String()
+		}
+		clusterRows = append(clusterRows, clusterRow{
+			ID:        rawID,
+			RepoID:    repoID,
+			Label:     c.Label,
+			LLMLabel:  c.LLMLabel,
+			Size:      c.Size,
+			EdgeHash:  c.EdgeHash,
+			Partial:   c.Partial,
+			CreatedAt: now.Format(time.RFC3339Nano),
+			UpdatedAt: now.Format(time.RFC3339Nano),
+		})
+		for _, m := range c.Members {
+			memberRows = append(memberRows, memberRow{
+				ClusterID: rawID,
+				SymbolID:  m.SymbolID,
+				RepoID:    repoID,
+			})
+		}
+	}
+
+	_, err := surrealdb.Query[interface{}](ctx, db,
+		`BEGIN;
+		 DELETE cluster_member WHERE repo_id = $repo_id;
+		 DELETE cluster        WHERE repo_id = $repo_id;
+		 FOR $c IN $clusters {
+		   CREATE type::thing('cluster', $c.cid) SET
+		     repo_id    = $c.repo_id,
+		     label      = $c.label,
+		     llm_label  = $c.llm_label,
+		     size       = $c.size,
+		     edge_hash  = $c.edge_hash,
+		     partial    = $c.partial,
+		     created_at = type::datetime($c.created_at),
+		     updated_at = type::datetime($c.updated_at);
+		 };
+		 FOR $m IN $members {
+		   CREATE cluster_member SET
+		     cluster_id = type::thing('cluster', $m.cid),
+		     symbol_id  = $m.symbol_id,
+		     repo_id    = $m.repo_id;
+		 };
+		 COMMIT;`,
+		map[string]any{
+			"repo_id":  repoID,
+			"clusters": clusterRows,
+			"members":  memberRows,
+		})
+	if err != nil {
+		return fmt.Errorf("clustering: transactional replace failed: %w", err)
+	}
+	return nil
+}
+
+// SaveClusters persists a full set of clusters and their members for a
+// repository. The caller is responsible for calling DeleteClusters first when
+// replacing an existing set. Prefer ReplaceClusters for full replacements.
+func (s *SurrealStore) SaveClusters(_ context.Context, repoID string, clusters []clustering.Cluster) error {
+	db := s.client.DB()
+	if db == nil {
+		return fmt.Errorf("database not connected")
+	}
+	now := time.Now().UTC()
+	for _, c := range clusters {
+		clusterUUID := uuid.New().String()
+		// Strip the "cluster:" prefix that the job assigns so we can use
+		// SurrealDB's type::thing syntax cleanly.
+		rawID := strings.TrimPrefix(c.ID, "cluster:")
+		if rawID == "" {
+			rawID = clusterUUID
+		}
+		_, err := surrealdb.Query[interface{}](ctx(), db,
+			`CREATE type::thing('cluster', $cid) SET
+				repo_id    = $repo_id,
+				label      = $label,
+				llm_label  = $llm_label,
+				size       = $size,
+				edge_hash  = $edge_hash,
+				partial    = $partial,
+				created_at = $created_at,
+				updated_at = $updated_at`,
+			map[string]any{
+				"cid":        rawID,
+				"repo_id":    repoID,
+				"label":      c.Label,
+				"llm_label":  c.LLMLabel,
+				"size":       c.Size,
+				"edge_hash":  c.EdgeHash,
+				"partial":    c.Partial,
+				"created_at": now,
+				"updated_at": now,
+			})
+		if err != nil {
+			slog.Warn("clustering: failed to save cluster", "repo_id", repoID, "error", err)
+			continue
+		}
+		// Persist members.
+		for _, m := range c.Members {
+			_, _ = surrealdb.Query[interface{}](ctx(), db,
+				`CREATE cluster_member SET
+					cluster_id = type::thing('cluster', $cid),
+					symbol_id  = $symbol_id,
+					repo_id    = $repo_id`,
+				map[string]any{
+					"cid":       rawID,
+					"symbol_id": m.SymbolID,
+					"repo_id":   repoID,
+				})
+		}
+	}
+	return nil
+}
+
+// GetClusters returns all clusters for a repository without member lists.
+func (s *SurrealStore) GetClusters(_ context.Context, repoID string) ([]clustering.Cluster, error) {
+	db := s.client.DB()
+	if db == nil {
+		return nil, nil
+	}
+	rows, err := queryOne[[]surrealCluster](ctx(), db,
+		`SELECT * FROM cluster WHERE repo_id = $repo_id ORDER BY size DESC`,
+		map[string]any{"repo_id": repoID})
+	if err != nil {
+		return nil, nil
+	}
+	out := make([]clustering.Cluster, len(rows))
+	for i, r := range rows {
+		out[i] = r.toCluster()
+	}
+	return out, nil
+}
+
+// GetClusterByID returns a single cluster including its full member list.
+func (s *SurrealStore) GetClusterByID(_ context.Context, clusterID string) (*clustering.Cluster, error) {
+	db := s.client.DB()
+	if db == nil {
+		return nil, nil
+	}
+	// Strip leading "cluster:" prefix if present.
+	rawID := strings.TrimPrefix(clusterID, "cluster:")
+
+	rows, err := queryOne[[]surrealCluster](ctx(), db,
+		`SELECT * FROM type::thing('cluster', $id)`,
+		map[string]any{"id": rawID})
+	if err != nil || len(rows) == 0 {
+		return nil, nil
+	}
+	c := rows[0].toCluster()
+
+	// Load members.
+	type memberRow struct {
+		SymbolID string `json:"symbol_id"`
+		RepoID   string `json:"repo_id"`
+	}
+	members, _ := queryOne[[]memberRow](ctx(), db,
+		`SELECT symbol_id, repo_id FROM cluster_member WHERE cluster_id = type::thing('cluster', $id)`,
+		map[string]any{"id": rawID})
+	for _, m := range members {
+		c.Members = append(c.Members, clustering.ClusterMember{
+			ClusterID: clusterID,
+			SymbolID:  m.SymbolID,
+			RepoID:    m.RepoID,
+		})
+	}
+	return &c, nil
+}
+
+// GetClusterForSymbol returns the cluster containing the given symbol.
+func (s *SurrealStore) GetClusterForSymbol(_ context.Context, repoID, symbolID string) (*clustering.Cluster, error) {
+	db := s.client.DB()
+	if db == nil {
+		return nil, nil
+	}
+	type memberRow struct {
+		ClusterID *models.RecordID `json:"cluster_id"`
+	}
+	rows, err := queryOne[[]memberRow](ctx(), db,
+		`SELECT cluster_id FROM cluster_member WHERE symbol_id = $sid AND repo_id = $repo_id LIMIT 1`,
+		map[string]any{"sid": symbolID, "repo_id": repoID})
+	if err != nil || len(rows) == 0 || rows[0].ClusterID == nil {
+		return nil, nil
+	}
+	cid := recordIDString(rows[0].ClusterID)
+	return s.GetClusterByID(context.Background(), cid)
+}
+
+// DeleteClusters removes all cluster and cluster_member records for a
+// repository. Called on repo deletion and at the start of each re-cluster run.
+func (s *SurrealStore) DeleteClusters(_ context.Context, repoID string) error {
+	db := s.client.DB()
+	if db == nil {
+		return nil
+	}
+	_, err := surrealdb.Query[interface{}](ctx(), db,
+		`DELETE cluster_member WHERE repo_id = $repo_id;
+		 DELETE cluster WHERE repo_id = $repo_id`,
+		map[string]any{"repo_id": repoID})
+	if err != nil {
+		slog.Warn("clustering: failed to delete clusters", "repo_id", repoID, "error", err)
+	}
+	return err
+}
+
+// SetClusterLLMLabel writes an LLM-generated label onto an existing cluster record.
+// Returns clustering.ErrClusterNotFound when the cluster no longer exists (e.g.
+// deleted by a concurrent ReplaceClusters during re-index). The caller should
+// log a warning and continue; the cluster keeps its heuristic label.
+func (s *SurrealStore) SetClusterLLMLabel(_ context.Context, clusterID string, label string) error {
+	db := s.client.DB()
+	if db == nil {
+		return nil
+	}
+	// Strip the "cluster:" prefix to construct the SurrealDB record ID.
+	rawID := strings.TrimPrefix(clusterID, "cluster:")
+	updated, err := queryOne[[]map[string]any](ctx(), db,
+		`UPDATE type::thing('cluster', $cid) SET
+			llm_label  = $llm_label,
+			updated_at = time::now()`,
+		map[string]any{
+			"cid":       rawID,
+			"llm_label": label,
+		})
+	if err != nil {
+		slog.Warn("clustering: failed to set llm_label", "cluster_id", clusterID, "error", err)
+		return err
+	}
+	if len(updated) == 0 {
+		return clustering.ErrClusterNotFound
+	}
+	return nil
 }

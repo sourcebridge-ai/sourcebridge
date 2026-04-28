@@ -37,12 +37,18 @@ type GitCredentialsFunc func() (token, sshKeyPath string)
 // ID. Optional — nil = skip.
 type PrewarmHook func(repoID string)
 
+// ClusteringHook runs after a successful index with the repository ID and
+// commit SHA. It should enqueue an async clustering job without blocking.
+// Optional — nil = skip.
+type ClusteringHook func(repoID, commitSHA string)
+
 // Service is the shared indexing entry point.
 type Service struct {
-	cfg      *config.Config
-	store    graphstore.GraphStore
-	creds    GitCredentialsFunc
-	prewarm  PrewarmHook
+	cfg        *config.Config
+	store      graphstore.GraphStore
+	creds      GitCredentialsFunc
+	prewarm    PrewarmHook
+	clustering ClusteringHook
 }
 
 // NewService builds a Service. cfg + store are required; creds may
@@ -50,6 +56,13 @@ type Service struct {
 // will fail); prewarm may be nil.
 func NewService(cfg *config.Config, store graphstore.GraphStore, creds GitCredentialsFunc, prewarm PrewarmHook) *Service {
 	return &Service{cfg: cfg, store: store, creds: creds, prewarm: prewarm}
+}
+
+// WithClusteringHook wires a post-index clustering hook into the service.
+// The hook is called after each successful index run with the repo ID and
+// commit SHA so the clustering job can be enqueued asynchronously.
+func (s *Service) WithClusteringHook(hook ClusteringHook) {
+	s.clustering = hook
 }
 
 // ImportSpec describes a single import request.
@@ -187,15 +200,21 @@ func (s *Service) runImport(repoID, repoName, repoPath string, isRemote bool, to
 		s.store.SetRepositoryError(repoID, fmt.Errorf("storing index result: %w", err))
 		return
 	}
+	commitSHA := ""
 	if gitMeta, err := git.GetGitMetadata(localPath); err == nil && gitMeta != nil {
 		s.store.UpdateRepositoryMeta(repoID, graphstore.RepositoryMeta{
 			ClonePath: localPath,
 			CommitSHA: gitMeta.CommitSHA,
 			Branch:    gitMeta.Branch,
 		})
+		commitSHA = gitMeta.CommitSHA
 	}
 	if s.prewarm != nil {
 		s.prewarm(repoID)
+	}
+	// Enqueue async clustering job. This must not block the indexing pipeline.
+	if s.clustering != nil {
+		s.clustering(repoID, commitSHA)
 	}
 	slog.Info("repository indexed via shared service", "repo_id", repoID, "name", repoName)
 }

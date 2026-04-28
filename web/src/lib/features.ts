@@ -21,6 +21,10 @@ export interface FeatureFlags {
   codeTours: boolean;
   systemExplain: boolean;
   symbolScopedAnalysis: boolean;
+  // Subsystem clustering
+  subsystemClustering: boolean;
+  // Agent setup (Claude Code integration)
+  agentSetup: boolean;
   // Knowledge engine — enterprise features
   multiAudienceKnowledge: boolean;
   customKnowledgeTemplates: boolean;
@@ -48,6 +52,10 @@ export const ossFeatures: FeatureFlags = {
   codeTours: false,
   systemExplain: false,
   symbolScopedAnalysis: false,
+  // Subsystem clustering
+  subsystemClustering: false,
+  // Agent setup (Claude Code integration)
+  agentSetup: false,
   // Knowledge engine — enterprise features
   multiAudienceKnowledge: false,
   customKnowledgeTemplates: false,

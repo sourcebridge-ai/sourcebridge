@@ -60,14 +60,20 @@ func (r *mutationResolver) importRepository(repoID, repoName, repoPath string, i
 		store.SetRepositoryError(repoID, fmt.Errorf("storing index result: %w", err))
 		return
 	}
+	commitSHA := ""
 	if gitMeta, err := git.GetGitMetadata(localPath); err == nil && gitMeta != nil {
 		store.UpdateRepositoryMeta(repoID, graphstore.RepositoryMeta{
 			ClonePath: localPath,
 			CommitSHA: gitMeta.CommitSHA,
 			Branch:    gitMeta.Branch,
 		})
+		commitSHA = gitMeta.CommitSHA
 	}
 	if knowledgePrewarmOnIndexEnabled() {
 		go r.seedRepositoryFieldGuide(repoID)
+	}
+	// Enqueue async clustering job. Must not block the indexing pipeline.
+	if r.ClusteringHook != nil {
+		r.ClusteringHook(repoID, commitSHA)
 	}
 }

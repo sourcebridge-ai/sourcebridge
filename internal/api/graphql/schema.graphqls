@@ -284,6 +284,8 @@ type Features {
   codeTours: Boolean!
   systemExplain: Boolean!
   symbolScopedAnalysis: Boolean!
+  subsystemClustering: Boolean!
+  agentSetup: Boolean!
   multiAudienceKnowledge: Boolean!
   customKnowledgeTemplates: Boolean!
   advancedLearningPaths: Boolean!

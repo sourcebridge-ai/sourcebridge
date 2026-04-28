@@ -442,6 +442,8 @@ type Features struct {
 	CodeTours                bool `json:"codeTours"`
 	SystemExplain            bool `json:"systemExplain"`
 	SymbolScopedAnalysis     bool `json:"symbolScopedAnalysis"`
+	SubsystemClustering      bool `json:"subsystemClustering"`
+	AgentSetup               bool `json:"agentSetup"`
 	MultiAudienceKnowledge   bool `json:"multiAudienceKnowledge"`
 	CustomKnowledgeTemplates bool `json:"customKnowledgeTemplates"`
 	AdvancedLearningPaths    bool `json:"advancedLearningPaths"`

@@ -48,6 +48,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/sourcebridge/sourcebridge/internal/clustering"
 	"github.com/sourcebridge/sourcebridge/internal/livingwiki/ast"
 	"github.com/sourcebridge/sourcebridge/internal/livingwiki/manifest"
 	"github.com/sourcebridge/sourcebridge/internal/livingwiki/markdown"
@@ -738,30 +739,18 @@ type PackageGraphInfo struct {
 // or an empty slice to skip caller/callee data (architecture pages will still
 // be generated, just without relationship context).
 //
+// clusters is the primary "areas" signal. When non-empty, Resolve derives one
+// architecture page per cluster rather than one per package. When nil or
+// empty, it falls back to the existing package-path heuristic. The caller
+// (orchestrator call site) is responsible for translating full
+// clustering.Cluster records into ClusterSummary before passing them here;
+// the livingwiki package takes only what it needs.
+//
 // now is used for Provenance timestamps; pass time.Now() in production.
-func (r *TaxonomyResolver) Resolve(ctx context.Context, pkgGraph []PackageGraphInfo, now time.Time) ([]PlannedPage, error) {
+func (r *TaxonomyResolver) Resolve(ctx context.Context, pkgGraph []PackageGraphInfo, clusters []clustering.ClusterSummary, now time.Time) ([]PlannedPage, error) {
 	syms, err := r.symbolGraph.ExportedSymbols(r.repoID)
 	if err != nil {
 		return nil, fmt.Errorf("taxonomy: fetching symbols: %w", err)
-	}
-
-	// Build a set of top-level packages (first two path segments only).
-	// "top-level" means: not a sub-package (no more than 2 path-separator-
-	// delimited segments when rooted at the repo). For simplicity in P1:
-	// we treat each unique Package value as its own architecture page.
-	seen := make(map[string]bool)
-	var orderedPkgs []string
-	for _, s := range syms {
-		if !seen[s.Package] {
-			seen[s.Package] = true
-			orderedPkgs = append(orderedPkgs, s.Package)
-		}
-	}
-
-	// Build callers/callees lookup.
-	graphByPkg := make(map[string]PackageGraphInfo)
-	for _, g := range pkgGraph {
-		graphByPkg[g.Package] = g
 	}
 
 	var pages []PlannedPage
@@ -774,23 +763,63 @@ func (r *TaxonomyResolver) Resolve(ctx context.Context, pkgGraph []PackageGraphI
 		Now:         now,
 	}
 
-	// 1. Architecture page per package.
-	for _, pkg := range orderedPkgs {
-		gi := graphByPkg[pkg]
-		archInput := baseInput
-		archInput.Audience = quality.AudienceEngineers
+	// 1a. Architecture pages — cluster-based (primary signal).
+	//
+	// When clusters are available, emit one architecture page per cluster
+	// using the cluster label as the page scope. The PackageInfo is
+	// derived from the representative symbols' packages.
+	if len(clusters) > 0 {
+		for _, cs := range clusters {
+			archInput := baseInput
+			archInput.Audience = quality.AudienceEngineers
 
-		pages = append(pages, PlannedPage{
-			ID:         archPageID(r.repoID, pkg),
-			TemplateID: "architecture",
-			Audience:   quality.AudienceEngineers,
-			Input:      archInput,
-			PackageInfo: &ArchitecturePackageInfo{
-				Package: pkg,
-				Callers: gi.Callers,
-				Callees: gi.Callees,
-			},
-		})
+			pages = append(pages, PlannedPage{
+				ID:         archPageID(r.repoID, cs.Label),
+				TemplateID: "architecture",
+				Audience:   quality.AudienceEngineers,
+				Input:      archInput,
+				PackageInfo: &ArchitecturePackageInfo{
+					Package: cs.Label,
+				},
+			})
+		}
+	} else {
+		// 1b. Architecture pages — package-path fallback.
+		//
+		// Clusters are absent or stale: fall back to one architecture page
+		// per unique Package value, preserving the pre-Sprint-2 behaviour.
+		seen := make(map[string]bool)
+		var orderedPkgs []string
+		for _, s := range syms {
+			if !seen[s.Package] {
+				seen[s.Package] = true
+				orderedPkgs = append(orderedPkgs, s.Package)
+			}
+		}
+
+		// Build callers/callees lookup.
+		graphByPkg := make(map[string]PackageGraphInfo)
+		for _, g := range pkgGraph {
+			graphByPkg[g.Package] = g
+		}
+
+		for _, pkg := range orderedPkgs {
+			gi := graphByPkg[pkg]
+			archInput := baseInput
+			archInput.Audience = quality.AudienceEngineers
+
+			pages = append(pages, PlannedPage{
+				ID:         archPageID(r.repoID, pkg),
+				TemplateID: "architecture",
+				Audience:   quality.AudienceEngineers,
+				Input:      archInput,
+				PackageInfo: &ArchitecturePackageInfo{
+					Package: pkg,
+					Callers: gi.Callers,
+					Callees: gi.Callees,
+				},
+			})
+		}
 	}
 
 	// 2. API reference page (one per repo).

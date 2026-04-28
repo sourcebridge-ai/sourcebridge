@@ -21,6 +21,7 @@ import (
 	"github.com/sourcebridge/sourcebridge/internal/api/middleware"
 	"github.com/sourcebridge/sourcebridge/internal/auth"
 	"github.com/sourcebridge/sourcebridge/internal/capabilities"
+	"github.com/sourcebridge/sourcebridge/internal/clustering"
 	"github.com/sourcebridge/sourcebridge/internal/indexing"
 	"github.com/sourcebridge/sourcebridge/internal/config"
 	"github.com/sourcebridge/sourcebridge/internal/db"
@@ -218,6 +219,7 @@ type Server struct {
 	livingWikiDispatcher         *webhook.Dispatcher           // nil = feature not started or kill-switch active
 	livingWikiJobResultStore     livingwiki.JobResultStore     // nil = job result history unavailable
 	livingWikiLiveOrchestrator   *lworch.Orchestrator          // living-wiki page-generation orchestrator; nil = feature unavailable
+	clusterRunner                *clustering.Runner            // subsystem clustering job dispatcher; nil = feature disabled
 }
 
 // qaResolverOrchestrator exposes the server's QA orchestrator to the
@@ -430,6 +432,14 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 	s.reqBooster = &search.RequirementBooster{Store: s.store}
 	s.searchSvc.WithRequirementBooster(s.reqBooster)
 
+	// Subsystem clustering runner. The store is cast to ClusterStore only
+	// when it satisfies the interface (SurrealStore does; the in-memory
+	// graph.Store does not yet — it will satisfy it after Sprint 1 tests
+	// wire a lightweight adapter, or it can be left nil for tests).
+	if cs, ok := s.store.(clustering.ClusterStore); ok {
+		s.clusterRunner = clustering.NewRunner(cs, clustering.NewOrchestratorDispatcher(s.orchestrator))
+	}
+
 	s.setupRouter()
 	return s
 }
@@ -438,6 +448,15 @@ func NewServer(cfg *config.Config, localAuth *auth.LocalAuth, jwtMgr *auth.JWTMa
 // tests and the graceful-shutdown path can call Shutdown on it.
 func (s *Server) Orchestrator() *orchestrator.Orchestrator {
 	return s.orchestrator
+}
+
+// clusteringHookFunc returns a post-index hook that enqueues a clustering job,
+// or nil when clustering is not configured (no ClusterStore-compatible store).
+func (s *Server) clusteringHookFunc() func(repoID, commitSHA string) {
+	if s.clusterRunner == nil {
+		return nil
+	}
+	return s.clusterRunner.EnqueueForRepo
 }
 
 // SetOIDCProvider configures the OIDC provider for SSO login.
@@ -500,6 +519,13 @@ func (s *Server) setupRouter() {
 		r.Post("/auth/change-password", s.handleChangePassword)
 	})
 
+	// Extract cluster store for Living Wiki taxonomy resolution when the
+	// underlying store satisfies the interface (SurrealStore does).
+	var gqlClusterStore clustering.ClusterStore
+	if cs, ok := s.store.(clustering.ClusterStore); ok {
+		gqlClusterStore = cs
+	}
+
 	// GraphQL server
 	gqlSrv := handler.NewDefaultServer(graphql.NewExecutableSchema(graphql.Config{
 		Resolvers: &graphql.Resolver{
@@ -521,6 +547,8 @@ func (s *Server) setupRouter() {
 			LivingWikiRepoStore:        s.livingWikiRepoStore,
 			LivingWikiJobResultStore:   s.livingWikiJobResultStore,
 			LivingWikiLiveOrchestrator: s.livingWikiLiveOrchestrator,
+			ClusteringHook:             s.clusteringHookFunc(),
+			ClusterStore:               gqlClusterStore,
 		},
 	}))
 
@@ -557,6 +585,10 @@ func (s *Server) setupRouter() {
 		// search(...) field and the MCP search_symbols tool. Useful for
 		// CLI and deep-mode QA clients that don't speak GraphQL.
 		r.Post("/api/v1/search", s.handleSearch)
+
+		// Subsystem clustering — list clusters and batch LLM relabel job.
+		r.Get("/api/v1/repositories/{repo_id}/clusters", s.handleListClusters)
+		r.Post("/api/v1/repositories/{repo_id}/clusters/relabel", s.handleRelabelClusters)
 	})
 
 	// Admin API routes (requires auth, accepts both JWT and API tokens)
@@ -608,6 +640,9 @@ func (s *Server) setupRouter() {
 		r.Put("/api/v1/admin/llm/corpus/nodes", s.handleStoreSummaryNodes)
 		r.Post("/api/v1/admin/llm/corpus/{corpusId}/invalidate", s.handleInvalidateSummaryNodes)
 
+		// Subsystem clustering stats
+		r.Get("/api/v1/admin/clustering/stats", s.handleClusteringStats)
+
 		// Reports — enterprise only (registered via enterprise routes)
 
 		// API token management
@@ -645,7 +680,11 @@ func (s *Server) setupRouter() {
 		s.mcp.searchSvc = s.searchSvc
 		// Shared indexing service — enables end-to-end index_repository
 		// + refresh_repository MCP flows (Follow-on #3).
-		s.mcp.indexingSvc = indexing.NewService(s.cfg, s.store, nil, nil)
+		mcpIndexSvc := indexing.NewService(s.cfg, s.store, nil, nil)
+		if hook := s.clusteringHookFunc(); hook != nil {
+			mcpIndexSvc.WithClusteringHook(hook)
+		}
+		s.mcp.indexingSvc = mcpIndexSvc
 		// Wire enterprise extensions if provided via server options
 		if s.mcpPermChecker != nil {
 			s.mcp.permChecker = s.mcpPermChecker

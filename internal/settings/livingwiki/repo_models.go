@@ -150,6 +150,24 @@ func (s RepoWikiSink) EffectiveEditPolicy() RepoWikiEditPolicy {
 	return RepoWikiEditPolicyProposePR
 }
 
+// SinkWriteResult records the per-sink push outcome for one job run.
+// Persisted alongside LivingWikiJobResult so the UI can show per-sink counts.
+type SinkWriteResult struct {
+	// IntegrationName is the human-readable label for the sink instance.
+	IntegrationName string `json:"integration_name"`
+	// Kind is the sink type (e.g. "CONFLUENCE", "NOTION").
+	Kind string `json:"kind"`
+	// PagesWritten is the count of pages successfully pushed to this sink.
+	PagesWritten int `json:"pages_written"`
+	// PagesFailed is the count of pages whose write calls returned an error.
+	PagesFailed int `json:"pages_failed"`
+	// FailedPageIDs lists the IDs of pages that failed to write.
+	FailedPageIDs []string `json:"failed_page_ids,omitempty"`
+	// Error is non-empty when a non-recoverable error stopped this sink early
+	// (e.g. authentication failure).
+	Error string `json:"error,omitempty"`
+}
+
 // LivingWikiJobResult records the per-run outcome of one living-wiki job.
 // Used by the UI's settings panel summary and the "Retry excluded pages" CTA.
 type LivingWikiJobResult struct {
@@ -164,6 +182,9 @@ type LivingWikiJobResult struct {
 	ExcludedPageIDs     []string   `json:"excluded_page_ids,omitempty"`
 	GeneratedPageTitles []string   `json:"generated_page_titles,omitempty"`
 	ExclusionReasons    []string   `json:"exclusion_reasons,omitempty"`
+	// SinkWriteResults records per-sink push counts for this job.
+	// Populated after the dispatch phase completes.
+	SinkWriteResults []SinkWriteResult `json:"sink_write_results,omitempty"`
 	// Status is one of: "running", "ok", "partial", "failed".
 	Status string `json:"status"`
 	// FailureCategory classifies terminal failures into one of three buckets

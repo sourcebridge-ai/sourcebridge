@@ -7,12 +7,14 @@ import (
 
 	"github.com/sourcebridge/sourcebridge/internal/api/middleware"
 	"github.com/sourcebridge/sourcebridge/internal/capabilities"
+	"github.com/sourcebridge/sourcebridge/internal/clustering"
 	"github.com/sourcebridge/sourcebridge/internal/config"
 	"github.com/sourcebridge/sourcebridge/internal/entitlements"
 	"github.com/sourcebridge/sourcebridge/internal/events"
 	"github.com/sourcebridge/sourcebridge/internal/featureflags"
 	"github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/knowledge"
+	"github.com/sourcebridge/sourcebridge/internal/livingwiki/credentials"
 	"github.com/sourcebridge/sourcebridge/internal/livingwiki/governance"
 	lworch "github.com/sourcebridge/sourcebridge/internal/livingwiki/orchestrator"
 	"github.com/sourcebridge/sourcebridge/internal/llm/orchestrator"
@@ -53,6 +55,12 @@ type Resolver struct {
 	SearchSvc          *search.Service            // hybrid retrieval backbone; nil falls back to legacy substring search
 	ReqBooster         *search.RequirementBooster // requirement-link cache; link mutations call Invalidate so subsequent searches see fresh links
 	LivingWikiAuditLog governance.AuditLog        // audit trail for credential rotations and settings changes; nil disables audit logging
+	// ClusteringHook is called after each successful index run with (repoID,
+	// commitSHA) to enqueue an async clustering job. Nil = clustering disabled.
+	ClusteringHook func(repoID, commitSHA string)
+	// ClusterStore provides cluster lookups for Living Wiki taxonomy resolution.
+	// When nil, resolveTaxonomy falls back to the package-path heuristic.
+	ClusterStore clustering.ClusterStore
 }
 
 // getStore returns the per-request tenant-filtered store when available,
@@ -98,6 +106,16 @@ func (r *Resolver) publishEvent(eventType string, data map[string]interface{}) {
 	}
 }
 
+// livingWikiBroker returns a credentials.Broker backed by the resolver's
+// LivingWikiResolver. Returns nil when the resolver is not configured (the
+// cold-start runner degrades gracefully by skipping the sink dispatch phase).
+func (r *Resolver) livingWikiBroker() credentials.Broker {
+	if r.LivingWikiResolver == nil {
+		return nil
+	}
+	return credentials.NewResolverBroker(r.LivingWikiResolver)
+}
+
 type resolvedCapabilities struct {
 	features        *Features
 	ideCapabilities *IDECapabilities
@@ -140,6 +158,8 @@ func (r *Resolver) resolveCapabilities() resolvedCapabilities {
 			CodeTours:            hasKnowledge && hasWorker && allow(entitlements.FeatureCodeTours),
 			SystemExplain:        hasKnowledge && hasWorker && allow(entitlements.FeatureSystemExplain),
 			SymbolScopedAnalysis: hasKnowledge && hasWorker && allow(entitlements.FeatureCliffNotes),
+			SubsystemClustering:  capabilities.IsAvailable("subsystem_clustering", capabilities.NormalizeEdition(string(currentPlan()))),
+			AgentSetup:           capabilities.IsAvailable("agent_setup", capabilities.NormalizeEdition(string(currentPlan()))),
 
 			MultiAudienceKnowledge:   hasKnowledge && hasWorker && allow(entitlements.FeatureMultiAudienceKnowledge),
 			CustomKnowledgeTemplates: hasKnowledge && hasWorker && allow(entitlements.FeatureCustomKnowledgeTemplates),
