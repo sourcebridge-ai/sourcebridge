@@ -282,33 +282,47 @@ func (c *HTTPConfluenceClient) findPageIDByExternalID(ctx context.Context, auth,
 	// title from HumanizePageID(externalID); using the same derivation here
 	// guarantees create / find round-trip without a separate index. Property
 	// verification narrows down any title collisions.
+	//
+	// Fallback: an early version of this code used externalID as the page
+	// title. We probe that legacy form too so pages already published under
+	// the raw external ID get reused on the next run (their content is
+	// rewritten with the new renderer) instead of left orphaned alongside a
+	// freshly-created duplicate.
 	spaceID, err := c.resolveSpaceID(ctx, auth)
 	if err != nil {
 		return "", err
 	}
-	params := url.Values{}
-	params.Set("title", HumanizePageID(externalID))
-	params.Set("space-id", spaceID)
 
-	path := "/pages?" + params.Encode()
-	var searchResp struct {
-		Results []struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-		} `json:"results"`
-	}
-	if err := c.do(ctx, auth, http.MethodGet, path, nil, &searchResp); err != nil {
-		return "", fmt.Errorf("confluence_http: search pages: %w", err)
+	candidates := []string{HumanizePageID(externalID)}
+	if legacy := externalID; legacy != "" && legacy != candidates[0] {
+		candidates = append(candidates, legacy)
 	}
 
-	for _, result := range searchResp.Results {
-		// Verify the property to avoid title collisions.
-		propVal, propErr := c.getPageProperty(ctx, auth, result.ID, confluencePropertyKey)
-		if propErr != nil {
-			continue
+	for _, title := range candidates {
+		params := url.Values{}
+		params.Set("title", title)
+		params.Set("space-id", spaceID)
+
+		path := "/pages?" + params.Encode()
+		var searchResp struct {
+			Results []struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			} `json:"results"`
 		}
-		if propVal == externalID {
-			return result.ID, nil
+		if err := c.do(ctx, auth, http.MethodGet, path, nil, &searchResp); err != nil {
+			return "", fmt.Errorf("confluence_http: search pages: %w", err)
+		}
+
+		for _, result := range searchResp.Results {
+			// Verify the property to avoid title collisions.
+			propVal, propErr := c.getPageProperty(ctx, auth, result.ID, confluencePropertyKey)
+			if propErr != nil {
+				continue
+			}
+			if propVal == externalID {
+				return result.ID, nil
+			}
 		}
 	}
 	return "", nil
