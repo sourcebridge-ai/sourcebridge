@@ -137,13 +137,19 @@ func (s *LivingWikiJobResultStore) Save(ctx context.Context, tenantID string, re
 	}
 	vars["completed_at"] = completedAt
 
+	// SurrealDB schema validation rejects raw RFC3339 strings for `datetime`
+	// and `option<datetime>` fields — values must be cast via type::datetime()
+	// or the equivalent SDK datetime type. Pass the strings through the cast
+	// in-query so $started_at / $completed_at coerce cleanly. For
+	// option<datetime>, NONE has to remain unwrapped or the cast would wrap
+	// it; the IF / THEN path below mirrors the option semantics.
 	sql := `
 		CREATE lw_job_results
 			SET tenant_id             = $tenant_id,
 			    repo_id               = $repo_id,
 			    job_id                = $job_id,
-			    started_at            = $started_at,
-			    completed_at          = $completed_at,
+			    started_at            = type::datetime($started_at),
+			    completed_at          = IF $completed_at = NONE THEN NONE ELSE type::datetime($completed_at) END,
 			    pages_planned         = $pages_planned,
 			    pages_generated       = $pages_generated,
 			    pages_excluded        = $pages_excluded,
