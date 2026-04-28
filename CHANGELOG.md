@@ -15,7 +15,112 @@ model. Every citation in every report, QA answer, and compliance artifact
 now speaks the same `(path:start-end)` contract, so the VS Code plugin can
 jump to the exact line a generated page is talking about.
 
+Also: **Claude Code Quickstart.** One command (`sourcebridge setup claude`)
+turns any indexed repo into Claude Code-aware — generating a per-subsystem
+`.claude/CLAUDE.md` with concrete graph-derived "Watch out:" guidance,
+registering the MCP server, and exposing three new MCP tools that let
+agents query subsystem boundaries before they refactor. Subsystems are
+detected automatically by label-propagation clustering over the call graph
+and surfaced in a new web UI tab with inline-editable, LLM-improvable
+labels. Living Wiki taxonomy now consumes the same clusters as its primary
+"areas" signal, so a single source of truth drives both the wiki and the
+agent integration.
+
 ### Added
+
+- **Subsystem clustering on the call graph** (`a6a532b`). New
+  `internal/clustering/` package runs label propagation (Raghavan / Albert
+  / Kumara 2007) over the symbol call graph as an async job after each
+  index — never blocks indexing, recomputes only when the SHA-256 of
+  sorted edge tuples changes. Migration 040 adds `cluster` and
+  `cluster_member` tables. Atomic `ReplaceClusters` wraps delete+insert
+  in a SurrealDB transaction so readers never see an empty mid-update
+  window. `DeleteClusters` is wired into `RemoveRepository` and
+  `ReplaceIndexResult` for orphan-free invalidation. Modularity Q, size
+  distribution (min/max/p50/p95), and partial-convergence flag logged
+  per run; surfaced via `GET /api/v1/admin/clustering/stats` for ops
+  visibility. Four new telemetry fields (`clustering_enabled`,
+  `cluster_count`, `clustering_modularity_q`, `agent_setup_used`)
+  documented in `TELEMETRY.md`.
+
+- **Three new MCP tools for subsystem awareness** (`a6a532b`).
+  `get_subsystems(repo_id)` returns the cluster list with representative
+  symbols and cross-cluster call counts. `get_subsystem_by_id(cluster_id)`
+  returns the full member list for a known cluster ID.
+  `get_subsystem(symbol_id)` returns the cluster a given symbol belongs to
+  plus 5 peers. Response shape uses `representative_symbols` plus a
+  `selection_method` metadata field so the underlying ranking strategy
+  (today: highest in-degree) can change without breaking agent contracts.
+  Gated by a new `subsystem_clustering` capability (OSS + Enterprise).
+
+- **Subsystems tab in the web UI** (`a6a532b`). New tab on the repo
+  detail page renders a sortable table with cluster label, member count,
+  top 3 representative symbols as code chips, and a "Calls into"
+  cross-cluster adjacency hint. Cluster labels are inline-editable —
+  saving fires a single-cluster LLM rename job; an "Improve labels"
+  button kicks off a batch rename for the whole repo with a 10-minute
+  polling timeout and humanized error states. Sortable headers use
+  `<button>` inside `<th>` with `aria-sort` and ≥44px touch targets;
+  long symbol names truncate to a `max-w-[200px]` chip with full-name
+  tooltip. Capability-gated on `subsystem_clustering`.
+
+- **Living Wiki taxonomy uses clusters as the primary "areas" signal**
+  (`a6a532b`). `TaxonomyResolver.Resolve()` accepts clusters as a
+  call-time parameter symmetric with `pkgGraph`. When clusters exist,
+  generated wiki pages follow architectural cluster boundaries instead
+  of mechanical package boundaries — a Confluence page titled "Auth &
+  Sessions" describing 14 symbols across `auth`, `middleware`, and
+  `session` packages, instead of three disjoint per-package pages.
+  Falls back to package-path heuristics when clusters are absent or
+  stale. The cold-start runner now fetches clusters and translates them
+  to `ClusterSummary` in production, not just in tests.
+
+- **`sourcebridge setup claude` command + per-subsystem skill cards**
+  (`a6a532b`). One command writes `.claude/CLAUDE.md` (with per-subsystem
+  `## Subsystem:` sections), registers the SourceBridge MCP server in
+  `.mcp.json` via idempotent merge that preserves foreign keys, creates a
+  `.claude/sourcebridge.json` sidecar (repo ID, server URL, last index
+  timestamp, generated-files manifest), and patches `.gitignore`.
+  Generated CLAUDE.md is reference-card-shaped: each subsystem section
+  names its packages, member count, representative symbols, and concrete
+  "Watch out:" lines derived from the call graph — `cross-package-
+  callers` (a symbol with callers in ≥3 top-level packages) and
+  `hot-path` (the highest in-degree symbol in a cluster). Marker-based
+  idempotency (`<!-- sourcebridge:start/end -->`) with section-hash
+  user-edit detection means re-runs preserve handcrafted edits unless
+  `--force`. CI mode (`--ci` or `CI=true`) exits non-zero when
+  stale-but-skipped sections exist. A repo-specific "Try this first"
+  prompt seeded with the two largest clusters demos the integration on
+  the first interaction. Differentiated CLI errors for server-unreachable
+  vs repo-not-found vs repo-not-indexed. `--dry-run` produces a per-file
+  diff (`[CREATE]`/`[MODIFY]`/`[SKIP — user-modified]`) with reasons
+  inline.
+
+- **`internal/skillcard/` package** (`a6a532b`). Pure generation logic
+  with native input types (no wiki imports). Files: `generator.go`,
+  `warnings.go` (heuristics), `render.go` (style guide enforced in a
+  comment at top: no filler, no document-shaped headings, only graph-
+  derived facts), `writer.go` (marker-based idempotent CLAUDE.md merge
+  with orphan-marker safety and `--force` recovery), `mcpjson.go`
+  (`.mcp.json` merge with conflict-on-different-command abort + invalid-
+  JSON backup), `sidecar.go` (v0→v1 migration), `gitignore.go`
+  (idempotent patch), `diff.go` (dry-run output).
+
+- **Cluster API extended with packages and warnings** (`a6a532b`). The
+  `GET /api/v1/repositories/{id}/clusters` endpoint computes per-cluster
+  packages and call-graph warnings server-side using
+  `skillcard.DeriveWarnings`, so the setup CLI can render insight-rich
+  CLAUDE.md without re-fetching the full call graph itself. Each warning
+  carries a `symbol`, `kind`, and human-readable `detail`.
+
+- **Discoverability surfaces for the Claude Code integration**
+  (`a6a532b`). Three closure points so users find the command:
+  (1) post-`sourcebridge index` CLI hint prints the exact
+  `setup claude` invocation with the resolved repo ID and a thousands-
+  separator symbol count, (2) "Use with Claude Code" card on the repo
+  Settings tab in the web UI (capability-gated on `agent_setup`) with a
+  one-click copyable command, (3) "Using with Claude Code" section in
+  the README linking to Anthropic's CLAUDE.md memory docs.
 
 - **Citation contract unified across all report paths** (`f48ac47`). New
   `internal/citations` package — `Citation` struct, `Format()`, `Parse()` —
