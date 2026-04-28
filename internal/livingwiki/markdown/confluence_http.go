@@ -166,7 +166,7 @@ func NewHTTPConfluenceClient(cfg ConfluenceHTTPConfig) *HTTPConfluenceClient {
 // Returns (nil, nil, nil) when no page with that external ID exists yet.
 func (c *HTTPConfluenceClient) GetPage(ctx context.Context, snap credentials.Snapshot, externalID string) ([]byte, ConfluenceProperties, error) {
 	auth := basicAuthHeader(snap.ConfluenceEmail, snap.ConfluenceToken)
-	pageID, err := c.findPageIDByExternalID(ctx, auth, externalID)
+	pageID, err := c.findPageIDByExternalID(ctx, auth, externalID, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -204,7 +204,7 @@ func (c *HTTPConfluenceClient) GetPage(ctx context.Context, snap credentials.Sna
 // UpsertPage creates or updates the page identified by externalID.
 func (c *HTTPConfluenceClient) UpsertPage(ctx context.Context, snap credentials.Snapshot, externalID string, xhtml []byte, metadata ConfluenceProperties) error {
 	auth := basicAuthHeader(snap.ConfluenceEmail, snap.ConfluenceToken)
-	pageID, err := c.findPageIDByExternalID(ctx, auth, externalID)
+	pageID, err := c.findPageIDByExternalID(ctx, auth, externalID, metadata)
 	if err != nil {
 		return err
 	}
@@ -277,26 +277,35 @@ func (c *HTTPConfluenceClient) resolveSpaceID(ctx context.Context, auth string) 
 
 // findPageIDByExternalID searches for a Confluence page whose
 // sourcebridge_page_id property matches externalID. Returns "" when not found.
-func (c *HTTPConfluenceClient) findPageIDByExternalID(ctx context.Context, auth, externalID string) (string, error) {
-	// Search by title. Pages are created with the deterministic humanized
-	// title from HumanizePageID(externalID); using the same derivation here
-	// guarantees create / find round-trip without a separate index. Property
-	// verification narrows down any title collisions.
-	//
-	// Fallback: an early version of this code used externalID as the page
-	// title. We probe that legacy form too so pages already published under
-	// the raw external ID get reused on the next run (their content is
-	// rewritten with the new renderer) instead of left orphaned alongside a
-	// freshly-created duplicate.
+//
+// It probes up to three title candidates in order:
+//  1. The metadata-supplied title (sb_confluence_title) — used at create time
+//     and always the authoritative Confluence page title.
+//  2. HumanizePageID(externalID) — the deterministic fallback when no metadata
+//     title was provided.
+//  3. The raw externalID — legacy form used by an early version of this code.
+func (c *HTTPConfluenceClient) findPageIDByExternalID(ctx context.Context, auth, externalID string, metadata ConfluenceProperties) (string, error) {
 	spaceID, err := c.resolveSpaceID(ctx, auth)
 	if err != nil {
 		return "", err
 	}
 
-	candidates := []string{HumanizePageID(externalID)}
-	if legacy := externalID; legacy != "" && legacy != candidates[0] {
-		candidates = append(candidates, legacy)
+	seen := make(map[string]bool)
+	var candidates []string
+	addCandidate := func(t string) {
+		if t != "" && !seen[t] {
+			seen[t] = true
+			candidates = append(candidates, t)
+		}
 	}
+	// 1. Authoritative title from metadata (set by WritePage / deriveConfluenceTitle).
+	if metadata != nil {
+		addCandidate(metadata[propConfluenceTitle])
+	}
+	// 2. Deterministic humanized form.
+	addCandidate(HumanizePageID(externalID))
+	// 3. Raw external ID (legacy).
+	addCandidate(externalID)
 
 	for _, title := range candidates {
 		params := url.Values{}
@@ -350,9 +359,9 @@ func (c *HTTPConfluenceClient) createPage(ctx context.Context, auth, externalID 
 		Body     bodyValue `json:"body"`
 	}
 
-	// Human-readable title overrides the externalID fallback when the writer
-	// has supplied one via metadata. Search uses the same humanized form, so
-	// findPageIDByExternalID will still resolve the page on the next run.
+	// The metadata-supplied title (sb_confluence_title) is the authoritative
+	// Confluence page title. findPageIDByExternalID probes this title first on
+	// subsequent runs, so the page is found and updated rather than duplicated.
 	title := metadata[propConfluenceTitle]
 	if title == "" {
 		title = HumanizePageID(externalID)
@@ -618,7 +627,7 @@ func (c *HTTPConfluenceClient) ListPagesByExternalIDPrefix(ctx context.Context, 
 // Returns nil when the page does not exist (idempotent).
 func (c *HTTPConfluenceClient) DeletePage(ctx context.Context, snap credentials.Snapshot, externalID string) error {
 	auth := basicAuthHeader(snap.ConfluenceEmail, snap.ConfluenceToken)
-	pageID, err := c.findPageIDByExternalID(ctx, auth, externalID)
+	pageID, err := c.findPageIDByExternalID(ctx, auth, externalID, nil)
 	if err != nil {
 		return err
 	}
