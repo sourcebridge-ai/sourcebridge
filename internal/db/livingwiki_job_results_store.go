@@ -131,26 +131,26 @@ func (s *LivingWikiJobResultStore) Save(ctx context.Context, tenantID string, re
 		"error_message":         result.ErrorMessage,
 	}
 
-	var completedAt interface{}
+	// completed_at is option<datetime>. Include it in the SET clause only
+	// when set; leaving it out lets SurrealDB default to NONE (acceptable
+	// for option<datetime>). Trying to pass null/NONE through a Go variable
+	// and compare against SurrealQL NONE failed — the SDK serializes nil
+	// interface as JSON null, which SurrealQL did not equate with NONE,
+	// falling through to type::datetime(null) and erroring "Expected a
+	// datetime but cannot convert NULL".
+	completedClause := ""
 	if result.CompletedAt != nil {
-		completedAt = result.CompletedAt.UTC().Format(time.RFC3339Nano)
+		vars["completed_at"] = result.CompletedAt.UTC().Format(time.RFC3339Nano)
+		completedClause = "completed_at          = type::datetime($completed_at),\n\t\t\t    "
 	}
-	vars["completed_at"] = completedAt
 
-	// SurrealDB schema validation rejects raw RFC3339 strings for `datetime`
-	// and `option<datetime>` fields — values must be cast via type::datetime()
-	// or the equivalent SDK datetime type. Pass the strings through the cast
-	// in-query so $started_at / $completed_at coerce cleanly. For
-	// option<datetime>, NONE has to remain unwrapped or the cast would wrap
-	// it; the IF / THEN path below mirrors the option semantics.
 	sql := `
 		CREATE lw_job_results
 			SET tenant_id             = $tenant_id,
 			    repo_id               = $repo_id,
 			    job_id                = $job_id,
 			    started_at            = type::datetime($started_at),
-			    completed_at          = IF $completed_at = NONE THEN NONE ELSE type::datetime($completed_at) END,
-			    pages_planned         = $pages_planned,
+			    ` + completedClause + `pages_planned         = $pages_planned,
 			    pages_generated       = $pages_generated,
 			    pages_excluded        = $pages_excluded,
 			    excluded_page_ids     = $excluded_page_ids,

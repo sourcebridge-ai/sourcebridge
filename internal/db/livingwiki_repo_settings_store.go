@@ -172,27 +172,28 @@ func (s *LivingWikiRepoSettingsStore) SetRepoSettings(c context.Context, setting
 		"updated_by":          settings.UpdatedBy,
 	}
 
-	var lastRunAt, disabledAt interface{}
+	// last_run_at and disabled_at are option<datetime>. Build the SET clause
+	// dynamically: include each field only when set. Omitted fields default
+	// to NONE (which option<datetime> accepts). Trying to pass null/NONE
+	// through a Go variable and compare against SurrealQL NONE failed —
+	// the SDK serialized nil interface as JSON null, which SurrealQL did not
+	// equate with NONE in the IF check, falling through to type::datetime(null)
+	// and erroring "Expected a datetime but cannot convert NULL".
+	dateClauses := ""
 	if settings.LastRunAt != nil {
-		lastRunAt = settings.LastRunAt.UTC().Format(time.RFC3339Nano)
+		vars["last_run_at"] = settings.LastRunAt.UTC().Format(time.RFC3339Nano)
+		dateClauses += "last_run_at = type::datetime($last_run_at),\n\t\t\t"
 	}
 	if settings.DisabledAt != nil {
-		disabledAt = settings.DisabledAt.UTC().Format(time.RFC3339Nano)
+		vars["disabled_at"] = settings.DisabledAt.UTC().Format(time.RFC3339Nano)
+		dateClauses += "disabled_at = type::datetime($disabled_at),\n\t\t\t"
 	}
-	vars["last_run_at"] = lastRunAt
-	vars["disabled_at"] = disabledAt
 
 	// SurrealDB's `UPSERT <table> SET ... WHERE ...` only updates pre-existing
 	// rows that match WHERE — it does NOT insert when WHERE matches nothing
-	// and the result is silently empty. That gotcha is why every Enable click
-	// silently no-op'd: no row appeared, sink dispatch saw zero sinks and
-	// skipped, no Confluence pages got pushed.
-	//
-	// Fix: address the row by a deterministic record ID derived from the
-	// (tenant_id, repo_id) composite key via type::thing(). UPSERT on a
-	// specific record either updates it or creates it. last_run_at and
-	// disabled_at use type::datetime() to avoid the same option<datetime>
-	// schema-validation rejection that bit lw_job_results.
+	// and the result is silently empty. Address the row by a deterministic
+	// composite-key ID via type::thing() so UPSERT actually creates or
+	// updates the record.
 	sql := `
 		UPSERT type::thing('lw_repo_settings', [$tenant_id, $repo_id]) SET
 			tenant_id           = $tenant_id,
@@ -203,8 +204,7 @@ func (s *LivingWikiRepoSettingsStore) SetRepoSettings(c context.Context, setting
 			exclude_paths       = $exclude_paths,
 			stale_when_strategy = $stale_when_strategy,
 			max_pages_per_job   = $max_pages_per_job,
-			last_run_at         = IF $last_run_at = NONE THEN NONE ELSE type::datetime($last_run_at) END,
-			disabled_at         = IF $disabled_at = NONE THEN NONE ELSE type::datetime($disabled_at) END,
+			` + dateClauses + `
 			updated_by          = $updated_by,
 			updated_at          = time::now()
 	`
