@@ -2520,13 +2520,30 @@ func (r *mutationResolver) EnableLivingWikiForRepo(ctx context.Context, input En
 	// Kill-switch check.
 	killSwitch := os.Getenv("SOURCEBRIDGE_LIVING_WIKI_KILL_SWITCH") == "true"
 
+	// Validate sinks: a save with empty sinks would silently succeed and the
+	// cold-start dispatch would no-op with no user-visible feedback. Refuse
+	// the save and surface a notice the UI can render.
+	mappedSinks := mapSinkInputs(input.Sinks)
+	if len(mappedSinks) == 0 {
+		notice := "Select at least one sink (e.g. Confluence, Notion, Git repo) before enabling. Without a sink, no pages can be published."
+		return &EnableLivingWikiResult{Notice: &notice}, nil
+	}
+	for i, s := range mappedSinks {
+		// git_repo's integration name is auto-derived; everything else needs a
+		// user-supplied value (Confluence space key, Notion database ID, etc.).
+		if s.Kind != livingwiki.RepoWikiSinkGitRepo && strings.TrimSpace(s.IntegrationName) == "" {
+			notice := fmt.Sprintf("The %s sink (#%d) needs an integration name. For Confluence enter the space key (e.g. SD); for Notion enter the database ID.", s.Kind, i+1)
+			return &EnableLivingWikiResult{Notice: &notice}, nil
+		}
+	}
+
 	// Build the settings record.
 	settings := livingwiki.RepositoryLivingWikiSettings{
 		TenantID:          defaultTenantID,
 		RepoID:            input.RepositoryID,
 		Enabled:           true,
 		Mode:              livingwiki.RepoWikiMode(input.Mode.String()),
-		Sinks:             mapSinkInputs(input.Sinks),
+		Sinks:             mappedSinks,
 		StaleWhenStrategy: livingwiki.StaleStrategyDirect,
 		MaxPagesPerJob:    50,
 		UpdatedAt:         time.Now(),
