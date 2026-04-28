@@ -6,6 +6,126 @@ All notable changes to SourceBridge are documented here. The format follows
 
 ## [Unreleased]
 
+Theme: **Living wiki runtime activation.** The living-wiki feature shipped
+as compiled-but-inert code in the prior release; this workstream makes it
+actually run. A user can now enable the feature for a specific repo, choose
+which sinks to publish to, and watch a Confluence (or Notion, or git-repo)
+page appear — driven by a scheduler that wakes up periodically, elects a
+leader, respects per-sink rate limits, and persists per-job results the UI
+can display. Eight workstreams (R1–R9) cover the full path from data model
+to UI panel to sink dispatch, with three testing tiers and a runbook in
+`RELEASING.md`. Four deploy-validation bugs were found and fixed before the
+feature reached production.
+
+Also: **CI + deploy infrastructure.** A GitHub Actions workflow now builds
+and publishes per-SHA, per-branch, and per-tag images to GHCR on every push.
+A generic kustomize base at `deploy/kubernetes/base/` gives OSS deployers a
+ready-made starting point without copy-pasting manifests.
+
+### Added
+
+- **Per-repo living-wiki settings** (`c841f61`). Data model (`lw_repo_settings`,
+  `lw_job_results`), migration 036, and three GraphQL mutations:
+  `updateRepositoryLivingWikiSettings`, `enableLivingWikiForRepo`,
+  `disableLivingWikiForRepo`, plus an admin-only `repositoriesUsingSink`
+  query. Each repo independently selects which sinks to use, which
+  audiences to publish for, whether to PR-review or direct-publish, and
+  per-sink edit policies. Soft-disable preserves config so re-enable
+  restores prior state.
+
+- **Boot wiring and webhook dispatcher** (`88eb809`).
+  `internal/livingwiki/assembly/AssembleDispatcher` constructs every
+  orchestrator port and the dispatcher in one place. The webhook dispatcher
+  starts at boot when `Enabled` is true; disabled-feature paths return 503
+  (not 404) with a JSON body so webhook senders can distinguish. Explicit
+  shutdown sequence: HTTP drain → `dispatcher.Stop` with 30 s timeout →
+  store close. Migration 037 adds `lw_pages` and `lw_watermarks`.
+  `SOURCEBRIDGE_LIVING_WIKI_KILL_SWITCH` env var bypasses the feature
+  without redeploying.
+
+- **Credential broker with per-job snapshots** (`792ca64`).
+  `internal/livingwiki/credentials/Broker` interface and per-job `Snapshot`.
+  HTTP clients no longer take credentials in their constructors; they receive
+  a Snapshot per call, enforcing the at-most-one-rotation-per-job invariant.
+  Credential rotations are recorded on `governance.AuditLog`.
+
+- **Cold-start jobs via the existing LLM activity feed** (`fba7ad7`). Cold-
+  start jobs route through `/api/v1/admin/llm/activity` alongside knowledge-
+  engine jobs — no second polling loop. Three-category failure classification:
+  transient (Retry), auth (Fix credentials deep-link), partial-content (Retry
+  excluded pages only). `retryLivingWikiJob` GraphQL mutation scopes retries
+  to previously-excluded pages. Per-page progress events are visible in the UI.
+
+- **Per-repo wiki settings panel in the web UI** (`46a96a6`). Six visual states
+  (globally-disabled / kill-switch / activation gate / corrupt / cold-start in
+  progress / enabled-idle / refinement panel) with progressive disclosure.
+  Stage A hides advanced fields behind sensible defaults; Stage B exposes them
+  after first generation. Failure banners carry category-specific CTAs.
+  Mobile-responsive State 4 summary row. Discoverability callout on the repo
+  overview when the wiki is unconfigured.
+
+- **Periodic scheduler with leader election, jitter, and metrics** (`4b472ef`).
+  Per-repo FNV-32a jitter is deterministic across restarts; leader election
+  reuses the `trash_sweep` lease pattern. Per-tenant concurrency cap and per-
+  sink rate limiters (Confluence / Notion / GitHub / GitLab). Five Prometheus
+  metric series: `livingwiki_jobs_total`, `livingwiki_pages_generated_total`,
+  `livingwiki_validation_failures_total`, `livingwiki_job_duration_seconds`,
+  `livingwiki_sink_write_duration_seconds`. Persistent `LivingWikiJobResult`
+  store with a per-repo last-result GraphQL field.
+
+- **Sink dispatch wiring** (`a6a532b` R9). `internal/livingwiki/sinks/`
+  package with a `SinkWriter` interface and concrete implementations for
+  Confluence, Notion, and git-repo. The cold-start runner iterates
+  `RepositoryLivingWikiSettings.Sinks`, builds the right writer per kind via
+  the assembly factory and credentials snapshot, and pushes generated pages
+  through each. Per-sink results (`SinkWriteResults`) persist on
+  `LivingWikiJobResult` so the UI can show "Confluence: 22 pages, 0 failed."
+
+- **Three testing tiers** (`acd28dd`). Unit-integration test suite (`make
+  test-livingwiki-integration`, build tag `livingwiki_integration`); a real-
+  Confluence weekly CronJob smoke test (`cmd/livingwiki-smoke` +
+  `deploy/kubernetes/base/cronjobs/livingwiki-smoke.yaml.example`); manual
+  release validation runbook in `RELEASING.md`.
+
+- **GitHub Actions image build workflow + kustomize base** (`8e0b128`).
+  Per-SHA, per-branch, and per-tag images published to GHCR on every push.
+  Generic kustomize base at `deploy/kubernetes/base/` for OSS Kubernetes
+  deployments. `dev` branch added to the push trigger.
+
+### Changed
+
+- **Credential model** (`792ca64`). HTTP clients for all living-wiki sinks
+  receive a per-call `Snapshot` rather than credentials baked in at
+  construction time, so credential rotation takes effect on the next job
+  without restarting any long-lived client.
+
+- **Boot path** (`88eb809`). The living-wiki dispatcher is now part of the
+  standard server startup sequence with a defined shutdown contract, rather
+  than launched ad hoc.
+
+### Fixed
+
+- **Migration 037 conditional unique indexes** (`adbf4ba`). SurrealDB does not
+  support `WHERE` clauses on `DEFINE INDEX`. The two conditional indexes were
+  collapsed into a single `(repo_id, pr_id, page_id, kind)` UNIQUE tuple that
+  SurrealDB accepts without a predicate.
+
+- **`testConfluenceConnection` endpoint mismatch** (`4fbc197`). The test-
+  connection call was hitting `https://api.atlassian.com/me`, an OAuth 2.0
+  endpoint that rejects API-token basic auth. Switched to
+  `https://<site>.atlassian.net/wiki/rest/api/user/current`, which accepts
+  basic auth. A new `confluenceSite` field was added to global settings, the
+  UI, and migration 038 to carry the site subdomain.
+
+- **`lw_settings` stale-row schema failures** (`8104c06`, `cb246ec`). The
+  original `lw_settings` row predated migrations 036 and 038 that added
+  `tenant_id` and `confluence_site`. SurrealDB `DEFAULT` only fires on row
+  creation, so the existing row had `NONE` for both fields, failing schema
+  validation on every subsequent UPSERT. Migration 039 backfills both fields
+  on the existing row, and the UPSERT path now always sets them explicitly.
+
+---
+
 Theme: **Living wiki + auto-extracted doc templates.** SourceBridge can now
 generate and maintain a coherent, cited wiki directly from your codebase —
 opening a PR within 90 seconds of enabling the feature, appending additive
