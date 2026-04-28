@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -128,8 +129,17 @@ func DispatchPagesNamed(
 		PerSink: make(map[string]SinkWriteSummary, len(writers)),
 	}
 	if len(pages) == 0 || len(writers) == 0 {
+		slog.Info("livingwiki/dispatch: skipping",
+			"pages", len(pages), "writers", len(writers))
 		return result, nil
 	}
+
+	writerNames := make([]string, len(writers))
+	for i, w := range writers {
+		writerNames[i] = string(w.Writer.Kind()) + ":" + w.Name
+	}
+	slog.Info("livingwiki/dispatch: starting",
+		"pages", len(pages), "writers", writerNames)
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -139,6 +149,7 @@ func DispatchPagesNamed(
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			slog.Info("livingwiki/dispatch: starting sink", "sink", nsw.Writer.Kind(), "name", nsw.Name)
 			summary := dispatchToSink(ctx, pages, nsw.Writer, rateLimiter, metricsCollector)
 			summary.IntegrationName = nsw.Name
 			mu.Lock()
@@ -193,6 +204,8 @@ func dispatchToSink(
 
 		if err != nil {
 			if IsAuthError(err) {
+				slog.Error("livingwiki/sink: auth error writing page",
+					"sink", sw.Kind(), "page_id", page.ID, "error", err)
 				// Non-recoverable: stop this sink immediately.
 				summary.Error = fmt.Errorf("sink %s: auth error writing page %q: %w", sw.Kind(), page.ID, err)
 				summary.PagesFailed++
@@ -200,14 +213,20 @@ func dispatchToSink(
 				return summary
 			}
 			// Per-page failure: record and continue.
+			slog.Warn("livingwiki/sink: page write failed",
+				"sink", sw.Kind(), "page_id", page.ID, "error", err)
 			summary.PagesFailed++
 			summary.FailedPageIDs = append(summary.FailedPageIDs, page.ID)
 			continue
 		}
 
+		slog.Info("livingwiki/sink: page written",
+			"sink", sw.Kind(), "page_id", page.ID, "duration_s", writeDuration)
 		summary.PagesWritten++
 	}
 
+	slog.Info("livingwiki/sink: write loop done",
+		"sink", sw.Kind(), "written", summary.PagesWritten, "failed", summary.PagesFailed)
 	return summary
 }
 

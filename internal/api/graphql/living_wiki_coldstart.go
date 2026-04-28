@@ -279,6 +279,12 @@ func dispatchGeneratedPages(
 		return nil
 	}
 
+	slog.Info("living-wiki: building sink writers",
+		"repo_id", repoID, "sink_count", len(repoSettings.Sinks),
+		"has_confluence_site", snap.ConfluenceSite != "",
+		"has_confluence_email", snap.ConfluenceEmail != "",
+		"has_confluence_token", snap.ConfluenceToken != "")
+
 	// Build SinkWriters from the repo's settings.
 	writers, err := sinks.BuildSinkWriters(ctx, repoSettings, snap)
 	if err != nil {
@@ -298,13 +304,19 @@ func dispatchGeneratedPages(
 		}
 		return nil
 	}
+	slog.Info("living-wiki: built writers", "repo_id", repoID, "writer_count", len(writers))
 	if len(writers) == 0 {
+		slog.Warn("living-wiki: zero writers built; configured sinks may all be unimplemented",
+			"repo_id", repoID, "configured_sinks", len(repoSettings.Sinks))
 		return nil
 	}
 
 	// Dispatch — per-sink parallel, per-page sequential within each sink.
 	rateLimiter := markdown.NewTokenBucketRateLimiter(markdown.DefaultSinkRates())
 	dispatchResult, _ := sinks.DispatchPagesNamed(ctx, generatedPages, writers, rateLimiter, lwmetrics.Default)
+	slog.Info("living-wiki: dispatch returned",
+		"repo_id", repoID,
+		"per_sink_count", len(dispatchResult.PerSink))
 
 	// Convert to domain model for persistence.
 	results := make([]livingwiki.SinkWriteResult, 0, len(dispatchResult.PerSink))
