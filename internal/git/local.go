@@ -459,6 +459,8 @@ func DetectLanguage(path string) string {
 		return "ruby"
 	case ".php":
 		return "php"
+	case ".groovy", ".gradle", ".gvy":
+		return "groovy"
 	case ".md":
 		return "markdown"
 	case ".json":

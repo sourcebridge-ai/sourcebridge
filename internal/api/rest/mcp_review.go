@@ -322,6 +322,8 @@ func filePathToProtoLanguage(filePath string) commonv1.Language {
 		return commonv1.Language_LANGUAGE_RUBY
 	case ".php":
 		return commonv1.Language_LANGUAGE_PHP
+	case ".groovy", ".gradle", ".gvy":
+		return commonv1.Language_LANGUAGE_GROOVY
 	default:
 		return commonv1.Language_LANGUAGE_UNSPECIFIED
 	}

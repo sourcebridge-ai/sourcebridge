@@ -322,3 +322,22 @@ func TestLanguageFromString(t *testing.T) {
 		}
 	}
 }
+
+// TestLanguageFromString_Groovy pins the M10 case added to languageFromString.
+// Only "groovy" is a valid language name — "gradle" and "gvy" are file
+// extensions, not language identifiers (per bob M4 in the plan).
+func TestLanguageFromString_Groovy(t *testing.T) {
+	cases := []struct {
+		s    string
+		want commonv1.Language
+	}{
+		{"groovy", commonv1.Language_LANGUAGE_GROOVY},
+		{"gradle", commonv1.Language_LANGUAGE_UNSPECIFIED}, // extension, not a language name
+		{"gvy", commonv1.Language_LANGUAGE_UNSPECIFIED},    // extension, not a language name
+	}
+	for _, c := range cases {
+		if got := languageFromString(c.s); got != c.want {
+			t.Errorf("languageFromString(%q) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}

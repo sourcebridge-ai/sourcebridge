@@ -217,3 +217,73 @@ func TestConfidenceFromFloat(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Groovy enum-mapper tests (Phase 3 — M7, M8, M-MAPSYM)
+// ---------------------------------------------------------------------------
+
+// TestLanguageToProto_Groovy ensures the languageToProtoMap entry added in M7
+// resolves "groovy" (and its uppercase form) to LANGUAGE_GROOVY.
+func TestLanguageToProto_Groovy(t *testing.T) {
+	cases := []struct {
+		input string
+		want  commonv1.Language
+	}{
+		{"groovy", commonv1.Language_LANGUAGE_GROOVY},
+		{"GROOVY", commonv1.Language_LANGUAGE_GROOVY},
+		{"Groovy", commonv1.Language_LANGUAGE_GROOVY},
+	}
+	for _, tc := range cases {
+		got := languageToProto(tc.input)
+		if got != tc.want {
+			t.Errorf("languageToProto(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
+
+// TestDeriveLanguage_Groovy ensures .groovy/.gradle/.gvy extensions (added in
+// M8) resolve to LANGUAGE_GROOVY via deriveLanguage.
+func TestDeriveLanguage_Groovy(t *testing.T) {
+	cases := []struct {
+		path string
+		want commonv1.Language
+	}{
+		{"Service.groovy", commonv1.Language_LANGUAGE_GROOVY},
+		{"build.gradle", commonv1.Language_LANGUAGE_GROOVY},
+		{"Script.gvy", commonv1.Language_LANGUAGE_GROOVY},
+	}
+	for _, tc := range cases {
+		got := deriveLanguage(tc.path)
+		if got != tc.want {
+			t.Errorf("deriveLanguage(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+// TestMapSymbol_GroovyNormalizesToEnum is the M-MAPSYM regression guard.
+// mapSymbol used to cast s.Language directly as Language(s.Language) — a
+// raw lowercase string. languageStringToGraphQL uppercases before calling
+// IsValid, so "groovy" must produce LanguageGroovy, not LanguageUnknown.
+func TestMapSymbol_GroovyNormalizesToEnum(t *testing.T) {
+	// Test the helper directly — mapSymbol is unexported and requires a
+	// full graph.Symbol which depends on the store. Testing the helper
+	// is equivalent since mapSymbol's language path is now a one-liner
+	// delegating to languageStringToGraphQL.
+	cases := []struct {
+		input string
+		want  Language
+	}{
+		{"groovy", LanguageGroovy},
+		{"GROOVY", LanguageGroovy},
+		{"go", LanguageGo},
+		{"python", LanguagePython},
+		{"notareal", LanguageUnknown},
+		{"", LanguageUnknown},
+	}
+	for _, tc := range cases {
+		got := languageStringToGraphQL(tc.input)
+		if got != tc.want {
+			t.Errorf("languageStringToGraphQL(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}

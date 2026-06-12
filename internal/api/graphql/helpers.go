@@ -347,6 +347,7 @@ var languageToProtoMap = map[string]commonv1.Language{
 	"CPP":        commonv1.Language_LANGUAGE_CPP,
 	"RUBY":       commonv1.Language_LANGUAGE_RUBY,
 	"PHP":        commonv1.Language_LANGUAGE_PHP,
+	"GROOVY":     commonv1.Language_LANGUAGE_GROOVY,
 }
 
 func languageToProto(lang string) commonv1.Language {
@@ -380,11 +381,27 @@ func deriveLanguage(filePath string) commonv1.Language {
 		return commonv1.Language_LANGUAGE_RUBY
 	case ".php":
 		return commonv1.Language_LANGUAGE_PHP
+	case ".groovy", ".gradle", ".gvy":
+		return commonv1.Language_LANGUAGE_GROOVY
 	default:
 		return commonv1.Language_LANGUAGE_UNSPECIFIED
 	}
 }
 
+// languageStringToGraphQL converts a stored language string (e.g. "groovy",
+// "GROOVY", "Go") to the canonical GraphQL Language enum value. It uppercases
+// the input, validates via Language.IsValid(), and falls back to LanguageUnknown
+// for unrecognized strings. This is the single canonical conversion point for
+// mapSymbol, mapFile, and the SourceFile resolver so that stored lowercase
+// language strings always marshal as the correct uppercase enum (e.g. "groovy"
+// → LanguageGroovy, not the raw cast Language("groovy") which is invalid).
+func languageStringToGraphQL(s string) Language {
+	l := Language(strings.ToUpper(s))
+	if l.IsValid() {
+		return l
+	}
+	return LanguageUnknown
+}
 
 func discussionContextFromStoredSymbol(sym *graphstore.StoredSymbol) string {
 	if sym == nil {
@@ -472,7 +489,7 @@ func mapRepository(gr *graphstore.Repository) *Repository {
 
 func mapSymbol(s *graphstore.StoredSymbol) *CodeSymbol {
 	kind := SymbolKind(s.Kind)
-	lang := Language(s.Language)
+	lang := languageStringToGraphQL(s.Language)
 	return &CodeSymbol{
 		ID:            s.ID,
 		Name:          s.Name,
@@ -607,7 +624,7 @@ func populateRepositoryDetails(ctx context.Context, repo *Repository, store grap
 }
 
 func mapFile(f *graphstore.File) *File {
-	lang := Language(strings.ToUpper(f.Language))
+	lang := languageStringToGraphQL(f.Language)
 	signals := f.AISignals
 	if signals == nil {
 		signals = []string{}

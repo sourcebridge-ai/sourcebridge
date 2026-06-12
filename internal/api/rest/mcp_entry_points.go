@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 
 	"github.com/sourcebridge/sourcebridge/internal/entrypoints"
+	"github.com/sourcebridge/sourcebridge/internal/indexer"
 )
 
 // Phase 1b — get_entry_points.
@@ -97,13 +98,15 @@ func (h *mcpHandler) callGetEntryPoints(ctx context.Context, session *mcpSession
 		})
 	}
 
-	// File metadata — Grails role is what the classifier actually
-	// reads. The in-memory graph store doesn't expose GrailsRole on
-	// graph.File today (it lives on FileResult during indexing and
-	// isn't currently persisted per-file). For Phase 1b we bridge
-	// via a minimal file list and leave GrailsRole empty when the
-	// store doesn't carry it — the framework-aware classifier falls
-	// back to per-symbol signals cleanly.
+	// File metadata — Grails role is what the framework-aware classifier
+	// reads. GrailsRole is recomputed from the file path here because
+	// graph.File does not persist GrailsRole; it is only set on
+	// FileResult during indexing and is not stored in the graph store.
+	// Persisting it per-file in the store is out of scope for this
+	// campaign (see plan "Out of scope"). The role is therefore derived
+	// fresh by the canonical indexer.GrailsRoleFor classifier on every
+	// MCP call — which is fine since GrailsRoleFor is a pure, stateless
+	// path classifier with no I/O.
 	storedFiles := h.store.GetFiles(ctx, params.RepositoryID)
 	files := make([]entrypoints.File, 0, len(storedFiles))
 	for _, f := range storedFiles {
@@ -143,65 +146,11 @@ func (h *mcpHandler) callGetEntryPoints(ctx context.Context, session *mcpSession
 	}, nil
 }
 
-// grailsRoleFromPath is a thin local adapter over the indexer's
-// GrailsRoleFor(). Keeps the MCP layer from importing the indexer
-// package directly at call-sites; also centralizes the case where
-// the graph store would eventually expose the role per file.
+// grailsRoleFromPath delegates to the canonical indexer.GrailsRoleFor
+// classifier. GrailsRole is not persisted to graph.File (see comment
+// above the storedFiles loop); the role is recomputed from the path on
+// every MCP call. indexer.GrailsRoleFor is a pure, stateless path
+// classifier — no I/O, no grammar dependency — so the import is safe.
 func grailsRoleFromPath(path string) string {
-	// Duplicate the indexer's classification logic at the MCP layer
-	// rather than take a cross-package dependency for a single-call
-	// convention lookup. See internal/indexer/grails.go for the
-	// canonical implementation — this match set is intentionally
-	// identical.
-	prefixes := []struct {
-		prefix string
-		role   string
-		ext    string
-	}{
-		{"grails-app/controllers/", "grails_controller", ".groovy"},
-		{"grails-app/domain/", "grails_domain", ".groovy"},
-		{"grails-app/services/", "grails_service", ".groovy"},
-		{"grails-app/taglib/", "grails_taglib", ".groovy"},
-		{"grails-app/conf/", "grails_conf", ".groovy"},
-		{"grails-app/views/", "grails_view", ".gsp"},
-	}
-	for _, p := range prefixes {
-		if startsWithFold(path, p.prefix) && endsWithFold(path, p.ext) {
-			return p.role
-		}
-	}
-	return ""
-}
-
-func startsWithFold(s, prefix string) bool {
-	if len(prefix) > len(s) {
-		return false
-	}
-	return equalFold(s[:len(prefix)], prefix)
-}
-
-func endsWithFold(s, suffix string) bool {
-	if len(suffix) > len(s) {
-		return false
-	}
-	return equalFold(s[len(s)-len(suffix):], suffix)
-}
-
-func equalFold(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := 0; i < len(a); i++ {
-		ac, bc := a[i], b[i]
-		if ac >= 'A' && ac <= 'Z' {
-			ac += 32
-		}
-		if bc >= 'A' && bc <= 'Z' {
-			bc += 32
-		}
-		if ac != bc {
-			return false
-		}
-	}
-	return true
+	return indexer.GrailsRoleFor(path)
 }

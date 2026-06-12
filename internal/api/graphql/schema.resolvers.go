@@ -3757,9 +3757,7 @@ func (r *queryResolver) SourceFile(ctx context.Context, repositoryID string, fil
 	}
 	lang := LanguageUnknown
 	if fileMeta != nil {
-		if l := Language(strings.ToUpper(fileMeta.Language)); l.IsValid() {
-			lang = l
-		}
+		lang = languageStringToGraphQL(fileMeta.Language)
 		if fileMeta.LineCount > 0 {
 			lineCount = fileMeta.LineCount
 		}

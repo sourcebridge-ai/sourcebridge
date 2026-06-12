@@ -49,6 +49,12 @@ var testFilePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(^|/)tests?/[^/]+\.(py|go|ts|tsx|js|jsx)$`),
 	regexp.MustCompile(`Tests?\.(java|cs|kt|swift)$`),
 	regexp.MustCompile(`_spec\.rb$`),
+	// Groovy: Spock specs (*Spec.groovy) and JUnit-style (*Test.groovy, *Tests.groovy).
+	// augmentFromSearch (test_finder.go) gates search hits through isTestFile, so
+	// these patterns are required for Groovy test files to be visible to the
+	// search-augment path.
+	regexp.MustCompile(`Spec\.groovy$`),
+	regexp.MustCompile(`Tests?\.groovy$`),
 }
 
 // assertionRe matches the first token of common assertion APIs.
@@ -145,6 +151,21 @@ func adjacentTestCandidates(filePath string) []string {
 		)
 	case ".rb":
 		out = append(out, dir+stem+"_spec.rb")
+	case ".groovy":
+		// Grails / Gradle-style projects mirror src/main/groovy →
+		// src/test/groovy. Spock specs are <Name>Spec.groovy.
+		// Note: strings.Replace is a no-op when the source path does
+		// not contain "src/main/groovy" (e.g. grails-app/ paths), so
+		// the unreplaced source path is NOT emitted as a candidate —
+		// we only append the Spec/Test siblings unconditionally.
+		mirrorPath := strings.Replace(filePath, "src/main/groovy", "src/test/groovy", 1)
+		if mirrorPath != filePath {
+			out = append(out, mirrorPath)
+		}
+		out = append(out,
+			dir+stem+"Spec.groovy",
+			dir+stem+"Test.groovy",
+		)
 	}
 	return uniqueStrings(out)
 }
@@ -186,6 +207,15 @@ func findTestFunctions(filePath, body string) []testFrame {
 		decl = regexp.MustCompile(`^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:void|[A-Z][A-Za-z0-9_<>]+)\s+(test[A-Za-z0-9_]+)\s*\(`)
 	case ".rb":
 		decl = regexp.MustCompile(`^\s*it\s+['"]([^'"]+)['"]`)
+	case ".groovy":
+		// Three Groovy test styles:
+		//   Spock:          def "should foo"() { ... }
+		//   JUnit:          void testSomething() { ... }
+		//   Groovy-JUnit:   def testSomething() { ... }
+		// A single alternation captures the quoted-Spock name in group 1
+		// and the identifier-style name in group 2; downstream code uses
+		// whichever group matched.
+		decl = regexp.MustCompile(`^\s*(?:def\s+['"]([^'"]+)['"]|(?:void|def)\s+(test[A-Za-z0-9_]+))\s*\(`)
 	default:
 		return frames
 	}
@@ -206,11 +236,19 @@ func findTestFunctions(filePath, body string) []testFrame {
 		if end > len(lines) {
 			end = len(lines)
 		}
+		// Most languages capture the test name in group 1. Groovy uses
+		// an alternation with the name in group 1 (Spock quoted-string
+		// style) OR group 2 (JUnit identifier style); exactly one is
+		// non-empty on a given match.
+		name := m[1]
+		if name == "" && len(m) >= 3 {
+			name = m[2]
+		}
 		frames = append(frames, testFrame{
 			FilePath:  filePath,
 			StartLine: start,
 			EndLine:   end,
-			TestName:  m[1],
+			TestName:  name,
 			Body:      strings.Join(lines[start-1:end], "\n"),
 		})
 	}
@@ -222,7 +260,7 @@ func findTestFunctions(filePath, body string) []testFrame {
 // Returns a 1-based line number.
 func endOfBlock(lines []string, startIdx int, ext string) int {
 	switch ext {
-	case ".go", ".java", ".ts", ".tsx", ".js", ".jsx":
+	case ".go", ".java", ".ts", ".tsx", ".js", ".jsx", ".groovy":
 		depth := 0
 		seenOpen := false
 		for i := startIdx; i < len(lines); i++ {

@@ -56,6 +56,7 @@ func DefaultFileRetriever(repoRoot string) *FileRetriever {
 		SupportedExts: map[string]struct{}{
 			".go": {}, ".py": {}, ".ts": {}, ".js": {}, ".java": {}, ".rs": {},
 			".tsx": {}, ".jsx": {},
+			".groovy": {}, ".gradle": {}, ".gvy": {},
 		},
 		MaxFiles:        8,
 		MaxSnippetLines: 80,

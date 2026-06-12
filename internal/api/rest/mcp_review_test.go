@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	commonv1 "github.com/sourcebridge/sourcebridge/gen/go/common/v1"
 	reasoningv1 "github.com/sourcebridge/sourcebridge/gen/go/reasoning/v1"
 	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 	"github.com/sourcebridge/sourcebridge/internal/indexer"
@@ -743,5 +744,29 @@ func TestMCP_GetReviewForDiff_DeadlineRespected(t *testing.T) {
 
 	if truncated, _ := result["truncated"].(bool); !truncated {
 		t.Error("expected truncated: true when ReviewFile was blocked and context deadline fired")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Groovy language detection (Phase 3 — M9)
+// ---------------------------------------------------------------------------
+
+// TestFilePathToProtoLanguage_Groovy verifies the .groovy/.gradle/.gvy cases
+// added to filePathToProtoLanguage in M9 so the diff-review path correctly
+// tags Groovy files for the AI reviewer.
+func TestFilePathToProtoLanguage_Groovy(t *testing.T) {
+	cases := []struct {
+		path string
+		want commonv1.Language
+	}{
+		{"src/main/groovy/example/FooService.groovy", commonv1.Language_LANGUAGE_GROOVY},
+		{"build.gradle", commonv1.Language_LANGUAGE_GROOVY},
+		{"scripts/deploy.gvy", commonv1.Language_LANGUAGE_GROOVY},
+	}
+	for _, tc := range cases {
+		got := filePathToProtoLanguage(tc.path)
+		if got != tc.want {
+			t.Errorf("filePathToProtoLanguage(%q) = %v, want %v", tc.path, got, tc.want)
+		}
 	}
 }

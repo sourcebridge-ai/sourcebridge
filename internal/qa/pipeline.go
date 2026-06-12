@@ -694,6 +694,8 @@ func languageFromString(s string) commonv1.Language {
 		return commonv1.Language_LANGUAGE_JAVA
 	case "rust", "rs":
 		return commonv1.Language_LANGUAGE_RUST
+	case "groovy":
+		return commonv1.Language_LANGUAGE_GROOVY
 	}
 	return commonv1.Language_LANGUAGE_UNSPECIFIED
 }
