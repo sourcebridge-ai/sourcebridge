@@ -38,6 +38,14 @@ All notable changes to SourceBridge are documented here. The format follows
 
   * **`.gsp` views**: classified by path (`GrailsRoleFor` returns `grails_view`) but not scanned — `DetectLanguage` has no `.gsp` case and the indexer skips files without a `LanguageConfig`. Full GSP indexing is out of scope for this release; see `internal/indexer/testdata/groovy/NODES.md` for the documented grammar limitations.
 
+* **indexer,api,qa:** GrailsRole persistence + QA language parity for ruby/php/csharp/cpp (CA-549).
+
+  * **GrailsRole persisted to `ca_file`** (migration 061): `GrailsRole` is now a field on `graph.File`, written through `buildIndexBatch` (covers both `StoreIndexResult` and `ReplaceIndexResult` via the shared builder) and read back via `surrealFile`/`toFile()`. Migration 061 adds `DEFINE FIELD IF NOT EXISTS grails_role ON ca_file TYPE string DEFAULT ''` — mandatory because `ca_file` is `SCHEMAFULL` and fields without a `DEFINE FIELD` are silently dropped. `''` is the no-role sentinel; non-Grails files store `''` and no backfill is needed.
+
+  * **Entry-points classification fires from stored data**: `mcp_entry_points.go` now reads `f.GrailsRole` from the graph store when non-empty; falls back to `grailsRoleFromPath(f.Path)` (path re-derivation) when empty. Pre-migration and un-reindexed rows fall back to path re-derivation — behavior is byte-identical to pre-CA-549 until a repo is reindexed. After a reindex, the stored value wins. The fallback is the read contract for any future consumer that builds an `entrypoints.File` from a `graph.File`.
+
+  * **QA language parity**: ruby, php, csharp, and cpp added to `languageFromString` (pipeline.go), `extFromPath` (context_packer.go), and `SupportedExts` (retrieval_files.go). QA asks for those languages now carry real language context and retrieve the right file types. `languageFromString` matches language names only (`"ruby"`, `"php"`, `"csharp"`, `"cpp"`) — no extension aliases, following the CA-548 Groovy precedent. `test_finder.go` parity is deferred to a follow-up.
+
 * **docs:** `GETTING-STARTED.md` at repo root — linear, AI-friendly 5-minute setup guide covering Docker Hub compose path end-to-end. README Quick Start now points here. `docs/start-here.md` links back for pre-install visitors. Closes documentation gap where first-time users (and AI assistants) could not find a clean install path.
 * **install,web,api:** post-setup onboarding UX — `/repositories` empty-state CTA + `/admin/llm` env-seeded callout (CA-540, CA-542) ([74ddde33](https://github.com/sourcebridge-ai/sourcebridge/commit/74ddde3369702a532a372ec59e6b418ff1fe6691))
 
