@@ -315,3 +315,61 @@ func TestMergeIndexResult_RecordsBranch(t *testing.T) {
 		t.Errorf("repo.Branch after merge = %q, want feature/x", got)
 	}
 }
+
+// TestMergeIndexResult_GrailsRolePropagates pins the third in-memory File
+// constructor (MergeIndexResult) — which was missed in the first CA-549 draft.
+// It proves that a Grails role set on a FileResult is carried through to the
+// graph.File after a per-file delta merge, not silently dropped.
+func TestMergeIndexResult_GrailsRolePropagates(t *testing.T) {
+	store := NewStore()
+	repo, err := store.CreateRepository(t.Context(), "grails-merge-fixture", "/tmp/grails-merge")
+	if err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	// Seed the repo with one Go file (no Grails role) so the repo exists.
+	seed := &indexer.IndexResult{
+		RepoName: "grails-merge-fixture",
+		RepoPath: "/tmp/grails-merge",
+		Files: []indexer.FileResult{
+			{Path: "main.go", Language: "go", LineCount: 10},
+		},
+	}
+	if _, err := store.ReplaceIndexResult(t.Context(), repo.ID, seed); err != nil {
+		t.Fatalf("ReplaceIndexResult (seed): %v", err)
+	}
+
+	// Now merge in a Grails controller file as a per-file delta.
+	delta := &indexer.IndexResult{
+		RepoName: "grails-merge-fixture",
+		RepoPath: "/tmp/grails-merge",
+		Files: []indexer.FileResult{
+			{Path: "main.go", Language: "go", LineCount: 10},
+			{
+				Path:       "grails-app/controllers/HomeController.groovy",
+				Language:   "groovy",
+				LineCount:  30,
+				GrailsRole: indexer.GrailsRoleController,
+			},
+		},
+	}
+	if _, err := store.MergeIndexResult(t.Context(), repo.ID, []string{"grails-app/controllers/HomeController.groovy"}, delta); err != nil {
+		t.Fatalf("MergeIndexResult: %v", err)
+	}
+
+	// Verify the merged controller file carries the role.
+	files := store.GetFiles(t.Context(), repo.ID)
+	var controllerFile *File
+	for _, f := range files {
+		if f.Path == "grails-app/controllers/HomeController.groovy" {
+			controllerFile = f
+			break
+		}
+	}
+	if controllerFile == nil {
+		t.Fatal("controller file not found after MergeIndexResult")
+	}
+	if controllerFile.GrailsRole != indexer.GrailsRoleController {
+		t.Errorf("MergeIndexResult: controller GrailsRole = %q, want %q", controllerFile.GrailsRole, indexer.GrailsRoleController)
+	}
+}

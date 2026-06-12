@@ -52,6 +52,7 @@ type File struct {
 	ContentHash string   `json:"content_hash,omitempty"`
 	AIScore     float64  `json:"ai_score"`
 	AISignals   []string `json:"ai_signals,omitempty"`
+	GrailsRole  string   `json:"grails_role,omitempty"`
 }
 
 // StoredSymbol is a symbol stored in the graph.
@@ -325,6 +326,7 @@ func (s *Store) StoreIndexResult(_ context.Context, result *indexer.IndexResult)
 			ContentHash: fr.ContentHash,
 			AIScore:     fr.AIScore,
 			AISignals:   fr.AISignals,
+			GrailsRole:  fr.GrailsRole,
 		}
 		s.repoFiles[repoID] = append(s.repoFiles[repoID], fileID)
 
@@ -483,6 +485,7 @@ func (s *Store) ReplaceIndexResult(_ context.Context, repoID string, result *ind
 			ContentHash: fr.ContentHash,
 			AIScore:     fr.AIScore,
 			AISignals:   fr.AISignals,
+			GrailsRole:  fr.GrailsRole,
 		}
 		s.repoFiles[repoID] = append(s.repoFiles[repoID], fileID)
 
@@ -734,6 +737,7 @@ func (s *Store) MergeIndexResult(_ context.Context, repoID string, affectedPaths
 			ContentHash: fr.ContentHash,
 			AIScore:     fr.AIScore,
 			AISignals:   fr.AISignals,
+			GrailsRole:  fr.GrailsRole,
 		}
 		s.repoFiles[repoID] = append(s.repoFiles[repoID], fileID)
 

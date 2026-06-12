@@ -51,6 +51,7 @@ func buildIndexBatch(repoID string, result *indexer.IndexResult) (stmts []string
 		hashKey := fmt.Sprintf("fhash_%d", fi)
 		scoreKey := fmt.Sprintf("fscore_%d", fi)
 		signalsKey := fmt.Sprintf("fsignals_%d", fi)
+		grailsKey := fmt.Sprintf("fgrails_%d", fi)
 
 		vars[fidKey] = fileID
 		vars[pathKey] = fr.Path
@@ -59,7 +60,13 @@ func buildIndexBatch(repoID string, result *indexer.IndexResult) (stmts []string
 		vars[hashKey] = fr.ContentHash
 		vars[scoreKey] = fr.AIScore
 		vars[signalsKey] = fr.AISignals
+		vars[grailsKey] = fr.GrailsRole
 
+		// NOTE: every field written here on SCHEMAFULL ca_file needs a DEFINE FIELD
+		// in a migration — a field with no DEFINE is silently dropped on persist
+		// (verified: ai_score/ai_signals lack DEFINE FIELDs and are currently dropped;
+		// grails_role is defined in migration 061). See CA-549 and the latent ai_score
+		// bug note in the plan for context.
 		stmts = append(stmts, fmt.Sprintf(`CREATE ca_file SET
 			id = type::thing('ca_file', $%s),
 			repo_id = $repo_id,
@@ -68,8 +75,9 @@ func buildIndexBatch(repoID string, result *indexer.IndexResult) (stmts []string
 			line_count = $%s,
 			content_hash = $%s,
 			ai_score = $%s,
-			ai_signals = $%s`,
-			fidKey, pathKey, langKey, linesKey, hashKey, scoreKey, signalsKey))
+			ai_signals = $%s,
+			grails_role = $%s`,
+			fidKey, pathKey, langKey, linesKey, hashKey, scoreKey, signalsKey, grailsKey))
 
 		for si, sym := range fr.Symbols {
 			symID := uuid.New().String()

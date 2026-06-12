@@ -183,3 +183,69 @@ func containsStr(slice []string, s string) bool {
 	}
 	return false
 }
+
+// TestStoreIndexResult_GrailsRoleRoundTrips verifies that GrailsRole set on a
+// FileResult is carried through to graph.File at all three in-memory construction
+// sites: StoreIndexResult (checkpoint 1) and ReplaceIndexResult (checkpoint 2).
+// The MergeIndexResult site is covered separately in merge_index_result_test.go.
+func TestStoreIndexResult_GrailsRoleRoundTrips(t *testing.T) {
+	store := NewStore()
+
+	result := &indexer.IndexResult{
+		RepoName: "grails-test-repo",
+		RepoPath: "/tmp/grails-test",
+		Files: []indexer.FileResult{
+			{
+				Path:       "grails-app/controllers/com/example/BookController.groovy",
+				Language:   "groovy",
+				LineCount:  42,
+				GrailsRole: indexer.GrailsRoleController,
+				Symbols: []indexer.Symbol{
+					{ID: "book-list", Name: "list", QualifiedName: "com.example.BookController.list", Kind: indexer.SymbolMethod, Language: "groovy", FilePath: "grails-app/controllers/com/example/BookController.groovy", StartLine: 10, EndLine: 15},
+				},
+			},
+			{
+				Path:      "grails-app/domain/com/example/Book.groovy",
+				Language:  "groovy",
+				LineCount: 20,
+				// GrailsRole deliberately omitted — non-controller file, role = "".
+			},
+		},
+	}
+
+	// Checkpoint 1: StoreIndexResult.
+	repo, err := store.StoreIndexResult(t.Context(), result)
+	if err != nil {
+		t.Fatalf("StoreIndexResult: %v", err)
+	}
+	assertGrailsRoles(t, store, repo.ID, "after StoreIndexResult")
+
+	// Checkpoint 2: ReplaceIndexResult — same files, same roles.
+	if _, err := store.ReplaceIndexResult(t.Context(), repo.ID, result); err != nil {
+		t.Fatalf("ReplaceIndexResult: %v", err)
+	}
+	assertGrailsRoles(t, store, repo.ID, "after ReplaceIndexResult")
+}
+
+// assertGrailsRoles is a helper shared between checkpoints.
+func assertGrailsRoles(t *testing.T, store *Store, repoID, label string) {
+	t.Helper()
+	files := store.GetFiles(t.Context(), repoID)
+	if len(files) != 2 {
+		t.Fatalf("%s: expected 2 files, got %d", label, len(files))
+	}
+	for _, f := range files {
+		switch f.Path {
+		case "grails-app/controllers/com/example/BookController.groovy":
+			if f.GrailsRole != indexer.GrailsRoleController {
+				t.Errorf("%s: controller file GrailsRole = %q, want %q", label, f.GrailsRole, indexer.GrailsRoleController)
+			}
+		case "grails-app/domain/com/example/Book.groovy":
+			if f.GrailsRole != "" {
+				t.Errorf("%s: domain file GrailsRole = %q, want %q (empty)", label, f.GrailsRole, "")
+			}
+		default:
+			t.Errorf("%s: unexpected file path %q", label, f.Path)
+		}
+	}
+}

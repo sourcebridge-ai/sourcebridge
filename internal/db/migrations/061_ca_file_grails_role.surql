@@ -1,0 +1,11 @@
+-- Migration 061: Add Grails role to ca_file (CA-549).
+--
+-- ca_file is SCHEMAFULL (003_align.surql): a field written via SET with no
+-- DEFINE FIELD is silently dropped on persist. This DEFINE is mandatory, not
+-- optional, for grails_role to round-trip. TYPE string DEFAULT '' is the
+-- CA-179-safe always-written plain-string form ('' = the no-role sentinel,
+-- returned by indexer.GrailsRoleFor for non-Grails files). Existing rows read
+-- back '' the instant the field is defined; no backfill UPDATE needed. Idempotent.
+-- NB: the DEFAULT is materialised at schema-load time; expect a brief startup
+-- pause on installations with very large ca_file tables.
+DEFINE FIELD IF NOT EXISTS grails_role ON ca_file TYPE string DEFAULT '';

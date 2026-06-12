@@ -216,24 +216,26 @@ func (r *surrealRepo) toRepository() *graph.Repository {
 }
 
 type surrealFile struct {
-	ID        *models.RecordID `json:"id,omitempty"`
-	RepoID    string           `json:"repo_id"`
-	Path      string           `json:"path"`
-	Language  string           `json:"language"`
-	LineCount int              `json:"line_count"`
-	AIScore   float64          `json:"ai_score"`
-	AISignals []string         `json:"ai_signals,omitempty"`
+	ID         *models.RecordID `json:"id,omitempty"`
+	RepoID     string           `json:"repo_id"`
+	Path       string           `json:"path"`
+	Language   string           `json:"language"`
+	LineCount  int              `json:"line_count"`
+	AIScore    float64          `json:"ai_score"`
+	AISignals  []string         `json:"ai_signals,omitempty"`
+	GrailsRole string           `json:"grails_role"`
 }
 
 func (f *surrealFile) toFile() *graph.File {
 	return &graph.File{
-		ID:        recordIDString(f.ID),
-		RepoID:    f.RepoID,
-		Path:      f.Path,
-		Language:  f.Language,
-		LineCount: f.LineCount,
-		AIScore:   f.AIScore,
-		AISignals: f.AISignals,
+		ID:         recordIDString(f.ID),
+		RepoID:     f.RepoID,
+		Path:       f.Path,
+		Language:   f.Language,
+		LineCount:  f.LineCount,
+		AIScore:    f.AIScore,
+		AISignals:  f.AISignals,
+		GrailsRole: f.GrailsRole,
 	}
 }
 
