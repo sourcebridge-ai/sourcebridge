@@ -2,7 +2,7 @@
 # https://gqlgen.com/config/
 
 schema:
-  - internal/api/graphql/schema.graphqls
+  - internal/api/graphql/*.graphqls
 
 exec:
   filename: internal/api/graphql/generated.go

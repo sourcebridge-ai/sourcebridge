@@ -139,3 +139,52 @@ func modeTooltip(mode string) string {
 	}
 	return ""
 }
+
+// plannedPageToGQL converts a lworch.PlannedPage to its GraphQL representation.
+// classifyPageType prefers the Kind field and falls back to TemplateID for
+// legacy plans (see living_wiki_plan_helpers.go).
+func plannedPageToGQL(p lworch.PlannedPage) *LivingWikiPlanPage {
+	pageType := classifyPageType(p)
+	required := p.Kind == lworch.PageKindRepoWide ||
+		(p.Kind == lworch.PageKindUnknown && repoWideTemplateIDs[p.TemplateID])
+
+	gqlPage := &LivingWikiPlanPage{
+		ID:         p.ID,
+		TemplateID: p.TemplateID,
+		Title:      previewPageTitle(p),
+		PageType:   pageType,
+		Audience:   string(p.Audience),
+		Required:   required,
+	}
+
+	// subsystem = cluster label or package path for non-repo-wide pages.
+	if p.PackageInfo != nil && p.PackageInfo.Package != "" {
+		pkg := p.PackageInfo.Package
+		gqlPage.Subsystem = &pkg
+	}
+
+	return gqlPage
+}
+
+// previewPageTitle returns a human-readable preview title for a planned page.
+// Titles are template-rendered at generation time; this function provides a
+// deterministic preview label from the available pre-generation data.
+//
+// For architecture/top-level-dir pages the cluster or package label is used.
+// For repo-wide pages a fixed display name is returned.
+func previewPageTitle(p lworch.PlannedPage) string {
+	if p.PackageInfo != nil && p.PackageInfo.Package != "" {
+		return p.PackageInfo.Package
+	}
+	// Repo-wide pages: derive from TemplateID.
+	switch p.TemplateID {
+	case "api_reference":
+		return "API Reference"
+	case "system_overview":
+		return "System Overview"
+	case "glossary":
+		return "Glossary"
+	}
+	// Fallback: use page ID as a last resort.
+	return p.ID
+}

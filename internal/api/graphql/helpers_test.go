@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	commonv1 "github.com/sourcebridge/sourcebridge/gen/go/common/v1"
+	graphstore "github.com/sourcebridge/sourcebridge/internal/graph"
 )
 
 func TestIsGitURL(t *testing.T) {
@@ -285,5 +286,22 @@ func TestMapSymbol_GroovyNormalizesToEnum(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("languageStringToGraphQL(%q) = %v, want %v", tc.input, got, tc.want)
 		}
+	}
+
+	// Direct mapSymbol call: verify the full mapping path from a stored symbol
+	// whose Language is "groovy" produces a GraphQL symbol with LanguageGroovy.
+	// This exercises mapSymbol itself, not just the helper it delegates to.
+	sym := &graphstore.StoredSymbol{
+		ID:            "test:groovy:sym",
+		RepoID:        "repo1",
+		Name:          "MyGroovyClass",
+		QualifiedName: "com.example.MyGroovyClass",
+		Kind:          "class",
+		Language:      "groovy",
+		FilePath:      "src/MyGroovyClass.groovy",
+	}
+	mapped := mapSymbol(sym)
+	if mapped.Language != LanguageGroovy {
+		t.Errorf("mapSymbol with Language=%q: got %v, want %v", sym.Language, mapped.Language, LanguageGroovy)
 	}
 }
