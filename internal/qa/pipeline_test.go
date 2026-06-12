@@ -341,3 +341,37 @@ func TestLanguageFromString_Groovy(t *testing.T) {
 		}
 	}
 }
+
+// TestLanguageFromString_RubyPhpCsharpCpp pins the four language names added in
+// CA-549 (QA language parity). Names only — no extension aliases (per the
+// CA-548 Groovy precedent and the Decision: names-only policy in the plan).
+// DetectLanguage emits "ruby", "php", "csharp", "cpp" verbatim; these cases
+// match that output exactly. Extension aliases (rb, cs, cxx, c++) must remain
+// LANGUAGE_UNSPECIFIED — languageFromString is a name mapper, not an ext mapper.
+func TestLanguageFromString_RubyPhpCsharpCpp(t *testing.T) {
+	cases := []struct {
+		s    string
+		want commonv1.Language
+	}{
+		// canonical language names (DetectLanguage output)
+		{"ruby", commonv1.Language_LANGUAGE_RUBY},
+		{"php", commonv1.Language_LANGUAGE_PHP},
+		{"csharp", commonv1.Language_LANGUAGE_CSHARP},
+		{"cpp", commonv1.Language_LANGUAGE_CPP},
+		// case-insensitive coverage (strings.ToLower applied)
+		{"Ruby", commonv1.Language_LANGUAGE_RUBY},
+		{"PHP", commonv1.Language_LANGUAGE_PHP},
+		{"CSharp", commonv1.Language_LANGUAGE_CSHARP},
+		{"CPP", commonv1.Language_LANGUAGE_CPP},
+		// alias-rejection negatives — extension aliases must NOT resolve
+		{"rb", commonv1.Language_LANGUAGE_UNSPECIFIED},  // file extension, not language name
+		{"cs", commonv1.Language_LANGUAGE_UNSPECIFIED},  // file extension, not language name
+		{"cxx", commonv1.Language_LANGUAGE_UNSPECIFIED}, // file extension, not language name
+		{"c++", commonv1.Language_LANGUAGE_UNSPECIFIED}, // not emitted by DetectLanguage
+	}
+	for _, c := range cases {
+		if got := languageFromString(c.s); got != c.want {
+			t.Errorf("languageFromString(%q) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}

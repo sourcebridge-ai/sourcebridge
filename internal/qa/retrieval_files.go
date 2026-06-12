@@ -57,6 +57,10 @@ func DefaultFileRetriever(repoRoot string) *FileRetriever {
 			".go": {}, ".py": {}, ".ts": {}, ".js": {}, ".java": {}, ".rs": {},
 			".tsx": {}, ".jsx": {},
 			".groovy": {}, ".gradle": {}, ".gvy": {},
+			// ruby/php/csharp/cpp parity — mirrors DetectLanguage in internal/git/local.go.
+			// .c and .h are classified as "cpp" by DetectLanguage; included for consistency.
+			".rb": {}, ".php": {}, ".cs": {},
+			".cpp": {}, ".cc": {}, ".cxx": {}, ".c": {}, ".h": {}, ".hpp": {},
 		},
 		MaxFiles:        8,
 		MaxSnippetLines: 80,

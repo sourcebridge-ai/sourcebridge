@@ -696,6 +696,14 @@ func languageFromString(s string) commonv1.Language {
 		return commonv1.Language_LANGUAGE_RUST
 	case "groovy":
 		return commonv1.Language_LANGUAGE_GROOVY
+	case "ruby":
+		return commonv1.Language_LANGUAGE_RUBY
+	case "php":
+		return commonv1.Language_LANGUAGE_PHP
+	case "csharp":
+		return commonv1.Language_LANGUAGE_CSHARP
+	case "cpp":
+		return commonv1.Language_LANGUAGE_CPP
 	}
 	return commonv1.Language_LANGUAGE_UNSPECIFIED
 }

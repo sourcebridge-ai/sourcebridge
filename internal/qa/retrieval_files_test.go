@@ -240,3 +240,28 @@ func TestIsTestPath(t *testing.T) {
 		}
 	}
 }
+
+// TestSupportedExts_RubyPhpCsharpCpp asserts that the four language extension
+// families added in CA-549 are present in DefaultFileRetriever.SupportedExts.
+// Source of truth: DetectLanguage in internal/git/local.go — SupportedExts must
+// include every extension that DetectLanguage maps to ruby/php/csharp/cpp.
+// .c and .h are classified as "cpp" by DetectLanguage; they are included here
+// for consistency so C source and C++ headers are considered during retrieval.
+func TestSupportedExts_RubyPhpCsharpCpp(t *testing.T) {
+	exts := DefaultFileRetriever("").SupportedExts
+	required := []string{
+		// ruby
+		".rb",
+		// php
+		".php",
+		// csharp
+		".cs",
+		// cpp family (mirrors DetectLanguage extension set)
+		".cpp", ".cc", ".cxx", ".c", ".h", ".hpp",
+	}
+	for _, ext := range required {
+		if _, ok := exts[ext]; !ok {
+			t.Errorf("SupportedExts missing %q (CA-549 ruby/php/csharp/cpp parity)", ext)
+		}
+	}
+}

@@ -140,6 +140,14 @@ func extFromPath(path string) string {
 		return "rust"
 	case "groovy", "gradle", "gvy":
 		return "groovy"
+	case "rb":
+		return "ruby"
+	case "php":
+		return "php"
+	case "cs":
+		return "csharp"
+	case "cpp", "cc", "cxx", "c", "h", "hpp":
+		return "cpp"
 	case "md":
 		return "markdown"
 	}
