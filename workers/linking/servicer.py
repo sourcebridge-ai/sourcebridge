@@ -87,6 +87,7 @@ _LANGUAGE_MAP: dict[int, str] = {
     types_pb2.LANGUAGE_CPP: "cpp",
     types_pb2.LANGUAGE_RUBY: "ruby",
     types_pb2.LANGUAGE_PHP: "php",
+    types_pb2.LANGUAGE_GROOVY: "groovy",
 }
 
 

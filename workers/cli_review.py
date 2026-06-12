@@ -43,6 +43,9 @@ async def main() -> None:
         ".cs": "csharp",
         ".cpp": "cpp",
         ".rb": "ruby",
+        ".groovy": "groovy",
+        ".gradle": "groovy",
+        ".gvy": "groovy",
     }
     language = lang_map.get(ext, "unknown")
 

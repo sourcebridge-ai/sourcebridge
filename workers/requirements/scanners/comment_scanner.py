@@ -70,7 +70,8 @@ class DocCommentScanner:
             return self._extract_python(path, content)
         elif language in ("typescript", "javascript"):
             return self._extract_jsdoc(path, content, language)
-        elif language == "java":
+        elif language in ("java", "groovy"):
+            # Groovy uses the same comment syntax as Java: // single-line and /** */ javadoc.
             return self._extract_javadoc(path, content)
         else:
             return []

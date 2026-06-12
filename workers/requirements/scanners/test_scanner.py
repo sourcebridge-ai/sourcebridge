@@ -17,6 +17,7 @@ TEST_FILE_PATTERNS: dict[str, list[str]] = {
     "rust": [],  # Rust uses inline #[test] modules
     "csharp": ["Test.cs", "Tests.cs"],
     "ruby": ["_spec.rb", "_test.rb"],
+    "groovy": ["Spec.groovy", "Test.groovy", "Tests.groovy"],
 }
 
 # Regex patterns for extracting test function names
@@ -44,6 +45,13 @@ TEST_PATTERNS: dict[str, list[str]] = {
     "rust": [
         r"#\[test\]\s*(?:#\[.*?\]\s*)*fn\s+(\w+)",
         r"#\[tokio::test\]\s*(?:#\[.*?\]\s*)*(?:async\s+)?fn\s+(\w+)",
+    ],
+    # Groovy: Spock quoted-name (group 1) + JUnit-style def testFoo (group 2).
+    # Spock's def "should foo"() uses a quoted string as the test name; JUnit-style
+    # def testFoo() or void testFoo() uses a plain method name.
+    "groovy": [
+        r'def\s+"([^"]+)"\s*\(',       # Spock: def "should count"() -> group 1
+        r"(?:def|void)\s+(test\w+)\s*\(",  # JUnit-style: def testFoo() -> group 2
     ],
 }
 
@@ -200,6 +208,17 @@ class TestFileScanner:
                     impl = basename[: -len(suffix)] + ".java"
                     # Convert test path to main path
                     impl_path = test_file.replace("/test/", "/main/").replace(basename, impl)
+                    candidates.append(impl_path)
+                    break
+
+        elif language == "groovy":
+            # FooSpec.groovy / FooTest.groovy / FooTests.groovy -> Foo.groovy
+            # Mirror the Java branch: src/test/groovy/... -> src/main/groovy/...
+            for suffix in ("Spec.groovy", "Test.groovy", "Tests.groovy"):
+                if basename.endswith(suffix):
+                    impl = basename[: -len(suffix)] + ".groovy"
+                    # Map the test tree to the main source tree
+                    impl_path = test_file.replace("/test/groovy/", "/main/groovy/").replace(basename, impl)
                     candidates.append(impl_path)
                     break
 

@@ -23,7 +23,7 @@ from workers.common.config import WorkerConfig  # noqa: E402
 from workers.common.surreal import SurrealClient  # noqa: E402
 from workers.reasoning.discussion import discuss_code  # noqa: E402
 
-SUPPORTED_EXTENSIONS = {".go", ".py", ".ts", ".js", ".java", ".rs"}
+SUPPORTED_EXTENSIONS = {".go", ".py", ".ts", ".js", ".java", ".rs", ".groovy", ".gradle", ".gvy"}
 MAX_FILES = 8
 MAX_SNIPPET_LINES = 80
 MAX_FILE_BYTES = 32_000
