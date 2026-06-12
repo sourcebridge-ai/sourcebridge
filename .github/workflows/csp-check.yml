@@ -5,10 +5,8 @@
 # Catches future dependency drift that would reintroduce unsafe-eval
 # (regression of Phase 5 Slice 7, 2026-05-04 audit).
 #
-# SOAK WINDOW: continue-on-error is intentionally true for the initial rollout
-# period while we tune detection and confirm no false-positives in CI. See
-# CHANGELOG.md "Known gaps" section. Remove continue-on-error once the check
-# is confirmed stable (~2026-05-29 target).
+# SOAK WINDOW: soak ended 2026-06-12 (2 CI runs, all passing). Gate now enforces
+# — continue-on-error has been removed and CSP violations will fail the build.
 #
 # To run the check manually on a branch:
 #   gh workflow run csp-check.yml --ref <branch>
@@ -29,9 +27,6 @@ jobs:
   csp-violation-check:
     name: CSP violation check (headless Chromium)
     runs-on: ubuntu-latest
-    # CA-156 SOAK: non-blocking for the first two weeks after rollout.
-    # Remove this line once stable (~2026-05-29).
-    continue-on-error: true
     defaults:
       run:
         working-directory: web
