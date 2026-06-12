@@ -37,6 +37,7 @@ const (
 	Language_LANGUAGE_CPP         Language = 8
 	Language_LANGUAGE_RUBY        Language = 9
 	Language_LANGUAGE_PHP         Language = 10
+	Language_LANGUAGE_GROOVY      Language = 11
 )
 
 // Enum value maps for Language.
@@ -53,6 +54,7 @@ var (
 		8:  "LANGUAGE_CPP",
 		9:  "LANGUAGE_RUBY",
 		10: "LANGUAGE_PHP",
+		11: "LANGUAGE_GROOVY",
 	}
 	Language_value = map[string]int32{
 		"LANGUAGE_UNSPECIFIED": 0,
@@ -66,6 +68,7 @@ var (
 		"LANGUAGE_CPP":         8,
 		"LANGUAGE_RUBY":        9,
 		"LANGUAGE_PHP":         10,
+		"LANGUAGE_GROOVY":      11,
 	}
 )
 
@@ -871,7 +874,7 @@ const file_common_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"latency_ms\x18\x04 \x01(\x02R\tlatencyMs\x12\x1c\n" +
 	"\toperation\x18\x05 \x01(\tR\toperation\x12\x1a\n" +
-	"\bprovider\x18\x06 \x01(\tR\bprovider*\xee\x01\n" +
+	"\bprovider\x18\x06 \x01(\tR\bprovider*\x83\x02\n" +
 	"\bLanguage\x12\x18\n" +
 	"\x14LANGUAGE_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vLANGUAGE_GO\x10\x01\x12\x13\n" +
@@ -884,7 +887,8 @@ const file_common_v1_types_proto_rawDesc = "" +
 	"\fLANGUAGE_CPP\x10\b\x12\x11\n" +
 	"\rLANGUAGE_RUBY\x10\t\x12\x10\n" +
 	"\fLANGUAGE_PHP\x10\n" +
-	"*\xcc\x02\n" +
+	"\x12\x13\n" +
+	"\x0fLANGUAGE_GROOVY\x10\v*\xcc\x02\n" +
 	"\n" +
 	"SymbolKind\x12\x1b\n" +
 	"\x17SYMBOL_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +

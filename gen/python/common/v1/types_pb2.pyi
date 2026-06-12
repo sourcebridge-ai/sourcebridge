@@ -23,6 +23,7 @@ class Language(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     LANGUAGE_CPP: _ClassVar[Language]
     LANGUAGE_RUBY: _ClassVar[Language]
     LANGUAGE_PHP: _ClassVar[Language]
+    LANGUAGE_GROOVY: _ClassVar[Language]
 
 class SymbolKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -58,6 +59,7 @@ LANGUAGE_CSHARP: Language
 LANGUAGE_CPP: Language
 LANGUAGE_RUBY: Language
 LANGUAGE_PHP: Language
+LANGUAGE_GROOVY: Language
 SYMBOL_KIND_UNSPECIFIED: SymbolKind
 SYMBOL_KIND_FUNCTION: SymbolKind
 SYMBOL_KIND_METHOD: SymbolKind

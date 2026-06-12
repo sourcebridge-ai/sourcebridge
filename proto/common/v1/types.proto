@@ -19,6 +19,7 @@ enum Language {
   LANGUAGE_CPP = 8;
   LANGUAGE_RUBY = 9;
   LANGUAGE_PHP = 10;
+  LANGUAGE_GROOVY = 11;
 }
 
 // SymbolKind represents the type of code symbol

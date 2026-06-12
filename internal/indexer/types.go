@@ -81,8 +81,14 @@ type FileResult struct {
 	Imports     []Import   `json:"imports"`
 	Calls       []CallSite `json:"calls,omitempty"`
 	Errors      []string   `json:"errors,omitempty"`
-	AIScore     float64    `json:"ai_score"`              // 0.0-1.0 AI-generated confidence
-	AISignals   []string   `json:"ai_signals,omitempty"`  // which heuristics fired
+	AIScore     float64  `json:"ai_score"`             // 0.0-1.0 AI-generated confidence
+	AISignals   []string `json:"ai_signals,omitempty"` // which heuristics fired
+	// GrailsRole is set for files under a Grails convention directory
+	// (grails-app/controllers/, grails-app/domain/, etc.). Empty for
+	// all other files — including non-Grails repos, Groovy files
+	// outside the convention tree, and Grails repos that happen to
+	// contain unrelated files. See internal/indexer/grails.go.
+	GrailsRole string `json:"grails_role,omitempty"`
 }
 
 // IndexResult contains the full indexing result for a repository.

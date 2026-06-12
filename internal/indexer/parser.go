@@ -22,7 +22,25 @@ func NewParser() *Parser {
 }
 
 // ParseFile parses a source file and extracts symbols and imports.
-func (p *Parser) ParseFile(ctx context.Context, filePath, language string, content []byte) (*FileResult, error) {
+//
+// Per-file panics (e.g. from a buggy tree-sitter grammar, a pathological
+// query, or our own extractor misusing the API) are caught here and
+// downgraded to a file-level error so a single bad file doesn't abort
+// a whole repo parse. Caveat: a SIGSEGV originating inside the C
+// grammar itself is NOT recoverable from Go — that's inherent to cgo —
+// so this guards against Go-level failures only.
+func (p *Parser) ParseFile(ctx context.Context, filePath, language string, content []byte) (result *FileResult, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			result = &FileResult{
+				Path:     filePath,
+				Language: language,
+				Errors:   []string{fmt.Sprintf("panic parsing %s (lang=%s): %v", filePath, language, r)},
+			}
+			err = nil
+		}
+	}()
+
 	langConfig := GetLanguageConfig(language)
 	if langConfig == nil {
 		return &FileResult{
@@ -44,10 +62,11 @@ func (p *Parser) ParseFile(ctx context.Context, filePath, language string, conte
 	root := tree.RootNode()
 	lineCount := int(root.EndPoint().Row) + 1
 
-	result := &FileResult{
-		Path:      filePath,
-		Language:  language,
-		LineCount: lineCount,
+	result = &FileResult{
+		Path:       filePath,
+		Language:   language,
+		LineCount:  lineCount,
+		GrailsRole: GrailsRoleFor(filePath),
 	}
 
 	// Extract functions

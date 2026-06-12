@@ -2256,6 +2256,7 @@ const (
 	LanguageCpp        Language = "CPP"
 	LanguageRuby       Language = "RUBY"
 	LanguagePhp        Language = "PHP"
+	LanguageGroovy     Language = "GROOVY"
 	LanguageUnknown    Language = "UNKNOWN"
 )
 
@@ -2270,12 +2271,13 @@ var AllLanguage = []Language{
 	LanguageCpp,
 	LanguageRuby,
 	LanguagePhp,
+	LanguageGroovy,
 	LanguageUnknown,
 }
 
 func (e Language) IsValid() bool {
 	switch e {
-	case LanguageGo, LanguagePython, LanguageTypescript, LanguageJavascript, LanguageJava, LanguageRust, LanguageCsharp, LanguageCpp, LanguageRuby, LanguagePhp, LanguageUnknown:
+	case LanguageGo, LanguagePython, LanguageTypescript, LanguageJavascript, LanguageJava, LanguageRust, LanguageCsharp, LanguageCpp, LanguageRuby, LanguagePhp, LanguageGroovy, LanguageUnknown:
 		return true
 	}
 	return false

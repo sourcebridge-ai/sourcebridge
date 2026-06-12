@@ -560,6 +560,7 @@ enum Language {
   CPP
   RUBY
   PHP
+  GROOVY
   UNKNOWN
 }
 
