@@ -168,6 +168,8 @@ var codeLanguageToConfluence = map[string]string{
 	"kotlin":     "kotlin",
 	"scala":      "scala",
 	"r":          "r",
+	"groovy":     "groovy",
+	"gradle":     "groovy", // Gradle files are Groovy syntax; Confluence macro uses "groovy"
 }
 
 // confluenceCodeLanguage returns the Confluence code-macro language value for

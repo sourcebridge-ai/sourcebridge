@@ -29,8 +29,9 @@ export interface CodeViewerProps {
   focusEndLine?: number;
 }
 
-function getLanguageExtension(lang: string) {
-  switch (lang.toLowerCase()) {
+export function getLanguageExtension(lang: string) {
+  const lower = lang.toLowerCase();
+  switch (lower) {
     case "go":
     case "golang":
       return go();
@@ -41,7 +42,9 @@ function getLanguageExtension(lang: string) {
     case "ts":
     case "javascript":
     case "js":
-      return javascript({ typescript: lang.startsWith("t") });
+      // Use toLowerCase() result so uppercase inputs like "TYPESCRIPT" also
+      // activate TypeScript mode (lang.startsWith("t") would fail on uppercase).
+      return javascript({ typescript: lower.startsWith("t") });
     case "java":
       return java();
     case "rust":
@@ -53,6 +56,11 @@ function getLanguageExtension(lang: string) {
     case "csharp":
     case "cs":
       return cpp();
+    case "groovy":
+    case "gradle":
+      // No @codemirror/lang-groovy package exists; Java is the closest syntax
+      // family (both are JVM languages with similar class/method structure).
+      return java();
     default:
       return javascript();
   }
