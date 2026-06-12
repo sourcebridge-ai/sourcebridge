@@ -99,21 +99,35 @@ func (h *mcpHandler) callGetEntryPoints(ctx context.Context, session *mcpSession
 	}
 
 	// File metadata — Grails role is what the framework-aware classifier
-	// reads. GrailsRole is recomputed from the file path here because
-	// graph.File does not persist GrailsRole; it is only set on
-	// FileResult during indexing and is not stored in the graph store.
-	// Persisting it per-file in the store is out of scope for this
-	// campaign (see plan "Out of scope"). The role is therefore derived
-	// fresh by the canonical indexer.GrailsRoleFor classifier on every
-	// MCP call — which is fine since GrailsRoleFor is a pure, stateless
-	// path classifier with no I/O.
+	// reads. Stored-first policy (Decision 2, CA-549): read the role from
+	// graph.File.GrailsRole when it is non-empty (set by the indexer and
+	// persisted to ca_file via migration 061); fall back to path-derivation
+	// via grailsRoleFromPath when the stored value is empty. Empty means a
+	// pre-migration row or a file that has not been reindexed since CA-549
+	// landed — path re-derivation gives the exact same result as before, so
+	// Grails classification is never silently regressed during the upgrade
+	// window. After a reindex, the stored value wins and path re-derivation
+	// never runs.
+	//
+	// Forward-compatibility note: any future consumer that builds an
+	// entrypoints.File from a graph.File MUST implement the same
+	// stored-first/path-fallback contract. A consumer that reads
+	// f.GrailsRole unconditionally (without the empty-value path fallback)
+	// silently regresses Grails classification for pre-migration and
+	// un-reindexed rows. The fallback is not an MCP-local quirk; it is the
+	// read contract for stored Grails roles until every install has
+	// reindexed.
 	storedFiles := h.store.GetFiles(ctx, params.RepositoryID)
 	files := make([]entrypoints.File, 0, len(storedFiles))
 	for _, f := range storedFiles {
+		role := f.GrailsRole
+		if role == "" {
+			role = grailsRoleFromPath(f.Path)
+		}
 		files = append(files, entrypoints.File{
 			Path:       f.Path,
 			Language:   f.Language,
-			GrailsRole: grailsRoleFromPath(f.Path),
+			GrailsRole: role,
 		})
 	}
 
@@ -147,10 +161,11 @@ func (h *mcpHandler) callGetEntryPoints(ctx context.Context, session *mcpSession
 }
 
 // grailsRoleFromPath delegates to the canonical indexer.GrailsRoleFor
-// classifier. GrailsRole is not persisted to graph.File (see comment
-// above the storedFiles loop); the role is recomputed from the path on
-// every MCP call. indexer.GrailsRoleFor is a pure, stateless path
-// classifier — no I/O, no grammar dependency — so the import is safe.
+// classifier. It is the fallback for pre-migration rows and un-reindexed
+// files whose graph.File.GrailsRole is empty (see the storedFiles loop
+// above). indexer.GrailsRoleFor is a pure, stateless path classifier —
+// no I/O, no grammar dependency — so the import and the per-call
+// invocation are both safe.
 func grailsRoleFromPath(path string) string {
 	return indexer.GrailsRoleFor(path)
 }
