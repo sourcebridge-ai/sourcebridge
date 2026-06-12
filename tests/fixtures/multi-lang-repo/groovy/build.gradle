@@ -1,0 +1,23 @@
+// Gradle DSL fixture — exercises juxt_function_call (plugins, repositories,
+// dependencies) which is distinct from the parenthesized function_call
+// kind. The Groovy language config CallQuery unions both so these show
+// up in the extracted call graph.
+
+plugins {
+    id 'application'
+    id 'groovy'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.apache.groovy:groovy:4.0.0'
+    implementation 'org.slf4j:slf4j-api:2.0.7'
+    testImplementation 'org.spockframework:spock-core:2.3-groovy-4.0'
+}
+
+application {
+    mainClass = 'example.App'
+}

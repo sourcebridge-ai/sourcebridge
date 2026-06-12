@@ -70,7 +70,7 @@ func goConfig() *LanguageConfig {
 				(identifier) @callee
 				(selector_expression field: (field_identifier) @callee)
 			]) @call`,
-		DocCommentQuery: `(comment) @comment`,
+		DocCommentQuery:  `(comment) @comment`,
 		TestFilePatterns: []string{"_test.go"},
 		TestFuncPattern:  "^Test",
 	}
@@ -99,7 +99,7 @@ func pythonConfig() *LanguageConfig {
 				(identifier) @callee
 				(attribute attribute: (identifier) @callee)
 			]) @call`,
-		DocCommentQuery: `(expression_statement (string) @docstring)`,
+		DocCommentQuery:  `(expression_statement (string) @docstring)`,
 		TestFilePatterns: []string{"test_", "_test.py"},
 		TestFuncPattern:  "^test_",
 	}
@@ -130,7 +130,7 @@ func typescriptConfig() *LanguageConfig {
 				(identifier) @callee
 				(member_expression property: (property_identifier) @callee)
 			]) @call`,
-		DocCommentQuery: `(comment) @comment`,
+		DocCommentQuery:  `(comment) @comment`,
 		TestFilePatterns: []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"},
 		TestFuncPattern:  "^(test|it|describe)",
 	}
@@ -161,7 +161,7 @@ func javascriptConfig() *LanguageConfig {
 				(identifier) @callee
 				(member_expression property: (property_identifier) @callee)
 			]) @call`,
-		DocCommentQuery: `(comment) @comment`,
+		DocCommentQuery:  `(comment) @comment`,
 		TestFilePatterns: []string{".test.js", ".test.jsx", ".spec.js"},
 		TestFuncPattern:  "^(test|it|describe)",
 	}
@@ -183,7 +183,7 @@ func javaConfig() *LanguageConfig {
 					name: (identifier) @name) @method))`,
 		CallQuery: `(method_invocation
 			name: (identifier) @callee) @call`,
-		DocCommentQuery: `(block_comment) @comment`,
+		DocCommentQuery:  `(block_comment) @comment`,
 		TestFilePatterns: []string{"Test.java", "Tests.java"},
 		TestFuncPattern:  "^test",
 	}
@@ -214,7 +214,7 @@ func rustConfig() *LanguageConfig {
 				(identifier) @callee
 				(field_expression field: (field_identifier) @callee)
 			]) @call`,
-		DocCommentQuery: `(line_comment) @comment`,
+		DocCommentQuery:  `(line_comment) @comment`,
 		TestFilePatterns: []string{},
 		TestFuncPattern:  "^test_",
 	}

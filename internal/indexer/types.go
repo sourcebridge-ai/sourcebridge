@@ -81,8 +81,8 @@ type FileResult struct {
 	Imports     []Import   `json:"imports"`
 	Calls       []CallSite `json:"calls,omitempty"`
 	Errors      []string   `json:"errors,omitempty"`
-	AIScore     float64  `json:"ai_score"`             // 0.0-1.0 AI-generated confidence
-	AISignals   []string `json:"ai_signals,omitempty"` // which heuristics fired
+	AIScore     float64    `json:"ai_score"`             // 0.0-1.0 AI-generated confidence
+	AISignals   []string   `json:"ai_signals,omitempty"` // which heuristics fired
 	// GrailsRole is set for files under a Grails convention directory
 	// (grails-app/controllers/, grails-app/domain/, etc.). Empty for
 	// all other files — including non-Grails repos, Groovy files
@@ -117,10 +117,10 @@ type IndexResult struct {
 
 // Module represents a code module derived from directory structure.
 type Module struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	FileCount int   `json:"file_count"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	FileCount int    `json:"file_count"`
 }
 
 // ProgressEvent is emitted during indexing for real-time updates.
