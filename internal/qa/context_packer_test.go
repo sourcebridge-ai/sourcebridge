@@ -6,10 +6,9 @@ package qa
 import "testing"
 
 // TestExtFromPath verifies extFromPath's language-hint mapping for every
-// extension family it supports. Inputs are full paths — extFromPath takes a
-// path, strips the extension via strings.LastIndex, and switches on the bare
-// ext string. Extension-only inputs (e.g. ".rb") would return "" because the
-// function looks for a dot inside the string; use real path shapes.
+// extension family it supports. Inputs are full paths — extFromPath is a path
+// helper, so tests use real path shapes (e.g. "lib/parser.rb") rather than
+// bare extensions.
 //
 // Source of truth: DetectLanguage in internal/git/local.go — extFromPath must
 // mirror its extension→language assignments exactly.

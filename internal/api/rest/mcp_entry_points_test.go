@@ -27,9 +27,18 @@ import (
 
 // buildEntryPointsHarness constructs a dedicated store + handler seeded with
 // a single Grails controller file. Unlike newTestHarness (which always has
-// only Go files), this helper lets callers control the GrailsRole field
-// directly to exercise the stored-first vs. path-fallback paths.
-func buildEntryPointsHarness(t *testing.T, storedRole string) (*mcpTestHarness, string) {
+// only Go files), this helper lets callers control both the GrailsRole field
+// and the file path directly to exercise the stored-first vs. path-fallback
+// paths independently.
+//
+// filePath controls whether grailsRoleFromPath would independently classify
+// the file:
+//   - a grails-app/controllers/... path: classified by BOTH stored role AND
+//     path derivation — use this for the path-fallback test only.
+//   - a src/main/groovy/... path: NOT classified by path derivation — use
+//     this for the stored-first test so that only the stored GrailsRole value
+//     can produce a grails_controller_action entry point.
+func buildEntryPointsHarness(t *testing.T, storedRole, filePath string) (*mcpTestHarness, string) {
 	t.Helper()
 
 	store := graphstore.NewStore()
@@ -41,11 +50,7 @@ func buildEntryPointsHarness(t *testing.T, storedRole string) (*mcpTestHarness, 
 		RepoPath: "/tmp/grails-ep-test-repo",
 		Files: []indexer.FileResult{
 			{
-				// Path matches the grails-app/controllers/ convention so that
-				// grailsRoleFromPath also classifies it — required for the
-				// fallback test (TestGetEntryPoints_EmptyRoleFallsBackToPathDerivation)
-				// to work.
-				Path:       "grails-app/controllers/com/example/BookController.groovy",
+				Path:       filePath,
 				Language:   "groovy",
 				GrailsRole: storedRole,
 				Symbols: []indexer.Symbol{
@@ -53,7 +58,7 @@ func buildEntryPointsHarness(t *testing.T, storedRole string) (*mcpTestHarness, 
 						Name:      "list",
 						Kind:      "method",
 						Language:  "groovy",
-						FilePath:  "grails-app/controllers/com/example/BookController.groovy",
+						FilePath:  filePath,
 						StartLine: 10,
 						EndLine:   20,
 					},
@@ -124,8 +129,14 @@ func hasKind(eps []map[string]interface{}, kind string) bool {
 // indexer.GrailsRoleController, get_entry_points fires
 // grails_controller_action classification via the stored value — it does
 // NOT need to re-derive the role from the path.
+//
+// The fixture uses a NON-classifying path (src/main/groovy/…) so that
+// grailsRoleFromPath returns "" for this file. Classification can therefore
+// only succeed via the stored GrailsRole field. If the implementation is
+// changed to ignore f.GrailsRole (reverting the stored-first branch), this
+// test will fail because the path fallback produces no role for this path.
 func TestGetEntryPoints_StoredRoleFiresClassification(t *testing.T) {
-	h, repoID := buildEntryPointsHarness(t, indexer.GrailsRoleController)
+	h, repoID := buildEntryPointsHarness(t, indexer.GrailsRoleController, "src/main/groovy/com/example/BookController.groovy")
 	sess := h.createSession()
 
 	resp := h.sendRPC(sess, 1, "tools/call", map[string]interface{}{
@@ -151,7 +162,7 @@ func TestGetEntryPoints_StoredRoleFiresClassification(t *testing.T) {
 // still fires grails_controller_action classification via grailsRoleFromPath,
 // which keys off the grails-app/controllers/ path convention.
 func TestGetEntryPoints_EmptyRoleFallsBackToPathDerivation(t *testing.T) {
-	h, repoID := buildEntryPointsHarness(t, "")
+	h, repoID := buildEntryPointsHarness(t, "", "grails-app/controllers/com/example/BookController.groovy")
 	sess := h.createSession()
 
 	resp := h.sendRPC(sess, 2, "tools/call", map[string]interface{}{
