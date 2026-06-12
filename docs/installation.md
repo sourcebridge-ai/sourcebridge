@@ -805,7 +805,7 @@ generic errors.
 **Solutions:**
 
 1. Verify the repository path exists and contains source files
-2. Confirm the language is supported: Go, Python, TypeScript, JavaScript, Java, Rust, C, C++, C#
+2. Confirm the language is supported: Go, Python, TypeScript, JavaScript, Java, Rust, C, C++, C#, Ruby, PHP, Groovy
 3. Re-index with verbose logging:
    ```bash
    sourcebridge index /path/to/repo --verbose

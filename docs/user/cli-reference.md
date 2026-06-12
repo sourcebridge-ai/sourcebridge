@@ -233,7 +233,7 @@ the resolved repo ID.
 sourcebridge index /path/to/repo [flags]
 ```
 
-**Supported languages:** Go, Python, TypeScript, JavaScript, Java, Rust, C, C++, C#
+**Supported languages:** Go, Python, TypeScript, JavaScript, Java, Rust, C, C++, C#, Ruby, PHP, Groovy
 
 ---
 

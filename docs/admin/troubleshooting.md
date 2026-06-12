@@ -26,7 +26,7 @@
 
 **Solutions:**
 1. Verify the repository path exists and contains source files
-2. Check the language is supported (Go, Python, TypeScript, JavaScript, Java, Rust, C, C++, C#)
+2. Check the language is supported (Go, Python, TypeScript, JavaScript, Java, Rust, C, C++, C#, Ruby, PHP, Groovy)
 3. Ensure tree-sitter grammars are available
 
 ### VS Code extension not working

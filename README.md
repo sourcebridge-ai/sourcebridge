@@ -46,7 +46,7 @@ Most tools help you search code. **SourceBridge helps you understand systems.**
 
 ## Key Features
 
-- **Code Indexing** -- Tree-sitter based parsing for Go, Python, TypeScript, JavaScript, Java, Rust, and C++
+- **Code Indexing** -- Tree-sitter based parsing for Go, Python, TypeScript, JavaScript, Java, Rust, C, C++, C#, Ruby, PHP, and Groovy (including Grails conventions)
 - **Field Guides** -- Cliff notes, learning paths, code tours, workflow stories, and system explanations at repository, file, and symbol levels
 - **Requirement Tracing** -- Import requirements from Markdown or CSV, auto-link to code, generate traceability matrices
 - **Code Review** -- AI-powered structured reviews (security, SOLID, performance, reliability, maintainability)

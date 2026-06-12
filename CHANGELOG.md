@@ -22,6 +22,22 @@ All notable changes to SourceBridge are documented here. The format follows
 
 ### Added
 
+* **indexer,api,workers:** Groovy + Grails as the 11th supported language.
+
+  * **Groovy indexing** (`internal/indexer/languages_groovy.go`): tree-sitter-based parsing for `.groovy`, `.gradle`, and `.gvy` files. Registered as `"groovy"` in the language `Registry` via a tagged `init()`. Opt-out escape hatch: build with `-tags nogroovy` to exclude the cgo grammar binary (e.g. for constrained CI environments). No material build-time regression observed on standard builds.
+
+  * **Grails framework conventions** (`internal/indexer/grails.go`): `GrailsRoleFor(path) string` is the single canonical path-based role classifier — case-insensitive, covering `grails_controller`, `grails_domain`, `grails_service`, `grails_taglib`, `grails_conf`, and `grails_view`. The MCP entry-points layer delegates to this function directly; there is exactly one role classifier in the codebase. Role strings are compatible with the `internal/entrypoints` consumer.
+
+  * **Spock test detection**: `*Spec.groovy`, `*Test.groovy`, `*Tests.groovy` filename patterns recognized by `isTestFile()` and `findTestFunctions`. Spock `def "quoted name"()` test names extracted via group-1 capture; JUnit-style `def testFoo()` / `void testFoo()` via group-2 fallback.
+
+  * **`LANGUAGE_GROOVY = 11`** added to `proto/common/v1/types.proto`; proto stubs regenerated. GraphQL `Language` enum gains `GROOVY`; `models_gen.go` and `generated.go` regenerated via gqlgen. Wire-additive for proto3 and schema-additive for tolerant GraphQL clients.
+
+  * **Worker wiring**: Python worker language maps (`_LANGUAGE_MAP` in linking + reasoning servicers), `EXTENSION_TO_LANGUAGE` in spec extraction, `_EXT_LANG` in comprehension adapters, `TEST_FILE_PATTERNS`/`TEST_PATTERNS` in the test scanner, and `_resolve_file_under_test` for `src/test/groovy → src/main/groovy` resolution all updated.
+
+  * **Confluence Living Wiki**: Groovy code blocks in Confluence storage-format output now render with the `groovy` code-macro language token instead of falling back to `none`.
+
+  * **`.gsp` views**: classified by path (`GrailsRoleFor` returns `grails_view`) but not scanned — `DetectLanguage` has no `.gsp` case and the indexer skips files without a `LanguageConfig`. Full GSP indexing is out of scope for this release; see `internal/indexer/testdata/groovy/NODES.md` for the documented grammar limitations.
+
 * **docs:** `GETTING-STARTED.md` at repo root — linear, AI-friendly 5-minute setup guide covering Docker Hub compose path end-to-end. README Quick Start now points here. `docs/start-here.md` links back for pre-install visitors. Closes documentation gap where first-time users (and AI assistants) could not find a clean install path.
 * **install,web,api:** post-setup onboarding UX — `/repositories` empty-state CTA + `/admin/llm` env-seeded callout (CA-540, CA-542) ([74ddde33](https://github.com/sourcebridge-ai/sourcebridge/commit/74ddde3369702a532a372ec59e6b418ff1fe6691))
 
@@ -31,6 +47,9 @@ All notable changes to SourceBridge are documented here. The format follows
 
 
 ### Fixed
+
+* **indexer,api:** parser `recover()` hardening — `ParseFile` now catches panics across all 11 languages and returns a per-file error instead of crashing the indexer process. Previously the panic guard was absent; added as part of the Groovy cgo grammar integration to provide a safe fallback for any grammar-level panic.
+* **api:** `mapSymbol` lowercase-enum normalization — a stored lowercase language string (e.g. `"groovy"`, `"python"`) now marshals correctly to the GraphQL `Language` enum via a new `languageStringToGraphQL` helper shared by `mapSymbol`, `mapFile`, and `SourceFile`. Previously `mapSymbol` cast the raw lowercase string directly, producing invalid enum values for all languages.
 
 * **web,docs,infra:** three first-install rough edges closed — CSP dev `unsafe-eval` gate, `/setup` 404 redirect, AI key env-var wiring + cloud-provider doc correction (CA-537, CA-538, CA-539) ([17a386c9](https://github.com/sourcebridge-ai/sourcebridge/commit/17a386c9))
 
