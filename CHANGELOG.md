@@ -4,6 +4,45 @@ All notable changes to SourceBridge are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0-rc.3](https://github.com/sourcebridge-ai/sourcebridge/compare/v0.15.2-rc.3...v0.16.0-rc.3) (2026-06-12)
+
+
+### Added
+
+* **grails-role:** phase 3 — entry-points handler reads stored role, path fallback for old rows ([ae6d648](https://github.com/sourcebridge-ai/sourcebridge/commit/ae6d64807c15eaedcc13539444a00263f416471d))
+* **grails-role:** phase 5 — ruby/php/csharp/cpp parity in QA language paths ([b45cb37](https://github.com/sourcebridge-ai/sourcebridge/commit/b45cb3757bb5566e6b2b1ebbbe151fee9a84467e))
+* **grails-role:** phases 1+2 — persist GrailsRole through graph store and SurrealDB ([4249c62](https://github.com/sourcebridge-ai/sourcebridge/commit/4249c62deea966d42f6f0a1079191817efa2dcd2))
+* **groovy-grails:** phase 1 — LANGUAGE_GROOVY=11, gqlgen enum, Groovy language config, case-folded Grails classifier ([34800d5](https://github.com/sourcebridge-ai/sourcebridge/commit/34800d53e58b0dc091956e3d375465aeba15e527))
+* **groovy-grails:** phase 2 — Groovy/Grails fixtures + parser and classifier tests ([77f2a01](https://github.com/sourcebridge-ai/sourcebridge/commit/77f2a014134261ad6c41e49a5b2832a866274e66))
+* **groovy-grails:** phase 3 — routing, QA wiring, MCP delegation, GraphQL language normalization ([f7bcb53](https://github.com/sourcebridge-ai/sourcebridge/commit/f7bcb538ba9b1dd690f30865c45eec123351a703))
+* **groovy-grails:** phase 4 — Python worker language wiring + scanner tests ([f47bb5a](https://github.com/sourcebridge-ai/sourcebridge/commit/f47bb5afc4173763fc580081a7e992096755f25e))
+* **groovy-grails:** phase 5 — Confluence code-language map + CodeViewer Groovy fallback ([5a35e12](https://github.com/sourcebridge-ai/sourcebridge/commit/5a35e122ac1ce7cd9ce27288205273fd55ecd963))
+* **install:** post-setup onboarding UX — repos empty-state CTA + admin/llm env-seeded callout (CA-540, CA-542) ([74ddde3](https://github.com/sourcebridge-ai/sourcebridge/commit/74ddde3369702a532a372ec59e6b418ff1fe6691))
+
+
+### Fixed
+
+* **ci:** correct docker/login-action pinned SHA (9525 -&gt; 9925) ([6e29148](https://github.com/sourcebridge-ai/sourcebridge/commit/6e29148a8eb5eb771e210fda0afaf2e960625d69))
+* **ci:** correct setup-qemu-action pinned SHA (v3.7.0) ([dc32170](https://github.com/sourcebridge-ai/sourcebridge/commit/dc32170074f79fad796b12c19bb1ae794a4f7461))
+* **grails-role:** address codex r2 findings — non-vacuous stored-role test + comment fix ([dec04f9](https://github.com/sourcebridge-ai/sourcebridge/commit/dec04f906cdfb32f9a406138ff1b70a1fa4e35bd))
+* **groovy-grails:** address codex r2 findings — gqlgen codegen contract + mapSymbol canary ([18260a9](https://github.com/sourcebridge-ai/sourcebridge/commit/18260a9c663ebae80eaebbbd6638bc8f13b6a126))
+* **helm:** init wait for SurrealDB + LLM env to API + repo-cache volume (F7, F8, F9) ([b9daf63](https://github.com/sourcebridge-ai/sourcebridge/commit/b9daf6376b528709bfd2f892dd0797b87d307530))
+* **install:** close 3 first-install rough edges — CSP dev unsafe-eval, /setup redirect, AI key env-var wiring (CA-537, CA-538, CA-539) ([a35753f](https://github.com/sourcebridge-ai/sourcebridge/commit/a35753f424ef9d5e8b9ceed43a2769dd6f8f3826))
+* **install:** hub compose port default 8280 + LLM env propagation to API (F2, F3) ([53c616e](https://github.com/sourcebridge-ai/sourcebridge/commit/53c616e0c7122d99d4fa302a5671b5ee7671eafa))
+* **install:** web healthcheck uses 127.0.0.1 not localhost (F10) ([e198e4b](https://github.com/sourcebridge-ai/sourcebridge/commit/e198e4bcd07fde2a168c6d63d9027968234dfdc2))
+* **rest,docs:** /api/v1/ask accepts snake_case repository_id + clarify MCP gate (F4, F5) ([ca0e8d5](https://github.com/sourcebridge-ai/sourcebridge/commit/ca0e8d537c5aee855b6d14e387dc0c0fda53ee73))
+
+
+### Documentation
+
+* **2026-05-17-deliver-first-install-rough-edges:** CHANGELOG + CLAUDE.md + promote artifacts to finished/ ([d42c0b3](https://github.com/sourcebridge-ai/sourcebridge/commit/d42c0b3f2c2c540f340a49903f264a03051e7d63))
+* **2026-05-18-deliver-post-setup-onboarding-ux:** CHANGELOG + CLAUDE.md + promote artifacts ([53127f1](https://github.com/sourcebridge-ai/sourcebridge/commit/53127f1ff7600f55b65473a6ce491cbeb53309d1))
+* add GETTING-STARTED.md + wire it from README and start-here ([9bd0ced](https://github.com/sourcebridge-ai/sourcebridge/commit/9bd0ceda02fa9d674568175b1fedbb31eeb007eb))
+* **CLAUDE.md:** record commit SHA for O-M4 multi-arch entry ([92d37cf](https://github.com/sourcebridge-ai/sourcebridge/commit/92d37cf6fc75ddbf1e9970353945901432317ae0))
+* **grails-role:** CHANGELOG + CLAUDE.md load-bearing constraints for CA-549 ([34af262](https://github.com/sourcebridge-ai/sourcebridge/commit/34af262c82fb441f00de46985b754e98d268669e))
+* **groovy-grails:** phase 6 — CHANGELOG entry + supported-language lists ([5a6ac5c](https://github.com/sourcebridge-ai/sourcebridge/commit/5a6ac5cdc5d94788d6ca238ae76b122bb9387a36))
+* rename docs/user/getting-started.md + de-demo-ify start-here.md (CA-543, CA-544) ([cd49432](https://github.com/sourcebridge-ai/sourcebridge/commit/cd494329f2b0eedb0ce8d5d982bdda9cf6a21dfe))
+
 ## [0.15.2-rc.3](https://github.com/sourcebridge-ai/sourcebridge/compare/v0.15.1-rc.3...v0.15.2-rc.3) (2026-05-18)
 
 
